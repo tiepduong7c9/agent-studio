@@ -1,0 +1,1078 @@
+/*
+ * Look & feel ported from the VS Code reference checkout.
+ *  - colors: resolved at runtime by the theme system (src/theme), which injects
+ *    every --vscode-* custom property on :root from the selected color theme.
+ *  - tree/list metrics: src/vs/base/browser/ui/tree/media/tree.css
+ *  - sash: src/vs/base/browser/ui/sash/sash.css
+ *  - file icons: extensions/theme-seti
+ */
+:root {
+  /* Non-color/structural values and the few colors VS Code registers with a
+     null default (so the theme system emits nothing) — kept as fallbacks. The
+     injected --vscode-* variables override everything else here. */
+  --vscode-sash-size: 4px;
+  --vscode-list-inactiveFocusOutline: transparent;
+  --vscode-menu-selectionBorder: transparent;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  /* VS Code Linux font stack (vscode/src/vs/base/browser/fonts.ts) */
+  font-family: system-ui, 'Ubuntu', 'Droid Sans', sans-serif;
+  font-size: 13px;
+  color: var(--vscode-foreground);
+  background: var(--vscode-sideBar-background);
+  overflow: hidden;
+  user-select: none;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* ── Title bar (frameless) ───────────────────────────── */
+
+.titlebar {
+  display: flex;
+  align-items: center;
+  height: 40px;
+  padding: 0 8px;
+  background: var(--vscode-titleBar-activeBackground);
+  color: var(--vscode-titleBar-activeForeground);
+  flex-shrink: 0;
+  -webkit-app-region: drag;
+}
+
+.titlebar button,
+.titlebar .command-center {
+  -webkit-app-region: no-drag;
+}
+
+.titlebar-side {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.titlebar-side.right {
+  justify-content: flex-end;
+}
+
+.titlebar-center {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.nav-arrow {
+  opacity: 0.5;
+}
+
+.command-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: min(38vw, 600px);
+  height: 26px;
+  background: var(--vscode-commandCenter-background);
+  border: 1px solid var(--vscode-commandCenter-border);
+  border-radius: 6px;
+  color: var(--vscode-commandCenter-foreground);
+  font-size: 13px;
+  overflow: hidden;
+}
+
+.command-center-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.titlebar-action {
+  margin: 0 2px;
+}
+
+.window-controls {
+  display: flex;
+  align-self: stretch;
+  margin-left: 8px;
+}
+
+.window-control {
+  width: 42px;
+  border: none;
+  background: none;
+  color: var(--vscode-titleBar-activeForeground);
+  cursor: pointer;
+}
+
+.window-control:hover {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.window-control.close:hover {
+  background: #e81123;
+  color: #ffffff;
+}
+
+/* ── Buttons & icons ─────────────────────────────────── */
+
+.btn {
+  background: var(--vscode-editor-background);
+  color: var(--vscode-foreground);
+  border: 1px solid var(--vscode-dropdown-border);
+  border-radius: 4px;
+  padding: 3px 11px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  line-height: 18px;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.btn-primary {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  border-color: var(--vscode-button-border);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--vscode-button-hoverBackground);
+}
+
+.icon-button {
+  background: none;
+  border: none;
+  color: var(--vscode-icon-foreground);
+  border-radius: 5px;
+  padding: 3px;
+  cursor: pointer;
+}
+
+.icon-button:hover:not(:disabled) {
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.icon-button:disabled {
+  opacity: 0.4;
+}
+
+.topbar-spacer {
+  flex: 1;
+}
+
+.error-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  background: #f8d7da;
+  color: #842029;
+  border-bottom: 1px solid var(--vscode-sideBar-border);
+  flex-shrink: 0;
+}
+
+.error-dismiss {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+/* ── Panels + sash ───────────────────────────────────── */
+
+.panels {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.panel {
+  min-height: 0;
+}
+
+.panel-left {
+  flex-shrink: 0;
+  background: var(--vscode-sideBar-background);
+  border-right: 1px solid var(--vscode-sideBar-border);
+}
+
+.panel-chat {
+  flex: 0 0 460px;
+  min-width: 300px;
+  background: var(--vscode-sideBar-background);
+  padding: 8px 6px 8px 8px;
+}
+
+.panel-center {
+  flex: 1;
+  min-width: 0;
+  background: var(--vscode-editor-background);
+  border-left: 1px solid var(--vscode-sideBar-border);
+}
+
+.panel-right {
+  flex-shrink: 0;
+  background: var(--vscode-editor-background);
+  border-left: 1px solid var(--vscode-sideBar-border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.panel-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--vscode-descriptionForeground);
+  text-align: center;
+  padding: 20px;
+}
+
+/* Ported from vs/base/browser/ui/sash/sash.css */
+.sash-container {
+  position: relative;
+  width: 0;
+  z-index: 35;
+}
+
+.monaco-sash {
+  position: absolute;
+  top: 0;
+  left: calc(var(--vscode-sash-size) / -2);
+  width: var(--vscode-sash-size);
+  height: 100%;
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.monaco-sash:hover {
+  background-color: var(--vscode-focusBorder);
+  transition: background-color 0.1s ease-out 0.3s;
+}
+
+.monaco-sash.active {
+  background-color: var(--vscode-focusBorder);
+  transition: none;
+}
+
+/* ── Sessions panel (left) ───────────────────────────── */
+
+.sessions-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.sessions-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 40px;
+  padding: 0 8px 0 12px;
+  flex-shrink: 0;
+}
+
+.sessions-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.new-session-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: 1px solid var(--vscode-dropdown-border);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--vscode-foreground);
+  cursor: pointer;
+}
+
+.new-session-button:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.new-session-button kbd {
+  font-family: monospace;
+  font-size: 10px;
+  color: var(--vscode-descriptionForeground);
+  border: 1px solid var(--vscode-widget-border);
+  border-radius: 3px;
+  padding: 0 4px;
+  background: var(--vscode-editor-background);
+}
+
+.sessions-body {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 4px 0;
+}
+
+.sessions-group-label {
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.sessions-empty {
+  padding: 6px 12px 6px 24px;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--vscode-descriptionForeground);
+}
+
+.customizations {
+  border-top: 1px solid var(--vscode-sideBar-border);
+  padding: 8px 0 10px;
+  flex-shrink: 0;
+}
+
+.customizations-label {
+  padding: 6px 12px 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.customization-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 12px;
+  cursor: pointer;
+}
+
+.customization-row:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.customization-row .codicon {
+  color: var(--vscode-icon-foreground);
+}
+
+/* ── Chat pane (new session card) ────────────────────── */
+
+.chat-pane {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--vscode-editor-background);
+  border: 1px solid var(--vscode-widget-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.chat-pane-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 10px 0;
+}
+
+.chat-pane-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0 24px 60px;
+}
+
+.chat-heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 18px;
+  font-weight: 400;
+  margin-bottom: 18px;
+}
+
+.chat-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 6px;
+  border-radius: 5px;
+  cursor: pointer;
+  max-width: 160px;
+  white-space: nowrap;
+}
+
+.chat-chip:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.chat-chip .codicon {
+  font-size: 16px;
+}
+
+.chat-chip-chevron {
+  font-size: 12px !important;
+  color: var(--vscode-descriptionForeground);
+}
+
+.chat-input-card {
+  border: 1px solid var(--vscode-dropdown-border);
+  border-radius: 8px;
+  padding: 12px 12px 8px;
+  background: var(--vscode-input-background);
+}
+
+.chat-input-card:focus-within {
+  border-color: var(--vscode-focusBorder);
+}
+
+.chat-input-placeholder {
+  color: var(--vscode-input-placeholderForeground);
+  min-height: 40px;
+}
+
+.chat-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-input-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--vscode-foreground);
+  padding: 2px 4px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.chat-input-mode:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.chat-input-mode .codicon {
+  font-size: 14px;
+}
+
+.chat-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+}
+
+.chat-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.chat-meta-item .codicon {
+  font-size: 14px;
+}
+
+.chat-meta-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: none;
+  border: none;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+  padding: 2px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.chat-meta-button:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+/* ── Center: watermark, tab strip, viewer ────────────── */
+
+.editor-watermark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+}
+
+.editor-watermark img {
+  width: 55%;
+  max-width: 420px;
+  min-width: 180px;
+}
+
+.center-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.tab-strip {
+  display: flex;
+  height: 35px;
+  background: var(--vscode-sideBar-background);
+  border-bottom: 1px solid var(--vscode-tab-border);
+  flex-shrink: 0;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  font-size: 13px;
+  color: var(--vscode-tab-inactiveForeground);
+  border-right: 1px solid var(--vscode-tab-border);
+  position: relative;
+}
+
+.tab.active {
+  background: var(--vscode-tab-activeBackground);
+  color: var(--vscode-tab-activeForeground);
+}
+
+.tab.active::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--vscode-focusBorder);
+}
+
+.tab-icon {
+  font-size: 14px;
+  color: var(--vscode-icon-foreground);
+}
+
+.tab-detail {
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+}
+
+.monaco-host {
+  flex: 1;
+  min-height: 0;
+}
+
+.viewer-message {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* ── Right panel: Changes | Files ────────────────────── */
+
+.right-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.right-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 40px;
+  padding: 0 8px 0 12px;
+  flex-shrink: 0;
+}
+
+.panel-tab {
+  background: none;
+  border: none;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--vscode-tab-inactiveForeground);
+  padding: 4px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.panel-tab:hover {
+  color: var(--vscode-tab-activeForeground);
+}
+
+.panel-tab.active {
+  color: var(--vscode-tab-activeForeground);
+  font-weight: 600;
+}
+
+.right-panel-body {
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* ── VS Code widget hosts (real vs/base tree/list) ──── */
+
+.widget-tree {
+  height: 100%;
+  min-height: 0;
+}
+
+.monaco-list {
+  font-size: 13px;
+}
+
+.entry-label {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  overflow: hidden;
+  padding-right: 8px;
+}
+
+.entry-label .seti-icon {
+  /* VS Code's .monaco-icon-label::before uses padding-right: 6px */
+  margin-right: 6px;
+}
+
+.label-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* iconlabel description (vs/base/browser/ui/iconLabel/iconlabel.css) */
+.label-description {
+  margin-left: 5px;
+  font-size: 0.9em;
+  opacity: 0.7;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 1;
+}
+
+.scm-group-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 100%;
+  font-weight: 600;
+}
+
+.tree-message {
+  height: 24px;
+  line-height: 24px;
+  padding: 0 12px;
+  color: var(--vscode-descriptionForeground);
+  font-style: italic;
+}
+
+.tree-error {
+  padding: 3px 12px;
+  color: var(--vscode-errorForeground);
+}
+
+/* ── Git (SCM) panel ─────────────────────────────────── */
+
+.git-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.git-panel .widget-tree {
+  flex: 1;
+}
+
+.git-branch-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 8px 0 12px;
+}
+
+.git-branch-row .codicon-git-branch {
+  font-size: 14px;
+}
+
+.git-branch {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-ab {
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+}
+
+.git-group {
+  margin-bottom: 2px;
+}
+
+.git-group-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.badge {
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+  border-radius: 11px;
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 16px;
+  min-width: 18px;
+  text-align: center;
+}
+
+/* iconlabel suffix decoration (letter), scm.css + iconlabel.css */
+.scm-decoration {
+  margin-left: auto;
+  padding-left: 6px;
+  font-size: 90%;
+  opacity: 0.95;
+  flex-shrink: 0;
+}
+
+.git-staged,
+.git-unstaged {
+  color: var(--vscode-gitDecoration-modifiedResourceForeground);
+}
+
+.git-untracked {
+  color: var(--vscode-gitDecoration-untrackedResourceForeground);
+}
+
+.git-conflict {
+  color: var(--vscode-gitDecoration-conflictingResourceForeground);
+}
+
+/* ── Modal (SSH connect) ─────────────────────────────── */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.25);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 10vh;
+  z-index: 100;
+}
+
+.modal {
+  background: var(--vscode-editor-background);
+  border: 1px solid var(--vscode-widget-border);
+  border-radius: 6px;
+  padding: 18px;
+  width: 440px;
+  max-width: 90vw;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.18);
+}
+
+.modal-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 14px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  gap: 8px 10px;
+  align-items: center;
+}
+
+.form-grid label {
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+}
+
+.form-grid input {
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-dropdown-border);
+  border-radius: 4px;
+  color: var(--vscode-foreground);
+  padding: 4px 8px;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+}
+
+.form-grid input::placeholder {
+  color: var(--vscode-input-placeholderForeground);
+}
+
+.form-grid input:focus {
+  border-color: var(--vscode-focusBorder);
+}
+
+.modal-error {
+  margin-top: 12px;
+  color: var(--vscode-errorForeground);
+  font-size: 12px;
+  max-height: 60px;
+  overflow-y: auto;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+/* ── Remote folder picker ────────────────────────────── */
+
+.modal-picker {
+  width: 520px;
+  display: flex;
+  flex-direction: column;
+}
+
+.picker-path {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.picker-path input {
+  flex: 1;
+  min-width: 0;
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-dropdown-border);
+  border-radius: 4px;
+  color: var(--vscode-foreground);
+  padding: 4px 8px;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+}
+
+.picker-path input:focus {
+  border-color: var(--vscode-focusBorder);
+}
+
+.picker-list {
+  height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--vscode-widget-border);
+  border-radius: 4px;
+  padding: 2px;
+}
+
+.picker-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 8px;
+  border: none;
+  background: transparent;
+  color: var(--vscode-foreground);
+  font-size: 13px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.picker-row:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.picker-row .codicon-folder {
+  color: var(--vscode-icon-foreground);
+}
+
+.picker-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picker-chevron {
+  opacity: 0;
+  font-size: 14px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.picker-row:hover .picker-chevron {
+  opacity: 1;
+}
+
+.picker-empty {
+  padding: 12px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+  font-style: italic;
+}
+
+/* ── Scrollbars (VS Code style) ──────────────────────── */
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(100, 100, 100, 0.3);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 100, 100, 0.5);
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ── Agent sessions viewer (host tweaks for the copied vscode css) ── */
+
+.sessions-body {
+  overflow: hidden;
+}
+
+.agent-sessions-viewer .agent-session-icon {
+  color: #0078d4;
+}
+
+/* ── Files/Changes tree: match the agent window styling ── */
+
+/* VS Code's widgets are designed WITHOUT a global border-box reset: the
+   twistie is width:16px + padding-right:6px = a 22px content-box gutter.
+   Our app-wide reset collapsed it to 16px and shifted all row content 6px
+   left relative to the indent guides — restore the intended geometry. */
+.widget-tree .monaco-tl-twistie {
+  box-sizing: content-box;
+}
+
+/* The shipped tree hardcodes a base indent (TreeRenderer.DefaultIndent = 8px)
+   into every level, so the project root (agent-studio) renders 8px in rather
+   than flush-left like VS Code's agent window — which pushed every file icon
+   8px too far from the panel's left edge. Pull the row's content block (guides
+   + twistie + contents) back by that 8px. The selection/hover background lives
+   on .monaco-list-row, which is untouched, so rows stay full-bleed. */
+.widget-tree .monaco-tl-row {
+  margin-left: -8px;
+}
+
+/* In the agent window's Files view, a file (leaf) row places its icon in the
+   chevron column and aligns its name with the folder names above — the icon is
+   NOT pushed right by an empty twistie gutter (that gutter is the gap between
+   the indent guide and the icon). Folders keep their 16+6px twistie for the
+   chevron; leaves (no .collapsible class) collapse it so contents — the icon —
+   starts at the chevron column and the filename lands at the folder-name column. */
+.widget-tree .monaco-tl-twistie:not(.collapsible) {
+  width: 0;
+  padding-right: 0;
+}
+
+/* ── Context menu (real vs/base Menu widget) ─────────── */
+
+.context-menu-host {
+  position: fixed;
+  z-index: 1000;
+  min-width: 200px;
+  background: var(--vscode-menu-background);
+  border: 1px solid var(--vscode-menu-border);
+  border-radius: 5px;
+  box-shadow: 0 2px 8px var(--vscode-widget-shadow);
+  overflow: hidden;
+}
+
+/* ── Dialogs ─────────────────────────────────────────── */
+
+.modal-small {
+  width: 380px;
+}
+
+.dialog-input {
+  width: 100%;
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-dropdown-border);
+  border-radius: 4px;
+  color: var(--vscode-foreground);
+  padding: 5px 8px;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+}
+
+.dialog-input:focus {
+  border-color: var(--vscode-focusBorder);
+}
+
+.modal-detail {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.btn-danger {
+  background: #c72e2e;
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #a82424;
+}
+
+.dialog-error-icon {
+  color: var(--vscode-errorForeground);
+  vertical-align: text-bottom;
+}
+
+/* file icon at contents start with a blank 16px twistie gutter for leaves —
+   the exact VS Code Explorer layout, so indent guides never cross icons */
+
+/* symlink decoration (⤷), like the explorer's file decoration */
+.widget-tree .symlink-decoration {
+  margin-left: auto;
+  padding: 0 8px 0 6px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+  flex-shrink: 0;
+}

@@ -1,0 +1,10 @@
+# reference checkout, not part of this project
+vscode/
+
+node_modules/
+out/
+dist/
+release/
+*.tsbuildinfo
+*.log
+.DS_Store

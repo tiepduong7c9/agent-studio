@@ -1,0 +1,96 @@
+/*
+ * VS Code codicon icon font (see vscode/src/vs/base/browser/ui/codicons/).
+ * Codepoints extracted from vscode/src/vs/base/common/codiconsLibrary.ts.
+ */
+
+@font-face {
+  font-family: 'codicon';
+  font-display: block;
+  src: url('./assets/codicon.ttf') format('truetype');
+}
+
+.codicon {
+  font: normal normal normal 16px/1 codicon;
+  display: inline-block;
+  text-decoration: none;
+  text-rendering: auto;
+  text-align: center;
+  text-transform: none;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+.codicon-add:before { content: '\ea60'; }
+.codicon-lightbulb:before { content: '\ea61'; }
+.codicon-search:before { content: '\ea6d'; }
+.codicon-source-control:before { content: '\ea68'; }
+.codicon-close:before { content: '\ea76'; }
+.codicon-file:before { content: '\ea7b'; }
+.codicon-folder:before { content: '\ea83'; }
+.codicon-terminal:before { content: '\ea85'; }
+.codicon-error:before { content: '\ea87'; }
+.codicon-go-to-file:before { content: '\ea94'; }
+.codicon-arrow-down:before { content: '\ea9a'; }
+.codicon-arrow-left:before { content: '\ea9b'; }
+.codicon-arrow-right:before { content: '\ea9c'; }
+.codicon-arrow-up:before { content: '\eaa1'; }
+.codicon-book:before { content: '\eaa4'; }
+.codicon-chevron-down:before { content: '\eab4'; }
+.codicon-chevron-right:before { content: '\eab6'; }
+.codicon-chrome-close:before { content: '\eab8'; }
+.codicon-chrome-maximize:before { content: '\eab9'; }
+.codicon-chrome-minimize:before { content: '\eaba'; }
+.codicon-chrome-restore:before { content: '\eabb'; }
+.codicon-circle-slash:before { content: '\eabd'; }
+.codicon-collapse-all:before { content: '\eac5'; }
+.codicon-color-mode:before { content: '\eac6'; }
+.codicon-extensions:before { content: '\eae6'; }
+.codicon-folder-opened:before { content: '\eaf7'; }
+.codicon-refresh:before { content: '\eb37'; }
+.codicon-remote:before { content: '\eb3a'; }
+.codicon-list-filter:before { content: '\eb83'; }
+.codicon-plug:before { content: '\eb2d'; }
+.codicon-server:before { content: '\eb50'; }
+.codicon-layout-sidebar-left:before { content: '\ebf3'; }
+.codicon-layout-sidebar-right:before { content: '\ebf4'; }
+.codicon-layout-sidebar-right-off:before { content: '\ec00'; }
+.codicon-layout-sidebar-left-off:before { content: '\ec02'; }
+.codicon-send:before { content: '\ec0f'; }
+.codicon-sparkle:before { content: '\ec10'; }
+.codicon-robot:before { content: '\ec20'; }
+.codicon-git-branch:before { content: '\ec6f'; }
+
+.codicon-circle-filled:before { content: '\ea71'; }
+.codicon-circle-large-filled:before { content: '\ebb4'; }
+
+/* derived aliases used by the reused vs/base tree widget */
+.codicon-tree-item-expanded:before { content: '\eab4'; }
+.codicon-tree-filter-on-type-on:before { content: '\eb83'; }
+.codicon-tree-item-loading:before { content: '\eb19'; }
+
+/*
+ * Seti file icon theme, extracted from
+ * vscode/extensions/theme-seti/icons/ (seti.woff + vs-seti-icon-theme.json).
+ */
+
+@font-face {
+  font-family: 'seti';
+  font-display: block;
+  src: url('./assets/seti.woff') format('woff');
+}
+
+/* VS Code renders Seti glyphs at 150% (of the 13px tree font ≈ 19.5px),
+   left-aligned in a 16px box (icon theme font size:150% + the
+   .monaco-icon-label::before's background-position:left center). Centering a
+   larger glyph is what pushed the ink right, away from the indent-guide column. */
+.seti-icon {
+  font: normal normal normal 19.5px/1 seti;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 16px;
+  height: 100%;
+  flex-shrink: 0;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
