@@ -1,9 +1,4 @@
-import { useEffect, useRef } from 'react'
-// VS Code's real list widget, reused from monaco-editor's esm distribution
-import { List } from 'monaco-editor/esm/vs/base/browser/ui/list/listWidget.js'
-import * as defaultStyles from 'monaco-editor/esm/vs/platform/theme/browser/defaultStyles.js'
-// Copied verbatim from vscode/src/vs/workbench/contrib/chat/browser/agentSessions/media/
-import '../vscode-css/agentsessionsviewer.css'
+import type { SessionMeta } from '../../../shared/acp'
 import type { ProjectInfo } from '../../../shared/types'
 
 const CUSTOMIZATIONS = [
@@ -15,52 +10,66 @@ const CUSTOMIZATIONS = [
   { icon: 'extensions', label: 'Plugins' }
 ]
 
-interface Session {
-  id: string
-  title: string
-  added?: number
-  removed?: number
-  when: string
+interface Props {
+  project: ProjectInfo | null
+  sessions: SessionMeta[]
+  activeSid: string | null
+  onSelect: (sid: string) => void
+  onNew: () => void
 }
 
-interface SectionRow {
-  type: 'section'
-  label: string
-  count: number
+function relTime(iso: string | undefined): string {
+  if (!iso) return ''
+  const ms = Date.parse(iso)
+  if (Number.isNaN(ms)) return ''
+  const diff = Date.now() - ms
+  const m = Math.floor(diff / 60000)
+  if (m < 1) return 'just now'
+  if (m < 60) return `${m} min${m === 1 ? '' : 's'} ago`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h}h ago`
+  const d = Math.floor(h / 24)
+  return `${d}d ago`
 }
 
-interface SessionRow {
-  type: 'session'
-  session: Session
+function statusClass(status?: string): string {
+  if (status === 'working') return 'acp-status-working'
+  if (status === 'waiting') return 'acp-status-waiting'
+  return 'acp-status-idle'
 }
 
-type Row = SectionRow | SessionRow
-
-const DEMO_SESSIONS: Session[] = [
-  { id: '1', title: 'Build desktop app with VS Code-like UI', when: '55 mins ago' },
-  { id: '2', title: 'Review GitHub pull request 3312', added: 367, removed: 0, when: '2 days ago' },
-  { id: '3', title: 'Review pull request 3587', added: 367, removed: 0, when: '3 days ago' }
-]
-
-export function SessionsPanel({ project }: { project: ProjectInfo | null }) {
-  const sessions = window.studio.demoSessions ? DEMO_SESSIONS : []
-
+export function SessionsPanel({ project, sessions, activeSid, onSelect, onNew }: Props) {
   return (
-    // extra classes activate the copied agentsessionsviewer.css padding rules,
-    // which are scoped to the real workbench's DOM (.agent-sessions-workbench .pane-body)
     <div className="sessions-panel agent-sessions-workbench">
       <div className="sessions-header">
         <span className="sessions-title">Sessions</span>
         <span className="topbar-spacer" />
-        <button className="new-session-button">
+        <button className="new-session-button" onClick={onNew}>
           New <kbd>Ctrl+N</kbd>
         </button>
         <button className="icon-button codicon codicon-list-filter" title="Filter" />
         <button className="icon-button codicon codicon-search" title="Search" />
       </div>
       <div className="sessions-body pane-body">
-        {project && sessions.length > 0 ? (
-          <SessionsViewer project={project} sessions={sessions} />
+        {sessions.length > 0 ? (
+          <>
+            {project && <div className="sessions-group-label">{project.name}</div>}
+            {sessions.map((s) => (
+              <button
+                key={s.id}
+                className={`acp-session-row ${s.id === activeSid ? 'active' : ''}`}
+                onClick={() => onSelect(s.id)}
+              >
+                <span className={`acp-status-dot ${statusClass(s.claudeStatus)}`} />
+                <span className="acp-session-main">
+                  <span className="acp-session-name">{s.name}</span>
+                  <span className="acp-session-sub">
+                    {s.claudeStatus ?? s.status} · {relTime(s.lastAttachedAt || s.createdAt)}
+                  </span>
+                </span>
+              </button>
+            ))}
+          </>
         ) : project ? (
           <>
             <div className="sessions-group-label">{project.name}</div>
@@ -81,108 +90,4 @@ export function SessionsPanel({ project }: { project: ProjectInfo | null }) {
       </div>
     </div>
   )
-}
-
-/**
- * Sessions list rendered with VS Code's real List widget, using the exact DOM
- * structure the copied agentsessionsviewer.css targets (see the real renderer
- * in vscode/src/vs/workbench/contrib/chat/browser/agentSessions/agentSessionsViewer.ts).
- */
-function SessionsViewer({ project, sessions }: { project: ProjectInfo; sessions: Session[] }) {
-  const containerRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const container = containerRef.current!
-
-    const rows: Row[] = [
-      { type: 'section', label: project.name, count: sessions.length },
-      ...sessions.map((s): SessionRow => ({ type: 'session', session: s }))
-    ]
-
-    const delegate = {
-      getHeight: (row: Row) => (row.type === 'section' ? 26 : 52),
-      getTemplateId: (row: Row) => row.type
-    }
-
-    const sectionRenderer = {
-      templateId: 'section',
-      renderTemplate(root: HTMLElement) {
-        const section = el(root, 'div', 'agent-session-section')
-        const label = el(section, 'span', 'agent-session-section-label')
-        const count = el(section, 'span', 'agent-session-section-count')
-        return { label, count }
-      },
-      renderElement(row: SectionRow, _i: number, t: any) {
-        t.label.textContent = row.label
-        t.count.textContent = String(row.count)
-      },
-      disposeTemplate() {}
-    }
-
-    const sessionRenderer = {
-      templateId: 'session',
-      renderTemplate(root: HTMLElement) {
-        const item = el(root, 'div', 'agent-session-item')
-        const iconCol = el(item, 'div', 'agent-session-icon-col')
-        const icon = el(iconCol, 'div', 'agent-session-icon codicon codicon-circle-large-filled')
-        const main = el(item, 'div', 'agent-session-main-col')
-        const titleRow = el(main, 'div', 'agent-session-title-row')
-        const title = el(titleRow, 'span', 'agent-session-title')
-        const details = el(main, 'div', 'agent-session-details-row')
-        const detailsIcon = el(details, 'span', 'agent-session-details-icon codicon codicon-folder visible')
-        const diff = el(details, 'span', 'agent-session-diff-container')
-        const added = el(diff, 'span', 'agent-session-diff-added')
-        const removed = el(diff, 'span', 'agent-session-diff-removed')
-        const separator = el(details, 'span', 'agent-session-separator')
-        const status = el(details, 'span', 'agent-session-status')
-        return { icon, title, detailsIcon, diff, added, removed, separator, status }
-      },
-      renderElement(row: SessionRow, _i: number, t: any) {
-        const s = row.session
-        t.title.textContent = s.title
-        const hasDiff = typeof s.added === 'number'
-        t.diff.classList.toggle('has-diff', hasDiff)
-        t.added.textContent = hasDiff ? `+${s.added}` : ''
-        t.removed.textContent = hasDiff ? `-${s.removed}` : ''
-        t.separator.classList.toggle('has-separator', hasDiff)
-        t.status.textContent = s.when
-      },
-      disposeTemplate() {}
-    }
-
-    const list = new List('AgentSessions', container, delegate, [sectionRenderer, sessionRenderer], {
-      identityProvider: {
-        getId: (row: Row) => (row.type === 'section' ? `section:${row.label}` : row.session.id)
-      },
-      accessibilityProvider: {
-        getAriaLabel: (row: Row) => (row.type === 'section' ? row.label : row.session.title),
-        getWidgetAriaLabel: () => 'Sessions'
-      }
-    })
-
-    const styles = (defaultStyles as any).defaultListStyles ?? (defaultStyles as any).getListStyles?.({})
-    if (styles) list.style(styles)
-
-    list.splice(0, 0, rows)
-
-    const resize = () => list.layout(container.clientHeight, container.clientWidth)
-    const observer = new ResizeObserver(resize)
-    observer.observe(container)
-    resize()
-
-    return () => {
-      observer.disconnect()
-      list.dispose()
-      container.textContent = ''
-    }
-  }, [project, sessions])
-
-  return <div ref={containerRef} className="agent-sessions-viewer" />
-}
-
-function el(parent: HTMLElement, tag: string, className: string): HTMLElement {
-  const node = document.createElement(tag)
-  node.className = className
-  parent.appendChild(node)
-  return node
 }

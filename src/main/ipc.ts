@@ -1,5 +1,6 @@
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import type { Result, SshConnectOptions } from '../shared/types'
+import { clearSshEngine, setActiveEngineTarget } from './engine'
 import { LocalProjectProvider } from './providers/local'
 import {
   establishSshSession,
@@ -16,6 +17,8 @@ let currentProvider: ProjectProvider | null = null
 // remote filesystem to choose a project folder.
 let pendingSession: SshSession | null = null
 let pendingOpts: SshConnectOptions | null = null
+// The ssh engine host currently pointed at, so it can be torn down on switch/close.
+let currentSshHost: string | null = null
 
 function disposePending(): void {
   pendingSession?.client.end()
@@ -27,6 +30,9 @@ function setProvider(provider: ProjectProvider | null): void {
   disposePending()
   currentProvider?.dispose()
   currentProvider = provider
+  // Reset the engine to local; the ssh:openRemote handler re-points it after.
+  if (currentSshHost) { clearSshEngine(currentSshHost); currentSshHost = null }
+  setActiveEngineTarget({ kind: 'local' })
 }
 
 // Expand a leading ~ against the connected session's home (SFTP realpath does
@@ -92,12 +98,20 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   handle('ssh:openRemote', async (dirPath: string) => {
     if (!pendingSession || !pendingOpts) throw new Error('Not connected')
     const root = await resolveRemoteDir(pendingSession.sftp, expandRemote(pendingSession, dirPath))
+    // Keep the ssh2 handles for the engine tunnel before ownership transfers.
+    const sshClient = pendingSession.client
+    const sshSftp = pendingSession.sftp
     const provider = SshProjectProvider.fromSession(pendingSession, root, pendingOpts)
+    const host = provider.info.host || `${pendingOpts.username}@${pendingOpts.host}`
     // ownership of the session transfers to the provider; clear the pending
     // slot before setProvider so it isn't torn down.
     pendingSession = null
     pendingOpts = null
     setProvider(provider)
+    // Point the engine at this host — the remote daemon is provisioned and
+    // tunnelled lazily on the first agent action.
+    setActiveEngineTarget({ kind: 'ssh', host, client: sshClient, sftp: sshSftp })
+    currentSshHost = host
     return provider.info
   })
 

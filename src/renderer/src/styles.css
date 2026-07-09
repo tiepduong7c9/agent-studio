@@ -355,6 +355,47 @@ body {
   color: var(--vscode-descriptionForeground);
 }
 
+/* Live agent session rows */
+.acp-session-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 12px;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  color: var(--vscode-foreground);
+}
+.acp-session-row:hover { background: var(--vscode-list-hoverBackground); }
+.acp-session-row.active { background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); }
+.acp-session-main { display: flex; flex-direction: column; min-width: 0; }
+.acp-session-name { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.acp-session-sub { font-size: 11px; color: var(--vscode-descriptionForeground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.acp-session-row.active .acp-session-sub { color: var(--vscode-list-activeSelectionForeground); opacity: 0.8; }
+.acp-status-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+.acp-status-idle { background: var(--vscode-testing-iconPassed, #388a34); }
+.acp-status-working { background: var(--vscode-charts-yellow, #cca700); }
+.acp-status-waiting { background: var(--vscode-charts-orange, #d18616); }
+
+/* New-session composer textarea */
+.chat-input-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  color: var(--vscode-input-foreground);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 2px 0 6px;
+}
+.chat-input-textarea::placeholder { color: var(--vscode-input-placeholderForeground, var(--vscode-descriptionForeground)); }
+.chat-input-textarea:disabled { opacity: 0.6; }
+
 .customizations {
   border-top: 1px solid var(--vscode-sideBar-border);
   padding: 8px 0 10px;

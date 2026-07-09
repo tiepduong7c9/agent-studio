@@ -1,0 +1,22 @@
+{
+  "name": "@agent-studio/engine",
+  "version": "0.1.0",
+  "description": "Agent Studio session engine — deployable daemon exposing VS Code IPC channels",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "agent-studio-engine": "./dist/cli.js"
+  },
+  "scripts": {
+    "vendor": "node scripts/vendor-vscode.mjs",
+    "build": "node esbuild.mjs",
+    "pack": "node esbuild.mjs && node scripts/pack.mjs",
+    "smoke": "node esbuild.mjs && node dist/smoke.js",
+    "smoke:acp": "node esbuild.mjs && node dist/smoke-acp.js"
+  },
+  "dependencies": {
+    "@agentclientprotocol/claude-agent-acp": "^0.41.0",
+    "@agentclientprotocol/sdk": "^0.24.0",
+    "nanoid": "^3.3.7"
+  }
+}

@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ProjectInfo } from '../../shared/types'
+import { useAcpStore } from './acp/store'
+import { useSessionsStore } from './acp/sessions-store'
+import { AcpThread } from './components/AcpThread'
 import { CenterPanel } from './components/CenterPanel'
 import { ChatCard } from './components/ChatCard'
 import { RemoteFolderPicker } from './components/RemoteFolderPicker'
@@ -28,7 +31,12 @@ export function App() {
   const [leftVisible, setLeftVisible] = useState(true)
   const [rightVisible, setRightVisible] = useState(true)
   const [chatVisible, setChatVisible] = useState(true)
+  const [activeSid, setActiveSid] = useState<string | null>(null)
   const dragBase = useRef(0)
+
+  const sessions = useSessionsStore((s) => s.sessions)
+  const setSessions = useSessionsStore((s) => s.setSessions)
+  const setEngineStatus = useSessionsStore((s) => s.setEngineStatus)
 
   useEffect(() => {
     const initial = window.studio.initialProjectPath
@@ -38,6 +46,40 @@ export function App() {
       else setError(result.error)
     })
   }, [])
+
+  // Route engine push events into the stores, and seed the session list.
+  useEffect(() => {
+    const offEvent = window.studio.acp.onEvent(({ sid, event }) => {
+      // The wire type is intentionally loose; the store uses the rich union.
+      useAcpStore.getState().appendEvent(sid, event as never)
+    })
+    const offSessions = window.studio.acp.onSessions((list) => setSessions(list))
+    // A reconnect pushes a fresh snapshot per attached session; re-seat the thread.
+    const offResync = window.studio.acp.onResync(({ sid, snapshot }) => {
+      useAcpStore.getState().setHistory(sid, snapshot)
+    })
+    const offStatus = window.studio.acp.onEngineStatus(({ connected, permanent }) =>
+      setEngineStatus(connected ? 'connected' : permanent ? 'lost' : 'reconnecting')
+    )
+    window.studio.acp.listSessions().then(setSessions).catch(() => {})
+    return () => { offEvent(); offSessions(); offResync(); offStatus() }
+  }, [setSessions, setEngineStatus])
+
+  // If the active session disappears (killed), fall back to the new-session card.
+  useEffect(() => {
+    if (activeSid && !sessions.some((s) => s.id === activeSid)) setActiveSid(null)
+  }, [sessions, activeSid])
+
+  const createSession = useCallback(async (text: string) => {
+    if (!project) return
+    try {
+      const meta = await window.studio.acp.createSession(project.rootPath)
+      setActiveSid(meta.id)
+      await window.studio.acp.prompt(meta.id, [{ type: 'text', text }])
+    } catch (err: any) {
+      setError(err?.message || String(err))
+    }
+  }, [project])
 
   const openLocal = useCallback(async () => {
     setError(null)
@@ -78,7 +120,13 @@ export function App() {
         {leftVisible && (
           <>
             <aside className="panel panel-left" style={{ width: leftWidth }}>
-              <SessionsPanel project={project} />
+              <SessionsPanel
+                project={project}
+                sessions={sessions}
+                activeSid={activeSid}
+                onSelect={setActiveSid}
+                onNew={() => setActiveSid(null)}
+              />
             </aside>
             <Sash
               onResizeStart={() => (dragBase.current = leftWidth)}
@@ -88,11 +136,16 @@ export function App() {
         )}
         {chatVisible && (
           <div className="panel panel-chat">
-            <ChatCard
-              project={project}
-              onClose={() => setChatVisible(false)}
-              onPickFolder={openLocal}
-            />
+            {activeSid ? (
+              <AcpThread sid={activeSid} />
+            ) : (
+              <ChatCard
+                project={project}
+                onClose={() => setChatVisible(false)}
+                onPickFolder={openLocal}
+                onCreate={createSession}
+              />
+            )}
           </div>
         )}
         <main className="panel panel-center">

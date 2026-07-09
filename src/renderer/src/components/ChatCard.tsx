@@ -1,13 +1,28 @@
+import { useState } from 'react'
 import type { ProjectInfo } from '../../../shared/types'
 
 interface Props {
   project: ProjectInfo | null
   onClose: () => void
   onPickFolder: () => void
+  /** Create a new agent session in the project and send the first prompt. */
+  onCreate: (text: string) => void
 }
 
 /** The "new session" pane, modeled on the VS Code agent sessions window. */
-export function ChatCard({ project, onClose, onPickFolder }: Props) {
+export function ChatCard({ project, onClose, onPickFolder, onCreate }: Props) {
+  const [draft, setDraft] = useState('')
+  // The engine runs where the code is — a local daemon for local projects, or a
+  // remote daemon (provisioned over SSH) for ssh projects.
+  const canCreate = !!project
+
+  const submit = () => {
+    const text = draft.trim()
+    if (!text || !canCreate) return
+    onCreate(text)
+    setDraft('')
+  }
+
   return (
     <div className="chat-pane">
       <div className="chat-pane-toolbar">
@@ -29,7 +44,17 @@ export function ChatCard({ project, onClose, onPickFolder }: Props) {
           </span>
         </h2>
         <div className="chat-input-card">
-          <div className="chat-input-placeholder">Pitch your idea</div>
+          <textarea
+            className="chat-input-textarea"
+            placeholder={canCreate ? 'Pitch your idea' : 'Open a folder to start'}
+            value={draft}
+            disabled={!canCreate}
+            rows={2}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() }
+            }}
+          />
           <div className="chat-input-row">
             <span className="icon-button codicon codicon-add" />
             <span className="chat-input-mode">
@@ -37,7 +62,12 @@ export function ChatCard({ project, onClose, onPickFolder }: Props) {
             </span>
             <span className="chat-input-mode">Auto</span>
             <span className="topbar-spacer" />
-            <span className="icon-button codicon codicon-send" />
+            <button
+              className="icon-button codicon codicon-send"
+              title="Start session"
+              disabled={!canCreate || !draft.trim()}
+              onClick={submit}
+            />
           </div>
         </div>
         <div className="chat-meta-row">

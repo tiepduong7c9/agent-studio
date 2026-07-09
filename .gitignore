@@ -1,5 +1,6 @@
 # reference checkout, not part of this project
 vscode/
+ccremote.git/
 
 node_modules/
 out/

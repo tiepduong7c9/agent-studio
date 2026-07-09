@@ -1,8 +1,10 @@
 import { app, BrowserWindow, shell } from 'electron'
 import * as path from 'path'
+import { registerAcpIpc } from './acp-ipc'
 import { disposeProvider, registerIpcHandlers } from './ipc'
 
 let mainWindow: BrowserWindow | null = null
+let disposeAcp: (() => void) | null = null
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -88,6 +90,7 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   registerIpcHandlers(() => mainWindow)
+  disposeAcp = registerAcpIpc(() => mainWindow)
   createWindow()
 
   app.on('activate', () => {
@@ -97,5 +100,6 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   disposeProvider()
+  disposeAcp?.()
   if (process.platform !== 'darwin') app.quit()
 })
