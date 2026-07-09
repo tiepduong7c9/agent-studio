@@ -1,50 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import type { GitFileChange, ProjectInfo } from '../../../shared/types'
 import { monaco } from '../monaco'
-import type { Selection } from '../selection'
-import letterpress from '../assets/letterpress-light.svg'
 
-interface Props {
-  project: ProjectInfo | null
-  selection: Selection | null
-}
+// File and diff viewers backed by Monaco. The tabbed editor area mounts one
+// per open file/diff tab.
 
-export function CenterPanel({ project, selection }: Props) {
-  if (!project || !selection) {
-    // Editor watermark (vscode letterpress-light.svg)
-    return (
-      <div className="editor-watermark">
-        <img src={letterpress} alt="" draggable={false} />
-      </div>
-    )
-  }
-
-  const key =
-    selection.kind === 'file'
-      ? `file:${selection.path}`
-      : `diff:${selection.change.path}:${selection.change.index}${selection.change.worktree}`
-
-  return (
-    <div className="center-panel">
-      <div className="tab-strip">
-        <div className="tab active">
-          <span className="codicon codicon-file tab-icon" />
-          <span className="tab-name">
-            {selection.kind === 'file' ? selection.name : baseName(selection.change.path)}
-          </span>
-          {selection.kind === 'diff' && <span className="tab-detail">(Working Tree)</span>}
-        </div>
-      </div>
-      {selection.kind === 'file' ? (
-        <FileView key={key} path={selection.path} />
-      ) : (
-        <DiffView key={key} project={project} change={selection.change} />
-      )}
-    </div>
-  )
-}
-
-function FileView({ path }: { path: string }) {
+export function FileView({ path }: { path: string }) {
   const [content, setContent] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -65,7 +26,7 @@ function FileView({ path }: { path: string }) {
   return <MonacoViewer content={content} path={path} />
 }
 
-function DiffView({ project, change }: { project: ProjectInfo; change: GitFileChange }) {
+export function DiffView({ project, change }: { project: ProjectInfo; change: GitFileChange }) {
   const [contents, setContents] = useState<{ original: string; modified: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -131,6 +92,9 @@ function MonacoDiffViewer({
   path: string
 }) {
   const ref = useRef<HTMLDivElement>(null)
+  const editorRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null)
+  const [sideBySide, setSideBySide] = useState(true)
+  const [changeCount, setChangeCount] = useState(0)
 
   useEffect(() => {
     const originalModel = monaco.editor.createModel(original, undefined, viewerUri('orig', path))
@@ -144,17 +108,54 @@ function MonacoDiffViewer({
       renderOverviewRuler: false
     })
     editor.setModel({ original: originalModel, modified: modifiedModel })
+    editorRef.current = editor
+    // getLineChanges is only populated once the diff has been computed.
+    const sub = editor.onDidUpdateDiff(() => setChangeCount(editor.getLineChanges()?.length ?? 0))
     return () => {
+      sub.dispose()
       editor.dispose()
+      editorRef.current = null
       originalModel.dispose()
       modifiedModel.dispose()
     }
   }, [original, modified, path])
 
-  return <div ref={ref} className="monaco-host" />
+  useEffect(() => {
+    editorRef.current?.updateOptions({ renderSideBySide: sideBySide })
+  }, [sideBySide])
+
+  return (
+    <div className="diff-editor">
+      <div className="diff-toolbar">
+        <span className="diff-toolbar-count">
+          {changeCount === 0 ? 'No changes' : `${changeCount} change${changeCount === 1 ? '' : 's'}`}
+        </span>
+        <span className="topbar-spacer" />
+        <button
+          className="icon-button codicon codicon-arrow-up"
+          title="Previous Change"
+          disabled={changeCount === 0}
+          onClick={() => editorRef.current?.goToDiff('previous')}
+        />
+        <button
+          className="icon-button codicon codicon-arrow-down"
+          title="Next Change"
+          disabled={changeCount === 0}
+          onClick={() => editorRef.current?.goToDiff('next')}
+        />
+        <span className="diff-toolbar-sep" />
+        <button
+          className={`icon-button codicon codicon-editor-layout ${sideBySide ? 'active' : ''}`}
+          title={sideBySide ? 'Switch to Inline View' : 'Switch to Side by Side View'}
+          onClick={() => setSideBySide((v) => !v)}
+        />
+      </div>
+      <div ref={ref} className="monaco-host" />
+    </div>
+  )
 }
 
-function ViewerMessage({ message }: { message: string }) {
+export function ViewerMessage({ message }: { message: string }) {
   return <div className="viewer-message">{message}</div>
 }
 
@@ -166,7 +167,7 @@ function viewerUri(scheme: string, path: string) {
   return monaco.Uri.from({ scheme, path: path.startsWith('/') ? path : `/${path}` })
 }
 
-function baseName(p: string): string {
+export function baseName(p: string): string {
   return p.split('/').pop() || p
 }
 

@@ -224,13 +224,6 @@ body {
   border-right: 1px solid var(--vscode-sideBar-border);
 }
 
-.panel-chat {
-  flex: 0 0 460px;
-  min-width: 300px;
-  background: var(--vscode-sideBar-background);
-  padding: 8px 6px 8px 8px;
-}
-
 .panel-center {
   flex: 1;
   min-width: 0;
@@ -432,8 +425,6 @@ body {
   flex-direction: column;
   height: 100%;
   background: var(--vscode-editor-background);
-  border: 1px solid var(--vscode-widget-border);
-  border-radius: 8px;
   overflow: hidden;
 }
 
@@ -578,29 +569,69 @@ body {
   min-width: 180px;
 }
 
-.center-panel {
+.editor-area {
   display: flex;
   flex-direction: column;
   height: 100%;
 }
 
+.editor-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Editor tabs (modeled on vs/workbench parts/editor tabs) ─────────── */
+
 .tab-strip {
   display: flex;
+  align-items: stretch;
   height: 35px;
-  background: var(--vscode-sideBar-background);
-  border-bottom: 1px solid var(--vscode-tab-border);
+  background: var(--vscode-editorGroupHeader-tabsBackground, var(--vscode-sideBar-background));
+  border-bottom: 1px solid var(--vscode-editorGroupHeader-tabsBorder, var(--vscode-tab-border));
   flex-shrink: 0;
+}
+
+.tab-list {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.tab-list::-webkit-scrollbar {
+  height: 3px;
+}
+
+.tab-actions {
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--vscode-tab-border);
 }
 
 .tab {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 0 12px;
+  padding: 0 8px 0 12px;
   font-size: 13px;
   color: var(--vscode-tab-inactiveForeground);
+  background: var(--vscode-tab-inactiveBackground, transparent);
   border-right: 1px solid var(--vscode-tab-border);
   position: relative;
+  cursor: pointer;
+  user-select: none;
+  max-width: 160px;
+  flex-shrink: 0;
+}
+
+.tab:hover {
+  background: var(--vscode-tab-hoverBackground, var(--vscode-tab-inactiveBackground));
 }
 
 .tab.active {
@@ -615,22 +646,92 @@ body {
   left: 0;
   right: 0;
   height: 1px;
-  background: var(--vscode-focusBorder);
+  background: var(--vscode-tab-activeBorderTop, var(--vscode-focusBorder));
 }
 
 .tab-icon {
   font-size: 14px;
   color: var(--vscode-icon-foreground);
+  flex-shrink: 0;
+}
+
+.tab-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tab-detail {
   color: var(--vscode-descriptionForeground);
   font-size: 12px;
+  flex-shrink: 0;
+}
+
+.tab-close {
+  font-size: 14px;
+  margin-left: 4px;
+  border-radius: 4px;
+  padding: 2px;
+  opacity: 0;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.tab:hover .tab-close,
+.tab.active .tab-close {
+  opacity: 0.7;
+}
+
+.tab-close:hover {
+  opacity: 1;
+  background: var(--vscode-toolbar-hoverBackground);
 }
 
 .monaco-host {
   flex: 1;
   min-height: 0;
+}
+
+/* ── Diff viewer toolbar (navigate changes / toggle layout) ──────────── */
+
+.diff-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.diff-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 30px;
+  flex-shrink: 0;
+  padding: 0 8px;
+  background: var(--vscode-editor-background);
+  border-bottom: 1px solid var(--vscode-tab-border);
+}
+
+.diff-toolbar-count {
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.diff-toolbar-sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: var(--vscode-tab-border);
+}
+
+.diff-toolbar .icon-button.active {
+  color: var(--vscode-foreground);
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.diff-toolbar .icon-button:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .viewer-message {
