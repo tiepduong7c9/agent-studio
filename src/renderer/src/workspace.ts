@@ -25,3 +25,11 @@ export function workspaceForSession(s: SessionMeta, workspaces: ProjectInfo[]): 
 export function hostKeyForSession(s: SessionMeta): string {
   return s.host ? `ssh:${s.host}` : 'local'
 }
+
+/** Strip trailing slashes from a path (root stays "/"). */
+export const normRoot = (p: string): string => p.replace(/\/+$/, '') || '/'
+
+/** Stable identity for a project group (host + normalized root). Shared by the
+ *  sessions list and the view-prefs store so hide/pin keys can't drift. */
+export const groupKey = (host: string | null, cwd: string): string =>
+  `${host ?? 'local'}\n${normRoot(cwd)}`

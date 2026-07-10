@@ -618,6 +618,106 @@ body {
 .acp-status-working { background: var(--vscode-charts-yellow, #cca700); }
 .acp-status-waiting { background: var(--vscode-charts-orange, #d18616); }
 
+/* Live session row + hover actions (pin / hide / delete) */
+.acp-session-row-wrap { position: relative; }
+.acp-session-row-wrap .acp-session-row { width: 100%; }
+.acp-session-row-wrap.hidden .acp-session-row { opacity: 0.5; }
+.acp-session-actions {
+  position: absolute;
+  top: 0;
+  right: 4px;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+}
+.acp-session-actions .act {
+  opacity: 0;
+  pointer-events: none;
+}
+.acp-session-row-wrap:hover .acp-session-actions .act,
+.acp-session-actions.confirming .act,
+.acp-session-actions .pin-btn.pinned {
+  opacity: 1;
+  pointer-events: auto;
+}
+/* A subtle backdrop so the buttons don't clash with the row's sub-text. */
+.acp-session-row-wrap:hover .acp-session-actions,
+.acp-session-actions.confirming {
+  background: var(--vscode-list-hoverBackground);
+  box-shadow: -6px 0 6px -2px var(--vscode-list-hoverBackground);
+}
+.acp-session-actions .pin-btn.pinned { color: var(--vscode-textLink-foreground); }
+.acp-session-actions .codicon-trash.danger,
+.acp-session-actions .codicon-trash:hover { color: var(--vscode-errorForeground, #f14c4c); }
+
+/* All / Focus mode switch (in the Sessions header row) + show-hidden toggle */
+.seg-toggle {
+  display: inline-flex;
+  margin-left: 8px;
+  flex-shrink: 0;
+  border: 1px solid var(--vscode-dropdown-border, var(--vscode-widget-border));
+  border-radius: 5px;
+  overflow: hidden;
+}
+.seg-toggle .seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  color: var(--vscode-foreground);
+  font-family: inherit;
+  font-size: 11px;
+  padding: 2px 10px;
+  cursor: pointer;
+}
+.seg-toggle .seg .codicon { font-size: 12px; }
+.seg-toggle .seg:hover { background: var(--vscode-list-hoverBackground); }
+.seg-toggle .seg.active {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+}
+.sessions-show-hidden {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  color: var(--vscode-descriptionForeground);
+  font-family: inherit;
+  font-size: 11px;
+  padding: 2px 4px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.sessions-show-hidden .codicon { font-size: 12px; }
+.sessions-show-hidden:hover,
+.sessions-show-hidden.active { color: var(--vscode-foreground); }
+.sessions-focus-empty { padding: 12px; line-height: 1.5; }
+
+/* "Show N more / Show less" toggle under a capped project group. */
+.sessions-more {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+  color: var(--vscode-textLink-foreground);
+  padding: 4px 12px 6px 28px;
+}
+.sessions-more:hover {
+  background: var(--vscode-list-hoverBackground);
+  text-decoration: underline;
+}
+
+/* A hidden project group, surfaced only while "show hidden" is on. */
+.sessions-group.hidden > .sessions-group-header .sessions-group-name { opacity: 0.55; }
+.sessions-group.hidden .sessions-group-header .icon-button.codicon-eye { opacity: 0.85; }
+
 /* New-session composer textarea */
 .chat-input-textarea {
   width: 100%;

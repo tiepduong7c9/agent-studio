@@ -13,6 +13,7 @@ import { TitleBar } from './components/TitleBar'
 import { baseName } from './components/editors'
 import type { Selection } from './selection'
 import { chatTabId, diffTabId, fileTabId, newChatTabId, useTabsStore } from './tabs-store'
+import { useViewPrefsStore } from './view-prefs-store'
 import { workspaceForSession } from './workspace'
 
 const MIN_PANEL_WIDTH = 170
@@ -143,9 +144,12 @@ export function App() {
     refreshProjects()
   }, [workspaces, remoteHosts, refreshProjects])
 
-  // Close chat tabs whose session was killed on the engine.
+  // Close chat tabs whose session was killed on the engine, and drop any
+  // pin/hide prefs left behind by sessions that no longer exist.
   useEffect(() => {
-    pruneChats(new Set(sessions.map((s) => s.id)))
+    const live = new Set(sessions.map((s) => s.id))
+    pruneChats(live)
+    useViewPrefsStore.getState().pruneSessions(live)
   }, [sessions, pruneChats])
 
   // When a chat is active and no open folder contains its session, root a
@@ -173,7 +177,7 @@ export function App() {
       const ws = meta ? workspaceForSession(meta, workspaces) : null
       // wsId '' = an "Other sessions" chat with no open folder; the right panel
       // (which keys off the active tab's workspace) just shows its placeholder.
-      openTab({ id: chatTabId(sid), kind: 'chat', title: meta?.name ?? 'Session', sid, wsId: ws?.id ?? '' })
+      openTab({ id: chatTabId(sid), kind: 'chat', title: 'Claude Code', sid, wsId: ws?.id ?? '' })
     },
     [sessions, workspaces, openTab]
   )
@@ -198,7 +202,7 @@ export function App() {
         )
         await window.studio.acp.resumeConversation(meta.id, conv.sessionId)
         const ws = workspaceForSession(meta, workspaces)
-        openTab({ id: chatTabId(meta.id), kind: 'chat', title: meta.name, sid: meta.id, wsId: ws?.id ?? '' })
+        openTab({ id: chatTabId(meta.id), kind: 'chat', title: 'Claude Code', sid: meta.id, wsId: ws?.id ?? '' })
       } catch (err: any) {
         setError(err?.message || String(err))
       }
@@ -238,7 +242,7 @@ export function App() {
   const createSession = useCallback(async (ws: ProjectInfo, text: string) => {
     try {
       const meta = await window.studio.acp.createSession(ws.rootPath, ws.host ?? null)
-      openTab({ id: chatTabId(meta.id), kind: 'chat', title: meta.name, sid: meta.id, wsId: ws.id })
+      openTab({ id: chatTabId(meta.id), kind: 'chat', title: 'Claude Code', sid: meta.id, wsId: ws.id })
       useTabsStore.getState().close(newChatTabId(ws.id))
       await window.studio.acp.prompt(meta.id, [{ type: 'text', text }])
     } catch (err: any) {
@@ -252,6 +256,16 @@ export function App() {
     if (!result.ok) return setError(result.error)
     if (result.data) addWorkspace(result.data)
   }, [addWorkspace])
+
+  // Permanently end a session on the engine. Its removal from the pushed session
+  // list prunes the chat tab and its stale prefs via the effect above.
+  const deleteSession = useCallback(async (sid: string) => {
+    try {
+      await window.studio.acp.kill(sid)
+    } catch (err: any) {
+      setError(err?.message || String(err))
+    }
+  }, [])
 
   const closeWorkspace = useCallback(
     async (wsId: string) => {
@@ -305,6 +319,7 @@ export function App() {
                 onOpenConversation={openConversation}
                 onNewSession={newSession}
                 onCloseWorkspace={closeWorkspace}
+                onDeleteSession={deleteSession}
                 onOpenLocal={openLocal}
                 onOpenSsh={() => setSshDialogOpen(true)}
                 onOpenRemoteFolder={(host) => setFolderPickerHost(host)}

@@ -66,6 +66,14 @@
 .codicon-circle-filled:before { content: '\ea71'; }
 .codicon-circle-large-filled:before { content: '\ebb4'; }
 
+/* session-management row/group actions (pin, hide, delete, confirm) */
+.codicon-eye:before { content: '\ea70'; }
+.codicon-trash:before { content: '\ea81'; }
+.codicon-check:before { content: '\eab2'; }
+.codicon-eye-closed:before { content: '\eae7'; }
+.codicon-pin:before { content: '\eb2b'; }
+.codicon-pinned:before { content: '\eba0'; }
+
 /* derived aliases used by the reused vs/base tree widget */
 .codicon-tree-item-expanded:before { content: '\eab4'; }
 .codicon-tree-filter-on-type-on:before { content: '\eb83'; }

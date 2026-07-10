@@ -1,7 +1,8 @@
-import { type KeyboardEvent, useMemo, useRef, useState } from 'react'
+import { type KeyboardEvent, type MouseEvent, useMemo, useRef, useState } from 'react'
 import type { AcpConversation, ProjectConversations, SessionMeta } from '../../../shared/acp'
 import type { ProjectInfo } from '../../../shared/types'
-import { workspaceForSession } from '../workspace'
+import { useViewPrefsStore } from '../view-prefs-store'
+import { groupKey, workspaceForSession } from '../workspace'
 
 const CUSTOMIZATIONS = [
   { icon: 'sparkle', label: 'Agents' },
@@ -25,6 +26,8 @@ interface Props {
   onOpenConversation: (project: ProjectConversations, conv: AcpConversation) => void
   onNewSession: (ws: ProjectInfo) => void
   onCloseWorkspace: (wsId: string) => void
+  /** Permanently end (kill) a live session on the engine. */
+  onDeleteSession: (sid: string) => void
   onOpenLocal: () => void
   onOpenSsh: () => void
   /** Open the remote folder picker for a connected host. */
@@ -51,8 +54,10 @@ function statusClass(status?: string): string {
   return 'acp-status-idle'
 }
 
-const normRoot = (p: string): string => p.replace(/\/+$/, '') || '/'
-const groupKey = (host: string | null, cwd: string): string => `${host ?? 'local'}\n${normRoot(cwd)}`
+const activity = (s: SessionMeta): number => Date.parse(s.lastAttachedAt || s.createdAt)
+
+// Max rows shown per project group / bucket before a "Show more" toggle.
+const ROW_LIMIT = 5
 
 // A row in a project group: either a live (running/suspended) session, or a
 // past conversation on disk that can be resumed on click.
@@ -71,17 +76,78 @@ interface Group {
   live: SessionMeta[]
 }
 
-function LiveRow({ s, active, onSelect }: { s: SessionMeta; active: boolean; onSelect: () => void }) {
+interface LiveRowProps {
+  s: SessionMeta
+  active: boolean
+  pinned: boolean
+  hidden: boolean
+  onSelect: () => void
+  onTogglePin: () => void
+  onHide: () => void
+  onUnhide: () => void
+  onDelete: () => void
+}
+
+function LiveRow({ s, active, pinned, hidden, onSelect, onTogglePin, onHide, onUnhide, onDelete }: LiveRowProps) {
+  const [confirming, setConfirming] = useState(false)
+  const stop = (fn: () => void) => (e: MouseEvent) => {
+    e.stopPropagation()
+    fn()
+  }
   return (
-    <button className={`acp-session-row ${active ? 'active' : ''}`} onClick={onSelect}>
-      <span className={`acp-status-dot ${statusClass(s.claudeStatus)}`} />
-      <span className="acp-session-main">
-        <span className="acp-session-name">{s.name}</span>
-        <span className="acp-session-sub">
-          {s.claudeStatus ?? s.status} · {relTime(Date.parse(s.lastAttachedAt || s.createdAt))}
+    <div className={`acp-session-row-wrap ${hidden ? 'hidden' : ''}`}>
+      <button className={`acp-session-row ${active ? 'active' : ''}`} onClick={onSelect}>
+        <span className={`acp-status-dot ${statusClass(s.claudeStatus)}`} />
+        <span className="acp-session-main">
+          <span className="acp-session-name">{s.name}</span>
+          <span className="acp-session-sub">
+            {s.claudeStatus ?? s.status} · {relTime(activity(s))}
+          </span>
         </span>
+      </button>
+      <span className={`acp-session-actions ${confirming ? 'confirming' : ''}`}>
+        {confirming ? (
+          <>
+            <button
+              className="icon-button act codicon codicon-trash danger"
+              title="Confirm delete — ends the agent"
+              onClick={stop(onDelete)}
+            />
+            <button
+              className="icon-button act codicon codicon-close"
+              title="Cancel"
+              onClick={stop(() => setConfirming(false))}
+            />
+          </>
+        ) : (
+          <>
+            <button
+              className={`icon-button act pin-btn codicon ${pinned ? 'codicon-pinned pinned' : 'codicon-pin'}`}
+              title={pinned ? 'Unpin' : 'Pin'}
+              onClick={stop(onTogglePin)}
+            />
+            {hidden ? (
+              <button
+                className="icon-button act codicon codicon-eye"
+                title="Unhide"
+                onClick={stop(onUnhide)}
+              />
+            ) : (
+              <button
+                className="icon-button act codicon codicon-eye-closed"
+                title="Hide"
+                onClick={stop(onHide)}
+              />
+            )}
+            <button
+              className="icon-button act codicon codicon-trash"
+              title="Delete session"
+              onClick={stop(() => setConfirming(true))}
+            />
+          </>
+        )}
       </span>
-    </button>
+    </div>
   )
 }
 
@@ -108,11 +174,25 @@ export function SessionsPanel({
   onOpenConversation,
   onNewSession,
   onCloseWorkspace,
+  onDeleteSession,
   onOpenLocal,
   onOpenSsh,
   onOpenRemoteFolder,
   onDisconnectRemote
 }: Props) {
+  const pinnedSessions = useViewPrefsStore((s) => s.pinnedSessions)
+  const hiddenSessions = useViewPrefsStore((s) => s.hiddenSessions)
+  const hiddenProjects = useViewPrefsStore((s) => s.hiddenProjects)
+  const focusMode = useViewPrefsStore((s) => s.focusMode)
+  const showHidden = useViewPrefsStore((s) => s.showHidden)
+  const togglePin = useViewPrefsStore((s) => s.togglePin)
+  const hideSession = useViewPrefsStore((s) => s.hideSession)
+  const unhideSession = useViewPrefsStore((s) => s.unhideSession)
+  const hideProject = useViewPrefsStore((s) => s.hideProject)
+  const unhideProject = useViewPrefsStore((s) => s.unhideProject)
+  const setFocusMode = useViewPrefsStore((s) => s.setFocusMode)
+  const setShowHidden = useViewPrefsStore((s) => s.setShowHidden)
+
   // Merge open workspaces, the discovered on-disk history, and live sessions
   // into one project-grouped list (VS Code Agent-window style). Sessions that
   // don't fall under any known project land in a per-host "Other sessions" group.
@@ -174,12 +254,20 @@ export function SessionsPanel({
     return { groups: [...groups.values()], otherByHost, otherHosts }
   }, [workspaces, projects, sessions])
 
-  // Build the display rows for a group: live sessions first, then conversations
-  // not already represented by a live session (matched on acpSessionId).
+  // Pinned sessions sort ahead of the rest; ties break on recency.
+  const byPinThenActivity = (a: SessionMeta, b: SessionMeta): number => {
+    const pa = pinnedSessions[a.id] ? 1 : 0
+    const pb = pinnedSessions[b.id] ? 1 : 0
+    if (pa !== pb) return pb - pa
+    return activity(b) - activity(a)
+  }
+  const visibleLive = (list: SessionMeta[]): SessionMeta[] =>
+    list.filter((s) => showHidden || !hiddenSessions[s.id]).sort(byPinThenActivity)
+
+  // Build the display rows for a group: live sessions first (pinned first), then
+  // conversations not already represented by a live session (matched on acpSessionId).
   const rowsFor = (g: Group): Row[] => {
-    const live = [...g.live].sort(
-      (a, b) => Date.parse(b.lastAttachedAt || b.createdAt) - Date.parse(a.lastAttachedAt || a.createdAt)
-    )
+    const live = visibleLive(g.live)
     const liveAcpIds = new Set(live.map((s) => s.acpSessionId).filter(Boolean) as string[])
     const rows: Row[] = live.map((s) => ({ kind: 'live', s }))
     if (g.project) {
@@ -190,6 +278,13 @@ export function SessionsPanel({
     }
     return rows
   }
+
+  // Hidden project groups drop out entirely unless showHidden is on.
+  const isHiddenGroup = (g: Group): boolean => !!hiddenProjects[g.key]
+  const visibleGroups = groups.filter((g) => showHidden || !isHiddenGroup(g))
+
+  const hiddenCount =
+    sessions.filter((s) => hiddenSessions[s.id]).length + groups.filter(isHiddenGroup).length
 
   // Collapsed groups, keyed by group key ('other:<host>' for the fallback
   // buckets). Groups are expanded by default; a key present here is collapsed.
@@ -202,21 +297,32 @@ export function SessionsPanel({
       return next
     })
 
+  // Per-group "show more": each group/bucket shows at most ROW_LIMIT rows until
+  // expanded. Searching/scoping force-expands so matches aren't hidden.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const toggleExpanded = (key: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+
   // Collapse All / Expand All toggle over every host section + project group +
   // "other" bucket.
   const allCollapsibleKeys = useMemo(() => {
     const remoteHostSet = new Set<string>([
       ...remoteHosts,
-      ...groups.map((g) => g.host).filter((h): h is string => !!h),
+      ...visibleGroups.map((g) => g.host).filter((h): h is string => !!h),
       ...otherHosts.filter((h): h is string => !!h)
     ])
     const sectionKeys = ['host:local', ...[...remoteHostSet].map((h) => `host:${h}`)]
     return [
       ...sectionKeys,
-      ...groups.map((g) => g.key),
+      ...visibleGroups.map((g) => g.key),
       ...otherHosts.map((h) => `other:${h ?? 'local'}`)
     ]
-  }, [groups, otherHosts, remoteHosts])
+  }, [visibleGroups, otherHosts, remoteHosts])
   const allCollapsed =
     allCollapsibleKeys.length > 0 && allCollapsibleKeys.every((k) => collapsed.has(k))
   const toggleCollapseAll = () =>
@@ -238,7 +344,7 @@ export function SessionsPanel({
 
   // Project suggestions while no scope is chosen: all projects, narrowed by the
   // typed text. Empty query lists them all (a quick project picker).
-  const suggestions = scope ? [] : groups.filter((g) => !searching || groupMatches(g)).slice(0, 8)
+  const suggestions = scope ? [] : visibleGroups.filter((g) => !searching || groupMatches(g)).slice(0, 8)
   const showSuggest = suggestOpen && !scope && suggestions.length > 0
 
   const selectScope = (g: Group): void => {
@@ -289,11 +395,31 @@ export function SessionsPanel({
     }
   }
 
+  // Props shared by every rendered live session row.
+  const liveRowProps = (s: SessionMeta): LiveRowProps => ({
+    s,
+    active: s.id === activeSid,
+    pinned: !!pinnedSessions[s.id],
+    hidden: !!hiddenSessions[s.id],
+    onSelect: () => onSelectSession(s.id),
+    onTogglePin: () => togglePin(s.id),
+    onHide: () => hideSession(s.id),
+    onUnhide: () => unhideSession(s.id),
+    onDelete: () => onDeleteSession(s.id)
+  })
+
+  // Focus mode: a flat, cross-project list of pinned sessions (most recent
+  // first), filtered by the search query. Grouping/scoping is bypassed.
+  const focusList = sessions
+    .filter((s) => pinnedSessions[s.id] && !hiddenSessions[s.id])
+    .filter((s) => !searching || matches(s.name))
+    .sort(byPinThenActivity)
+
   // Groups to render. Scoped: just that project, its rows filtered by the query.
   // Unscoped: free-text filter across every group (project name/host/path match
   // keeps all rows, else only matching rows).
   const shownGroups: { g: Group; rows: Row[] }[] = scope
-    ? groups
+    ? visibleGroups
         .filter((g) => g.key === scope.key)
         .map((g) => {
           const rows = rowsFor(g)
@@ -302,7 +428,7 @@ export function SessionsPanel({
             : rows
           return { g, rows: visible }
         })
-    : groups
+    : visibleGroups
         .map((g) => {
           const rows = rowsFor(g)
           const hit = groupMatches(g)
@@ -318,7 +444,7 @@ export function SessionsPanel({
     ? []
     : otherHosts
         .map((host) => {
-          const all = otherByHost.get(host) ?? []
+          const all = visibleLive(otherByHost.get(host) ?? [])
           // Matching the host keeps the whole bucket; otherwise filter by name.
           const list = !searching || matches(host) ? all : all.filter((s) => matches(s.name))
           return { host, list }
@@ -332,8 +458,12 @@ export function SessionsPanel({
   const renderGroup = ({ g, rows }: { g: Group; rows: Row[] }) => {
     // Force-expand while searching or scoped so matches stay visible.
     const isCollapsed = !searching && !scope && collapsed.has(g.key)
+    const groupHidden = isHiddenGroup(g)
+    // Cap to ROW_LIMIT rows unless expanded (or searching/scoped, which show all).
+    const showAll = searching || !!scope || expanded.has(g.key)
+    const shownRows = showAll ? rows : rows.slice(0, ROW_LIMIT)
     return (
-      <div key={g.key} className="sessions-group">
+      <div key={g.key} className={`sessions-group ${groupHidden ? 'hidden' : ''}`}>
         <div
           className="sessions-group-header"
           onClick={() => toggle(g.key)}
@@ -348,44 +478,65 @@ export function SessionsPanel({
           </span>
           <span className="topbar-spacer" />
           {g.workspace && (
-            <>
-              <button
-                className="icon-button codicon codicon-add"
-                title="New Session"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onNewSession(g.workspace!)
-                }}
-              />
-              <button
-                className="icon-button codicon codicon-close"
-                title="Close Folder"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onCloseWorkspace(g.workspace!.id)
-                }}
-              />
-            </>
+            <button
+              className="icon-button codicon codicon-add"
+              title="New Session"
+              onClick={(e) => {
+                e.stopPropagation()
+                onNewSession(g.workspace!)
+              }}
+            />
+          )}
+          {groupHidden ? (
+            <button
+              className="icon-button codicon codicon-eye"
+              title="Unhide Project"
+              onClick={(e) => {
+                e.stopPropagation()
+                unhideProject(g.key)
+              }}
+            />
+          ) : (
+            <button
+              className="icon-button codicon codicon-eye-closed"
+              title="Hide Project"
+              onClick={(e) => {
+                e.stopPropagation()
+                hideProject(g.key)
+              }}
+            />
+          )}
+          {g.workspace && (
+            <button
+              className="icon-button codicon codicon-close"
+              title="Close Folder"
+              onClick={(e) => {
+                e.stopPropagation()
+                onCloseWorkspace(g.workspace!.id)
+              }}
+            />
           )}
         </div>
         {!isCollapsed &&
           (rows.length > 0 ? (
-            rows.map((r) =>
-              r.kind === 'live' ? (
-                <LiveRow
-                  key={r.s.id}
-                  s={r.s}
-                  active={r.s.id === activeSid}
-                  onSelect={() => onSelectSession(r.s.id)}
-                />
-              ) : (
-                <ConvRow
-                  key={r.conv.sessionId}
-                  conv={r.conv}
-                  onOpen={() => onOpenConversation(r.project, r.conv)}
-                />
-              )
-            )
+            <>
+              {shownRows.map((r) =>
+                r.kind === 'live' ? (
+                  <LiveRow key={r.s.id} {...liveRowProps(r.s)} />
+                ) : (
+                  <ConvRow
+                    key={r.conv.sessionId}
+                    conv={r.conv}
+                    onOpen={() => onOpenConversation(r.project, r.conv)}
+                  />
+                )
+              )}
+              {!searching && !scope && rows.length > ROW_LIMIT && (
+                <button className="sessions-more" onClick={() => toggleExpanded(g.key)}>
+                  {expanded.has(g.key) ? 'Show less' : `Show ${rows.length - ROW_LIMIT} more`}
+                </button>
+              )}
+            </>
           ) : (
             <div className="sessions-empty">No sessions yet</div>
           ))}
@@ -397,6 +548,8 @@ export function SessionsPanel({
   const renderOther = ({ host, list }: { host: string | null; list: SessionMeta[] }) => {
     const key = `other:${host ?? 'local'}`
     const isCollapsed = !searching && collapsed.has(key)
+    const showAll = searching || expanded.has(key)
+    const shownList = showAll ? list : list.slice(0, ROW_LIMIT)
     return (
       <div key={key} className="sessions-group">
         <div
@@ -410,15 +563,16 @@ export function SessionsPanel({
           />
           <span className="sessions-group-name sessions-group-other">Other sessions</span>
         </div>
-        {!isCollapsed &&
-          list.map((s) => (
-            <LiveRow
-              key={s.id}
-              s={s}
-              active={s.id === activeSid}
-              onSelect={() => onSelectSession(s.id)}
-            />
-          ))}
+        {!isCollapsed && (
+          <>
+            {shownList.map((s) => <LiveRow key={s.id} {...liveRowProps(s)} />)}
+            {!searching && list.length > ROW_LIMIT && (
+              <button className="sessions-more" onClick={() => toggleExpanded(key)}>
+                {expanded.has(key) ? 'Show less' : `Show ${list.length - ROW_LIMIT} more`}
+              </button>
+            )}
+          </>
+        )}
       </div>
     )
   }
@@ -449,12 +603,39 @@ export function SessionsPanel({
     <div className="sessions-panel agent-sessions-workbench">
       <div className="sessions-header">
         <span className="sessions-title">Sessions</span>
+        {!nothing && (
+          <div className="seg-toggle">
+            <button className={`seg ${!focusMode ? 'active' : ''}`} onClick={() => setFocusMode(false)}>
+              All
+            </button>
+            <button
+              className={`seg ${focusMode ? 'active' : ''}`}
+              title="Show only pinned sessions"
+              onClick={() => setFocusMode(true)}
+            >
+              <span className="codicon codicon-pinned" />
+              Focus
+            </button>
+          </div>
+        )}
         <span className="topbar-spacer" />
-        <button
-          className={`icon-button codicon ${allCollapsed ? 'codicon-expand-all' : 'codicon-collapse-all'}`}
-          title={allCollapsed ? 'Expand All' : 'Collapse All'}
-          onClick={toggleCollapseAll}
-        />
+        {!focusMode && hiddenCount > 0 && (
+          <button
+            className={`sessions-show-hidden ${showHidden ? 'active' : ''}`}
+            onClick={() => setShowHidden(!showHidden)}
+            title={showHidden ? 'Stop showing hidden items' : `Show ${hiddenCount} hidden item(s)`}
+          >
+            <span className={`codicon ${showHidden ? 'codicon-eye' : 'codicon-eye-closed'}`} />
+            {hiddenCount}
+          </button>
+        )}
+        {!focusMode && (
+          <button
+            className={`icon-button codicon ${allCollapsed ? 'codicon-expand-all' : 'codicon-collapse-all'}`}
+            title={allCollapsed ? 'Expand All' : 'Collapse All'}
+            onClick={toggleCollapseAll}
+          />
+        )}
         <button className="icon-button codicon codicon-new-folder" title="Open Folder" onClick={onOpenLocal} />
         <button className="icon-button codicon codicon-remote" title="Connect SSH" onClick={onOpenSsh} />
       </div>
@@ -462,7 +643,7 @@ export function SessionsPanel({
         <div className="sessions-search-wrap">
           <div className="sessions-search">
             <span className="codicon codicon-search sessions-search-icon" />
-            {scope && (
+            {scope && !focusMode && (
               <span className="sessions-search-scope" title={scope.host ? `${scope.host}` : undefined}>
                 {scope.host && <span className="codicon codicon-remote" />}
                 <span className="sessions-search-scope-name">{scope.name}</span>
@@ -481,14 +662,20 @@ export function SessionsPanel({
               ref={inputRef}
               className="sessions-search-input"
               type="text"
-              placeholder={scope ? `Search in ${scope.name}` : 'Search projects, sessions, hosts'}
+              placeholder={
+                focusMode
+                  ? 'Search pinned sessions'
+                  : scope
+                    ? `Search in ${scope.name}`
+                    : 'Search projects, sessions, hosts'
+              }
               value={query}
               onChange={(e) => {
                 setQuery(e.target.value)
                 setSuggestOpen(true)
                 setHighlight(0)
               }}
-              onFocus={() => !scope && setSuggestOpen(true)}
+              onFocus={() => !scope && !focusMode && setSuggestOpen(true)}
               onBlur={() => setSuggestOpen(false)}
               onKeyDown={onSearchKeyDown}
               spellCheck={false}
@@ -501,7 +688,7 @@ export function SessionsPanel({
               />
             )}
           </div>
-          {showSuggest && (
+          {showSuggest && !focusMode && (
             <ul className="sessions-suggest" role="listbox">
               {suggestions.map((g, i) => (
                 <li
@@ -532,6 +719,17 @@ export function SessionsPanel({
             <button className="btn btn-primary" onClick={onOpenLocal}>Open Folder</button>
             <button className="btn" onClick={onOpenSsh}>Connect SSH…</button>
           </div>
+        ) : focusMode ? (
+          // Focus mode — flat list of pinned sessions across all projects/hosts.
+          focusList.length > 0 ? (
+            focusList.map((s) => <LiveRow key={s.id} {...liveRowProps(s)} />)
+          ) : (
+            <div className="sessions-empty sessions-focus-empty">
+              {searching
+                ? 'No pinned sessions match.'
+                : 'No pinned sessions yet. Pin a session (hover a row → pin) to focus on it here.'}
+            </div>
+          )
         ) : noResults ? (
           <div className="sessions-empty">No matching sessions</div>
         ) : scope ? (

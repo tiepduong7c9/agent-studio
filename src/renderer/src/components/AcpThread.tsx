@@ -144,7 +144,7 @@ const MessageList = memo(function MessageList({
   )
 })
 
-function Header({ sid, recap, onBeginResume }: { sid: string; recap: string | null; onBeginResume: () => void }) {
+function Header({ sid, title, onBeginResume }: { sid: string; title: string; onBeginResume: () => void }) {
   const currentConvId = useAcpStore((s) => s.threads.get(sid)?.acpSessionId ?? null)
   const [open, setOpen] = useState(false)
   const [convs, setConvs] = useState<AcpConversation[] | null>(null)
@@ -157,7 +157,7 @@ function Header({ sid, recap, onBeginResume }: { sid: string; recap: string | nu
   }
   return (
     <div className="acp-header">
-      <div className="acp-header-title">{recap || 'New conversation'}</div>
+      <div className="acp-header-title">{title}</div>
       <div ref={ref} className="acp-header-actions">
         <button className="acp-btn" title="Resume a conversation" onClick={toggle}><Clock size={15} /></button>
         <button className="acp-btn" title="New conversation" onClick={() => acp().newConversation(sid)}><SquarePen size={15} /></button>
@@ -188,6 +188,9 @@ export function AcpThread({ sid, visible = true }: { sid: string; visible?: bool
   const setModelLocal = useAcpStore((s) => s.setModelLocal)
   // Transport health for this session's host only — other hosts may be fine.
   const host = useSessionsStore((s) => s.sessions.find((x) => x.id === sid)?.host ?? null)
+  // Claude-generated session title shown in the thread header (the tab reads a
+  // fixed "Claude Code" label instead).
+  const sessionName = useSessionsStore((s) => s.sessions.find((x) => x.id === sid)?.name ?? null)
   const engineStatus = useSessionsStore((s) => s.engineStatus[host ? `ssh:${host}` : 'local']) ?? 'connected'
   const [draft, setDraft] = useState('')
   const [focused, setFocused] = useState(false)
@@ -264,7 +267,7 @@ export function AcpThread({ sid, visible = true }: { sid: string; visible?: bool
 
   return (
     <div className="acp-thread" style={visible ? undefined : { visibility: 'hidden', pointerEvents: 'none' }}>
-      <Header sid={sid} recap={recap} onBeginResume={beginResume} />
+      <Header sid={sid} title={sessionName || recap || 'New conversation'} onBeginResume={beginResume} />
 
       {engineStatus !== 'connected' && (
         <div className="acp-banner">
