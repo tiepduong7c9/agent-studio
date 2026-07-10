@@ -13,7 +13,8 @@ import AcpSession from './acp-session.cjs';
 import { Emitter, Event } from '../vendor/vs/base/common/event.js';
 import { toDisposable, IDisposable } from '../vendor/vs/base/common/lifecycle.js';
 import { STATE_DIR, SESSIONS_FILE } from '../constants.js';
-import type { AcpConversation, AcpEvent, AcpSnapshot, ClaudeStatus, CreateSessionOptions, SessionMeta } from './types.js';
+import { listAllProjects } from './projects.js';
+import type { AcpConversation, AcpEvent, AcpSnapshot, ClaudeStatus, CreateSessionOptions, ProjectConversations, SessionMeta } from './types.js';
 
 const ADJECTIVES = ['amber', 'arctic', 'bold', 'brave', 'bright', 'calm', 'cool', 'crisp', 'dawn', 'deep', 'fast', 'fierce', 'gentle', 'golden', 'grand', 'hidden', 'jade', 'keen', 'lively', 'lucid', 'mellow', 'misty', 'noble', 'quiet', 'rapid', 'royal', 'shady', 'sharp', 'silent', 'silver', 'sleek', 'solar', 'still', 'sturdy', 'swift', 'teal', 'vivid', 'warm', 'wild', 'wise'];
 const ANIMALS = ['bear', 'bison', 'boar', 'cobra', 'crane', 'crow', 'deer', 'dove', 'eagle', 'elk', 'falcon', 'finch', 'fox', 'goat', 'goose', 'hawk', 'heron', 'hound', 'jay', 'kite', 'lark', 'lion', 'lynx', 'mink', 'moose', 'newt', 'orca', 'otter', 'owl', 'panda', 'puma', 'quail', 'raven', 'robin', 'seal', 'shark', 'snipe', 'stag', 'swan', 'tiger', 'trout', 'viper', 'vole', 'wasp', 'weasel', 'whale', 'wolf', 'wren'];
@@ -108,6 +109,12 @@ export class SessionManager {
 
   list(): SessionMeta[] {
     return [...this._sessions.values()].map((s) => ({ ...s.meta }));
+  }
+
+  // All Claude projects on this host with their resumable conversations, read
+  // from ~/.claude/projects/ — independent of the sessions this daemon manages.
+  listProjects(): Promise<ProjectConversations[]> {
+    return listAllProjects();
   }
 
   snapshot(id: string): AcpSnapshot | null {

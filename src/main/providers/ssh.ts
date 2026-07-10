@@ -9,6 +9,7 @@ import type {
   RemoteDirListing,
   SshConnectOptions
 } from '../../shared/types'
+import { workspaceId } from '../../shared/types'
 import { parseGitStatus } from '../git/parseStatus'
 import { ensureText, MAX_TEXT_FILE_SIZE } from '../textFile'
 import { assertRepoRelative, isMissingInHead } from './local'
@@ -26,9 +27,9 @@ export interface SshSession {
   home: string
 }
 
-// Phase 1 of connecting: authenticate and open SFTP, without choosing a project
-// folder yet. The caller browses the remote FS (listRemoteDirs) and then roots
-// a provider at the chosen folder (SshProjectProvider.fromSession).
+// Connecting: authenticate and open SFTP. The connection is kept open for the
+// life of the host — it backs the engine tunnel and any providers rooted on it
+// (SshProjectProvider.shared) — no project folder need be chosen.
 export async function establishSshSession(opts: SshConnectOptions): Promise<SshSession> {
   const client = new Client()
   const privateKey = await loadPrivateKey(opts.privateKeyPath)
@@ -123,20 +124,22 @@ export class SshProjectProvider implements ProjectProvider {
     private readonly client: Client,
     private readonly sftp: SFTPWrapper,
     rootPath: string,
-    opts: SshConnectOptions
+    host: string
   ) {
     this.info = {
+      id: workspaceId({ kind: 'ssh', host, rootPath }),
       kind: 'ssh',
       name: rootPath.replace(/\/+$/, '').split('/').pop() || rootPath,
       rootPath,
-      host: `${opts.username}@${opts.host}`
+      host
     }
   }
 
-  // Phase 2: root a project at `rootPath` on an already-established session.
-  // The provider now owns the session and will end it on dispose().
-  static fromSession(session: SshSession, rootPath: string, opts: SshConnectOptions): SshProjectProvider {
-    return new SshProjectProvider(session.client, session.sftp, rootPath, opts)
+  // Root a read/write provider on a host's shared ssh connection (owned by the
+  // host, not the provider). Used both for an opened remote workspace and to
+  // follow a remote session's folder. dispose() leaves the connection running.
+  static shared(client: Client, sftp: SFTPWrapper, rootPath: string, host: string): SshProjectProvider {
+    return new SshProjectProvider(client, sftp, rootPath.replace(/\/+$/, '') || '/', host)
   }
 
   // Confine a renderer-supplied POSIX path to the project root, so a renderer
@@ -214,7 +217,10 @@ export class SshProjectProvider implements ProjectProvider {
   }
 
   async gitStatus(): Promise<GitStatus> {
-    const cmd = `git -C ${shellQuote(this.info.rootPath)} status --porcelain=v2 --branch -z`
+    // --untracked-files=all lists each untracked file individually instead of
+    // collapsing a wholly-untracked directory into one `dir/` entry — folder
+    // entries aren't diffable and mismatch VS Code's SCM behavior.
+    const cmd = `git -C ${shellQuote(this.info.rootPath)} status --porcelain=v2 --branch -z --untracked-files=all`
     const { code, stdout, stderr } = await this.exec(cmd)
     if (code !== 0) {
       if (stderr.includes('not a git repository')) {
@@ -293,7 +299,7 @@ export class SshProjectProvider implements ProjectProvider {
   }
 
   dispose(): void {
-    this.client.end()
+    // The ssh connection is owned by the host layer, not this provider.
   }
 }
 

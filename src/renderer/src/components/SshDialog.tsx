@@ -1,9 +1,9 @@
 import { useState } from 'react'
 
 interface Props {
-  /** Called after a successful connect, with the remote home directory to
-   *  begin browsing from. */
-  onConnected: (home: string) => void
+  /** Called after a successful connect, with the host key ("user@host"). Its
+   *  projects/sessions then surface in the sidebar — no folder pick needed. */
+  onConnected: (host: string) => void
   onCancel: () => void
 }
 
@@ -28,7 +28,7 @@ export function SshDialog({ onConnected, onCancel }: Props) {
     })
     setConnecting(false)
     if (result.ok) {
-      onConnected(result.data.home)
+      onConnected(result.data.host)
     } else {
       setError(result.error)
     }

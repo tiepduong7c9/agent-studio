@@ -1,6 +1,7 @@
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import type { Result, SshConnectOptions } from '../shared/types'
-import { clearSshEngine, setActiveEngineTarget } from './engine'
+import { engineHostKey, workspaceId } from '../shared/types'
+import { clearSshEngine, LOCAL_HOST_KEY, registerEngineTarget, sshTargetFor } from './engine'
 import { LocalProjectProvider } from './providers/local'
 import {
   establishSshSession,
@@ -10,29 +11,90 @@ import {
   type SshSession
 } from './providers/ssh'
 import type { ProjectProvider } from './providers/types'
+import { loadSavedHosts, removeHost, saveHost } from './remote-hosts'
 
-let currentProvider: ProjectProvider | null = null
+// Several projects can be open at once — a local folder and one or more SSH
+// remotes — so providers are held in a map keyed by workspace id. File/git IPC
+// calls carry the workspace id so they route to the right provider.
+const providers = new Map<string, ProjectProvider>()
 
-// A connected-but-not-yet-rooted SSH session, held while the user browses the
-// remote filesystem to choose a project folder.
-let pendingSession: SshSession | null = null
-let pendingOpts: SshConnectOptions | null = null
-// The ssh engine host currently pointed at, so it can be torn down on switch/close.
-let currentSshHost: string | null = null
+// The ACP engine hub, so opening/closing a project can spin up / tear down the
+// engine for its host. Injected by index.ts (both live in the main process).
+export interface AcpHub {
+  ensureHost(hostKey: string): void
+  ensureHostReady(hostKey: string): Promise<void>
+  releaseHost(hostKey: string): void
+}
+let acpHub: AcpHub | null = null
 
-function disposePending(): void {
-  pendingSession?.client.end()
-  pendingSession = null
-  pendingOpts = null
+// Connected SSH hosts, keyed by host key ("user@host"). A connection is kept
+// open for the life of the host (independent of any opened folder): its remote
+// ~/.claude/projects and sessions surface as soon as it connects, and the same
+// ssh2 client backs the engine tunnel and every rooted provider on that host.
+const sshHosts = new Map<string, SshSession>()
+
+function endSshHosts(): void {
+  for (const session of sshHosts.values()) session.client.end()
+  sshHosts.clear()
 }
 
-function setProvider(provider: ProjectProvider | null): void {
-  disposePending()
-  currentProvider?.dispose()
-  currentProvider = provider
-  // Reset the engine to local; the ssh:openRemote handler re-points it after.
-  if (currentSshHost) { clearSshEngine(currentSshHost); currentSshHost = null }
-  setActiveEngineTarget({ kind: 'local' })
+function addProvider(provider: ProjectProvider): ProjectProvider {
+  const id = provider.info.id
+  // Re-opening the same folder returns the existing provider.
+  const existing = providers.get(id)
+  if (existing) {
+    provider.dispose()
+    return existing
+  }
+  providers.set(id, provider)
+  acpHub?.ensureHost(engineHostKey(provider.info))
+  return provider
+}
+
+/** Close one workspace. The ssh host connection stays up (it's owned by the
+ *  host, not the folder) — closing a folder just drops its provider. */
+function closeProvider(wsId: string): void {
+  const provider = providers.get(wsId)
+  if (!provider) return
+  providers.delete(wsId)
+  provider.dispose()
+}
+
+/** Establish (or reuse) an SSH host connection and eagerly provision/update its
+ *  engine daemon. Returns the "user@host" key. On a fresh connection whose
+ *  engine fails to come up, tears the half-open connection down so a retry is
+ *  clean; a reused live host is left intact. */
+async function connectSshHost(opts: SshConnectOptions): Promise<string> {
+  const host = `${opts.username}@${opts.host}`
+  const isNew = !sshHosts.has(host)
+  if (isNew) {
+    const session = await establishSshSession(opts)
+    sshHosts.set(host, session)
+    registerEngineTarget({ kind: 'ssh', host, client: session.client, sftp: session.sftp })
+  }
+  try {
+    await acpHub?.ensureHostReady(`ssh:${host}`)
+  } catch (err) {
+    if (isNew) disconnectHost(host)
+    throw err
+  }
+  return host
+}
+
+/** Disconnect an SSH host: drop its rooted folders, its engine, and end the
+ *  ssh client. */
+function disconnectHost(host: string): void {
+  for (const [id, p] of [...providers.entries()]) {
+    if (p.info.kind === 'ssh' && p.info.host === host) {
+      providers.delete(id)
+      p.dispose()
+    }
+  }
+  clearSshEngine(host)
+  acpHub?.releaseHost(`ssh:${host}`)
+  const session = sshHosts.get(host)
+  session?.client.end()
+  sshHosts.delete(host)
 }
 
 // Expand a leading ~ against the connected session's home (SFTP realpath does
@@ -43,9 +105,10 @@ function expandRemote(session: SshSession, p: string): string {
   return p
 }
 
-function requireProvider(): ProjectProvider {
-  if (!currentProvider) throw new Error('No project is open')
-  return currentProvider
+function requireProvider(wsId: string): ProjectProvider {
+  const provider = providers.get(wsId)
+  if (!provider) throw new Error('Project is not open')
+  return provider
 }
 
 function handle<T>(channel: string, fn: (...args: any[]) => Promise<T>): void {
@@ -58,7 +121,9 @@ function handle<T>(channel: string, fn: (...args: any[]) => Promise<T>): void {
   })
 }
 
-export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void {
+export function registerIpcHandlers(getWindow: () => BrowserWindow | null, hub: AcpHub): void {
+  acpHub = hub
+
   handle('project:openLocal', async () => {
     const win = getWindow()
     if (!win) throw new Error('No window')
@@ -67,93 +132,112 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
       properties: ['openDirectory']
     })
     if (result.canceled || result.filePaths.length === 0) return null
-    setProvider(new LocalProjectProvider(result.filePaths[0]))
-    return currentProvider!.info
+    return addProvider(new LocalProjectProvider(result.filePaths[0])).info
   })
 
   // Open a folder directly by path (no dialog) — used by STUDIO_OPEN_PATH
   // and later by things like a recent-projects list.
   handle('project:openLocalPath', async (dirPath: string) => {
-    setProvider(new LocalProjectProvider(dirPath))
-    return currentProvider!.info
+    return addProvider(new LocalProjectProvider(dirPath)).info
   })
 
-  // Phase 1: authenticate and hold the session open; the renderer then browses
-  // the remote FS and picks a folder. Returns the home dir to start browsing.
+  // Ensure a provider is rooted at a session's working directory so the file/git
+  // panels can follow it, even when that folder was never opened as a workspace.
+  // Local folders open directly; remote folders reuse the host's engine ssh
+  // connection (so it must already be connected).
+  handle('project:ensureForSession', async (cwd: string, host: string | null) => {
+    if (!host) return addProvider(new LocalProjectProvider(cwd)).info
+    const existing = providers.get(workspaceId({ kind: 'ssh', host, rootPath: cwd }))
+    if (existing) return existing.info
+    const target = sshTargetFor(host)
+    if (!target) throw new Error(`Not connected to ${host}`)
+    return addProvider(SshProjectProvider.shared(target.client, target.sftp, cwd, host)).info
+  })
+
+  // Authenticate and wire the host's engine so its remote projects/sessions
+  // surface immediately — no folder selection required (same as the local host).
+  // Re-connecting to an already-connected host reuses the live session. The
+  // remote daemon is provisioned/updated eagerly here (version-gated), so a
+  // provisioning failure is reported at connect time rather than swallowed.
   handle('project:connectSsh', async (opts: SshConnectOptions) => {
-    disposePending()
-    const session = await establishSshSession(opts)
-    pendingSession = session
-    pendingOpts = opts
-    return { home: session.home }
+    const host = await connectSshHost(opts)
+    // Remember for auto-reconnect on the next launch (only once it works).
+    saveHost(opts)
+    return { home: sshHosts.get(host)!.home, host }
   })
 
-  // Lists subdirectories on the pending session (remote folder picker).
-  handle('ssh:listDir', async (dirPath: string) => {
-    if (!pendingSession) throw new Error('Not connected')
-    return listRemoteDirs(pendingSession.sftp, expandRemote(pendingSession, dirPath))
+  // Lists subdirectories on a connected host (remote folder picker).
+  handle('ssh:listDir', async (host: string, dirPath: string) => {
+    const session = sshHosts.get(host)
+    if (!session) throw new Error(`Not connected to ${host}`)
+    return listRemoteDirs(session.sftp, expandRemote(session, dirPath))
   })
 
-  // Phase 2: root a project at the chosen folder on the pending session.
-  handle('ssh:openRemote', async (dirPath: string) => {
-    if (!pendingSession || !pendingOpts) throw new Error('Not connected')
-    const root = await resolveRemoteDir(pendingSession.sftp, expandRemote(pendingSession, dirPath))
-    // Keep the ssh2 handles for the engine tunnel before ownership transfers.
-    const sshClient = pendingSession.client
-    const sshSftp = pendingSession.sftp
-    const provider = SshProjectProvider.fromSession(pendingSession, root, pendingOpts)
-    const host = provider.info.host || `${pendingOpts.username}@${pendingOpts.host}`
-    // ownership of the session transfers to the provider; clear the pending
-    // slot before setProvider so it isn't torn down.
-    pendingSession = null
-    pendingOpts = null
-    setProvider(provider)
-    // Point the engine at this host — the remote daemon is provisioned and
-    // tunnelled lazily on the first agent action.
-    setActiveEngineTarget({ kind: 'ssh', host, client: sshClient, sftp: sshSftp })
-    currentSshHost = host
-    return provider.info
+  // Root a project at the chosen folder on a connected host, so it opens as a
+  // workspace. The host's shared ssh connection backs the provider.
+  handle('ssh:openRemote', async (host: string, dirPath: string) => {
+    const session = sshHosts.get(host)
+    if (!session) throw new Error(`Not connected to ${host}`)
+    const root = await resolveRemoteDir(session.sftp, expandRemote(session, dirPath))
+    return addProvider(SshProjectProvider.shared(session.client, session.sftp, root, host)).info
   })
 
-  // Cancel a pending connection (user closed the picker without choosing).
-  handle('ssh:cancel', async () => {
-    disposePending()
+  // Disconnect a host: drop its open folders, engine, and ssh connection, and
+  // forget it so it isn't auto-reconnected on the next launch.
+  handle('ssh:disconnect', async (host: string) => {
+    disconnectHost(host)
+    removeHost(host)
   })
 
-  handle('project:close', async () => {
-    setProvider(null)
+  // Reconnect every remembered host (called on startup). Each is attempted
+  // independently; hosts that fail (server down, auth changed) are skipped so
+  // one bad host doesn't block the rest. Returns the keys that came back up.
+  handle('ssh:reconnectSaved', async () => {
+    const results = await Promise.all(
+      loadSavedHosts().map((opts) =>
+        connectSshHost(opts).then(
+          (host) => host,
+          () => null
+        )
+      )
+    )
+    return results.filter((h): h is string => h !== null)
   })
 
-  handle('fs:readDir', async (dirPath: string) => {
-    return requireProvider().readDir(dirPath)
+  handle('project:close', async (wsId: string) => {
+    closeProvider(wsId)
   })
 
-  handle('fs:readFile', async (filePath: string) => {
-    return requireProvider().readFile(filePath)
+  handle('fs:readDir', async (wsId: string, dirPath: string) => {
+    return requireProvider(wsId).readDir(dirPath)
   })
 
-  handle('git:status', async () => {
-    return requireProvider().gitStatus()
+  handle('fs:readFile', async (wsId: string, filePath: string) => {
+    return requireProvider(wsId).readFile(filePath)
   })
 
-  handle('git:showHead', async (relPath: string) => {
-    return requireProvider().gitShowHead(relPath)
+  handle('git:status', async (wsId: string) => {
+    return requireProvider(wsId).gitStatus()
   })
 
-  handle('fs:createFile', async (filePath: string) => {
-    await requireProvider().createFile(filePath)
+  handle('git:showHead', async (wsId: string, relPath: string) => {
+    return requireProvider(wsId).gitShowHead(relPath)
   })
 
-  handle('fs:createDir', async (dirPath: string) => {
-    await requireProvider().createDir(dirPath)
+  handle('fs:createFile', async (wsId: string, filePath: string) => {
+    await requireProvider(wsId).createFile(filePath)
   })
 
-  handle('fs:rename', async (oldPath: string, newPath: string) => {
-    await requireProvider().rename(oldPath, newPath)
+  handle('fs:createDir', async (wsId: string, dirPath: string) => {
+    await requireProvider(wsId).createDir(dirPath)
   })
 
-  handle('fs:delete', async (entryPath: string) => {
-    const provider = requireProvider()
+  handle('fs:rename', async (wsId: string, oldPath: string, newPath: string) => {
+    await requireProvider(wsId).rename(oldPath, newPath)
+  })
+
+  handle('fs:delete', async (wsId: string, entryPath: string) => {
+    const provider = requireProvider(wsId)
     if (provider.info.kind === 'local') {
       try {
         await shell.trashItem(entryPath)
@@ -181,9 +265,14 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
     }
     return win.isMaximized()
   })
+
+  // Local engine host is always available; ensure it's wired at startup so
+  // local sessions appear even before a folder is opened.
+  hub.ensureHost(LOCAL_HOST_KEY)
 }
 
 export function disposeProvider(): void {
-  setProvider(null)
-  disposePending()
+  for (const provider of providers.values()) provider.dispose()
+  providers.clear()
+  endSshHosts()
 }

@@ -335,6 +335,125 @@ body {
   padding: 4px 0;
 }
 
+.sessions-search-wrap {
+  position: relative;
+  flex-shrink: 0;
+  margin: 0 12px 6px;
+}
+.sessions-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px;
+  border: 1px solid var(--vscode-input-border, var(--vscode-dropdown-border));
+  border-radius: 4px;
+  background: var(--vscode-input-background);
+}
+.sessions-search:focus-within {
+  border-color: var(--vscode-focusBorder);
+}
+.sessions-search-icon {
+  font-size: 13px;
+  flex: 0 0 auto;
+  color: var(--vscode-descriptionForeground);
+}
+.sessions-search-input {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--vscode-input-foreground, var(--vscode-foreground));
+  font-family: inherit;
+  font-size: 12px;
+}
+.sessions-search-input::placeholder {
+  color: var(--vscode-input-placeholderForeground, var(--vscode-descriptionForeground));
+}
+.sessions-search-clear {
+  font-size: 13px;
+  flex: 0 0 auto;
+}
+
+/* Scope chip: the project the search is locked to (Tab-selected) */
+.sessions-search-scope {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  max-width: 55%;
+  height: 18px;
+  padding: 0 4px 0 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+}
+.sessions-search-scope .codicon {
+  font-size: 11px;
+}
+.sessions-search-scope-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sessions-search-scope-remove {
+  cursor: pointer;
+  opacity: 0.75;
+}
+.sessions-search-scope-remove:hover {
+  opacity: 1;
+}
+
+/* Project suggestions dropdown */
+.sessions-suggest {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  margin: 0;
+  padding: 2px;
+  list-style: none;
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid var(--vscode-widget-border, var(--vscode-dropdown-border));
+  border-radius: 4px;
+  background: var(--vscode-dropdown-background, var(--vscode-editorWidget-background));
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.36);
+}
+.sessions-suggest-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: 3px;
+  font-size: 12px;
+  color: var(--vscode-foreground);
+  cursor: pointer;
+}
+.sessions-suggest-item.active {
+  background: var(--vscode-list-activeSelectionBackground);
+  color: var(--vscode-list-activeSelectionForeground);
+}
+.sessions-suggest-remote {
+  font-size: 12px;
+  flex: 0 0 auto;
+}
+.sessions-suggest-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sessions-suggest-host {
+  margin-left: auto;
+  padding-left: 8px;
+  font-size: 11px;
+  opacity: 0.7;
+  white-space: nowrap;
+}
+
 .sessions-group-label {
   padding: 6px 12px;
   font-size: 12px;
@@ -346,6 +465,130 @@ body {
   font-size: 12px;
   font-style: italic;
   color: var(--vscode-descriptionForeground);
+}
+
+/* Empty state with call-to-action buttons */
+.sessions-empty-cta {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 16px 12px;
+}
+.sessions-empty-cta .sessions-empty {
+  padding: 0 0 4px;
+  text-align: center;
+}
+
+/* One group per open workspace, plus per-host "Other sessions" groups */
+.sessions-group {
+  margin-bottom: 4px;
+}
+.sessions-group-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 8px 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--vscode-descriptionForeground);
+  cursor: pointer;
+  user-select: none;
+}
+.sessions-group-header:hover {
+  color: var(--vscode-foreground);
+}
+.sessions-group-twistie {
+  font-size: 16px;
+  flex: 0 0 auto;
+  opacity: 0.8;
+}
+.sessions-group-header .icon-button {
+  opacity: 0;
+  font-size: 14px;
+}
+.sessions-group:hover .sessions-group-header .icon-button {
+  opacity: 0.85;
+}
+.sessions-group-remote {
+  font-size: 13px;
+  flex: 0 0 auto;
+}
+.sessions-group-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sessions-group-host {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--vscode-descriptionForeground);
+  opacity: 0.7;
+  white-space: nowrap;
+}
+.sessions-group-other {
+  font-style: italic;
+}
+
+/* Connected SSH host section: a header with its projects nested beneath. */
+.sessions-host-section {
+  margin-bottom: 6px;
+}
+.sessions-host-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 8px 0 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--vscode-foreground);
+  user-select: none;
+  cursor: pointer;
+  border-bottom: 1px solid var(--vscode-panel-border, transparent);
+}
+.sessions-host-icon {
+  font-size: 14px;
+  flex: 0 0 auto;
+  opacity: 0.9;
+}
+.sessions-host-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sessions-host-status {
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 10px;
+  padding: 0 5px;
+  border-radius: 3px;
+  color: var(--vscode-descriptionForeground);
+}
+.sessions-host-status.reconnecting {
+  color: var(--vscode-editorWarning-foreground, #cca700);
+}
+.sessions-host-status.lost {
+  color: var(--vscode-errorForeground, #f14c4c);
+}
+.sessions-host-header .icon-button {
+  opacity: 0;
+  font-size: 14px;
+}
+.sessions-host-section:hover .sessions-host-header .icon-button {
+  opacity: 0.85;
+}
+/* Indent a host's project groups to show they belong to it. */
+.sessions-host-section .sessions-group-header {
+  padding-left: 18px;
+}
+.sessions-host-section .acp-session-row {
+  padding-left: 24px;
 }
 
 /* Live agent session rows */
@@ -367,6 +610,9 @@ body {
 .acp-session-name { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .acp-session-sub { font-size: 11px; color: var(--vscode-descriptionForeground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .acp-session-row.active .acp-session-sub { color: var(--vscode-list-activeSelectionForeground); opacity: 0.8; }
+/* Past (resumable) conversations read slightly muted vs live sessions. */
+.acp-session-history .acp-status-dot { opacity: 0.45; }
+.acp-session-history .acp-session-name { color: var(--vscode-descriptionForeground); }
 .acp-status-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
 .acp-status-idle { background: var(--vscode-testing-iconPassed, #388a34); }
 .acp-status-working { background: var(--vscode-charts-yellow, #cca700); }
@@ -659,6 +905,11 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Preview (transient) tabs render italic, like VS Code, until they're kept. */
+.tab.preview .tab-name {
+  font-style: italic;
 }
 
 .tab-detail {
@@ -1114,7 +1365,8 @@ body {
 /* ── Agent sessions viewer (host tweaks for the copied vscode css) ── */
 
 .sessions-body {
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .agent-sessions-viewer .agent-session-icon {

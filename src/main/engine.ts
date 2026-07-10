@@ -4,6 +4,7 @@ import * as path from 'path'
 import { pathToFileURL } from 'url'
 import type { Client as SshClient, SFTPWrapper } from 'ssh2'
 import type { EngineModule, ISessionManagerClient } from '../shared/acp'
+import { engineHostKey } from '../shared/types'
 import { connectRemoteEngine } from './ssh-engine'
 
 // The engine runs where the code is: a local daemon for local projects, a
@@ -38,52 +39,70 @@ export function loadEngineModule(): Promise<EngineModule> {
   return modulePromise
 }
 
-// ── active target + per-host connection cache ─────────────────────────────────
+// ── target registry + per-host connection cache ───────────────────────────────
+//
+// Several projects can be open at once — a local folder plus one or more SSH
+// remotes — so engines are keyed by host and cached independently. The local
+// engine is always available; ssh engines are registered when a remote project
+// opens (carrying the ssh2 handles needed to tunnel) and unregistered on close.
 
-let active: EngineTarget = { kind: 'local' }
+export const LOCAL_HOST_KEY = 'local'
+
+const targets = new Map<string, EngineTarget>()
 const cache = new Map<string, Promise<Engine>>()
 
-const keyOf = (t: EngineTarget): string => (t.kind === 'local' ? 'local' : `ssh:${t.host}`)
+const keyOf = (t: EngineTarget): string => engineHostKey(t)
 
-/** A stable id for the active target — the IPC layer uses it to scope reconnects. */
-export function activeEngineKey(): string {
-  return keyOf(active)
+/** Register an ssh host's engine target so getEngine(key) can connect it. */
+export function registerEngineTarget(target: EngineTarget): void {
+  targets.set(keyOf(target), target)
 }
 
-/** Point subsequent getEngine() calls at a project's host (called on project open). */
-export function setActiveEngineTarget(target: EngineTarget): void {
-  active = target
+/** All host keys with a live/known engine — always includes the local daemon. */
+export function knownHostKeys(): string[] {
+  return [LOCAL_HOST_KEY, ...targets.keys()]
 }
 
-/** Drop a cached SSH engine (e.g. when its project/connection closes). */
+/** The ssh target for a host, or null — lets a project provider reuse the
+ *  engine's ssh connection (e.g. to browse a session's remote folder). */
+export function sshTargetFor(host: string): Extract<EngineTarget, { kind: 'ssh' }> | null {
+  const t = targets.get(`ssh:${host}`)
+  return t && t.kind === 'ssh' ? t : null
+}
+
+/** Drop a cached SSH engine and its target (e.g. when its last project closes). */
 export function clearSshEngine(host: string): void {
   const key = `ssh:${host}`
+  targets.delete(key)
   const p = cache.get(key)
   cache.delete(key)
   p?.then((e) => e.dispose()).catch(() => {})
-  if (active.kind === 'ssh' && active.host === host) active = { kind: 'local' }
 }
 
-/** Invalidate the active engine's cached connection so getEngine() reconnects. */
-export function invalidateActiveEngine(): void {
-  const key = keyOf(active)
-  const p = cache.get(key)
-  cache.delete(key)
+/** Invalidate a host's cached connection so the next getEngine() reconnects. */
+export function invalidateEngine(hostKey: string): void {
+  const p = cache.get(hostKey)
+  cache.delete(hostKey)
   // Dispose the old client/socket wrapper so reconnects don't accumulate them.
   p?.then((e) => e.dispose()).catch(() => {})
 }
 
-export function getEngine(): Promise<Engine> {
-  const target = active
-  const key = keyOf(target)
-  if (!cache.has(key)) {
-    const p = (target.kind === 'local' ? connectLocal() : connectSsh(target)).catch((err) => {
-      cache.delete(key) // let the next call retry a fresh connection
+export function getEngine(hostKey: string): Promise<Engine> {
+  if (!cache.has(hostKey)) {
+    const p = connectFor(hostKey).catch((err) => {
+      cache.delete(hostKey) // let the next call retry a fresh connection
       throw err
     })
-    cache.set(key, p)
+    cache.set(hostKey, p)
   }
-  return cache.get(key)!
+  return cache.get(hostKey)!
+}
+
+function connectFor(hostKey: string): Promise<Engine> {
+  if (hostKey === LOCAL_HOST_KEY) return connectLocal()
+  const target = targets.get(hostKey)
+  if (!target || target.kind !== 'ssh') throw new Error(`No engine target for ${hostKey}`)
+  return connectSsh(target)
 }
 
 async function connectLocal(): Promise<Engine> {

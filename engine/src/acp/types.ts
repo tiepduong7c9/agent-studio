@@ -37,6 +37,17 @@ export interface AcpConversation {
   mtime: number;
 }
 
+/** A project folder discovered on disk with its resumable conversations. */
+export interface ProjectConversations {
+  /** Absolute project root (read from the logs, not the lossy dir encoding). */
+  cwd: string;
+  /** Display name — the folder basename of cwd. */
+  name: string;
+  /** Host the project lives on; decorated in the main process (null = local). */
+  host?: string | null;
+  conversations: AcpConversation[];
+}
+
 export interface CreateSessionOptions {
   name?: string;
   cwd: string;

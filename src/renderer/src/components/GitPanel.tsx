@@ -3,12 +3,12 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ObjectTree } from 'monaco-editor/esm/vs/base/browser/ui/tree/objectTree.js'
 import * as defaultStyles from 'monaco-editor/esm/vs/platform/theme/browser/defaultStyles.js'
 import type { GitFileChange, GitStatus } from '../../../shared/types'
-import type { Selection } from '../selection'
+import type { SelectHandler } from '../selection'
 import { fileIconStyle } from './FileIcon'
 
 interface Props {
-  selection: Selection | null
-  onSelect: (selection: Selection) => void
+  wsId: string
+  onSelect: SelectHandler
 }
 
 interface GroupNode {
@@ -27,7 +27,7 @@ interface ChangeNode {
 
 type GitNode = GroupNode | ChangeNode
 
-export function GitPanel({ onSelect }: Props) {
+export function GitPanel({ wsId, onSelect }: Props) {
   const [status, setStatus] = useState<GitStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -38,7 +38,7 @@ export function GitPanel({ onSelect }: Props) {
 
   const refresh = useCallback(async () => {
     setLoading(true)
-    const result = await window.studio.gitStatus()
+    const result = await window.studio.gitStatus(wsId)
     setLoading(false)
     if (result.ok) {
       setStatus(result.data)
@@ -46,7 +46,7 @@ export function GitPanel({ onSelect }: Props) {
     } else {
       setError(result.error)
     }
-  }, [])
+  }, [wsId])
 
   useEffect(() => {
     refresh()
@@ -132,10 +132,12 @@ export function GitPanel({ onSelect }: Props) {
     const styles = (defaultStyles as any).defaultListStyles ?? (defaultStyles as any).getListStyles?.({})
     if (styles) tree.style(styles)
 
+    // Single click previews the diff in the transient tab; it's kept permanent
+    // via the tab's right-click menu ("Keep Open").
     const openListener = tree.onDidChangeSelection((e: any) => {
       const el: GitNode | undefined = e.elements?.[0]
       if (el?.type === 'change') {
-        onSelectRef.current({ kind: 'diff', change: el.change })
+        onSelectRef.current({ kind: 'diff', wsId, change: el.change }, { preview: true })
       }
     })
 

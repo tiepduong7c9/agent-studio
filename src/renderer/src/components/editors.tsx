@@ -5,13 +5,13 @@ import { monaco } from '../monaco'
 // File and diff viewers backed by Monaco. The tabbed editor area mounts one
 // per open file/diff tab.
 
-export function FileView({ path }: { path: string }) {
+export function FileView({ wsId, path }: { wsId: string; path: string }) {
   const [content, setContent] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
-    window.studio.readFile(path).then((result) => {
+    window.studio.readFile(wsId, path).then((result) => {
       if (cancelled) return
       if (result.ok) setContent(result.data)
       else setError(result.error)
@@ -19,7 +19,7 @@ export function FileView({ path }: { path: string }) {
     return () => {
       cancelled = true
     }
-  }, [path])
+  }, [wsId, path])
 
   if (error) return <ViewerMessage message={error} />
   if (content === null) return <ViewerMessage message="Loading…" />
@@ -34,13 +34,13 @@ export function DiffView({ project, change }: { project: ProjectInfo; change: Gi
     let cancelled = false
     const load = async () => {
       const headPath = change.origPath ?? change.path
-      const original = await window.studio.gitShowHead(headPath)
+      const original = await window.studio.gitShowHead(project.id, headPath)
       if (!original.ok) throw new Error(original.error)
 
       const deleted = change.worktree === 'D' || (change.index === 'D' && change.worktree === '.')
       let modified = ''
       if (!deleted) {
-        const result = await window.studio.readFile(joinPath(project.rootPath, change.path))
+        const result = await window.studio.readFile(project.id, joinPath(project.rootPath, change.path))
         if (!result.ok) throw new Error(result.error)
         modified = result.data
       }

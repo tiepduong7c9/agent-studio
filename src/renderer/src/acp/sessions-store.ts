@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { SessionMeta } from '../../../shared/acp'
+import type { ProjectConversations, SessionMeta } from '../../../shared/acp'
 
 // Live session list, kept in sync with the engine via window.studio.acp.onSessions.
 
@@ -7,15 +7,24 @@ export type EngineStatus = 'connected' | 'reconnecting' | 'lost'
 
 interface SessionsStore {
   sessions: SessionMeta[]
-  /** Transport health: reconnecting after a drop, or lost once given up on. */
-  engineStatus: EngineStatus
+  /** All discovered projects + their conversations across connected hosts.
+   *  This is the on-disk history (~/.claude/projects), independent of the live
+   *  sessions the daemon manages. */
+  projects: ProjectConversations[]
+  /** Transport health per host key ('local' | `ssh:<host>`); absent = connected.
+   *  Several hosts can be connected at once, so status is tracked per host. */
+  engineStatus: Record<string, EngineStatus>
   setSessions: (sessions: SessionMeta[]) => void
-  setEngineStatus: (status: EngineStatus) => void
+  setProjects: (projects: ProjectConversations[]) => void
+  setHostStatus: (hostKey: string, status: EngineStatus) => void
 }
 
 export const useSessionsStore = create<SessionsStore>((set) => ({
   sessions: [],
-  engineStatus: 'connected',
+  projects: [],
+  engineStatus: {},
   setSessions: (sessions) => set({ sessions }),
-  setEngineStatus: (status) => set({ engineStatus: status }),
+  setProjects: (projects) => set({ projects }),
+  setHostStatus: (hostKey, status) =>
+    set((s) => ({ engineStatus: { ...s.engineStatus, [hostKey]: status } })),
 }))

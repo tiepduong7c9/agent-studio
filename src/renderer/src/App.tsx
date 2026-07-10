@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { AcpConversation, ProjectConversations, SessionMeta } from '../../shared/acp'
 import type { ProjectInfo } from '../../shared/types'
 import { useAcpStore } from './acp/store'
 import { useSessionsStore } from './acp/sessions-store'
@@ -11,13 +12,8 @@ import { SshDialog } from './components/SshDialog'
 import { TitleBar } from './components/TitleBar'
 import { baseName } from './components/editors'
 import type { Selection } from './selection'
-import {
-  NEW_CHAT_ID,
-  chatTabId,
-  diffTabId,
-  fileTabId,
-  useTabsStore
-} from './tabs-store'
+import { chatTabId, diffTabId, fileTabId, newChatTabId, useTabsStore } from './tabs-store'
+import { workspaceForSession } from './workspace'
 
 const MIN_PANEL_WIDTH = 170
 
@@ -25,11 +21,25 @@ function clampWidth(w: number): number {
   return Math.min(Math.max(w, MIN_PANEL_WIDTH), Math.floor(window.innerWidth * 0.4))
 }
 
+const normRoot = (p: string): string => p.replace(/\/+$/, '') || '/'
+
+/** A workspace rooted exactly at a session's own cwd/host. */
+function matchesSessionDir(w: ProjectInfo, s: SessionMeta): boolean {
+  return (w.host ?? null) === (s.host ?? null) && normRoot(w.rootPath) === normRoot(s.cwd)
+}
+
 export function App() {
-  const [project, setProject] = useState<ProjectInfo | null>(null)
+  const [workspaces, setWorkspaces] = useState<ProjectInfo[]>([])
+  // Providers rooted at a session's own cwd, so the right panel can follow a
+  // selected session whose folder was never opened as a workspace.
+  const [sessionWorkspaces, setSessionWorkspaces] = useState<ProjectInfo[]>([])
   const [sshDialogOpen, setSshDialogOpen] = useState(false)
-  // Remote home directory to browse after connecting; null when not browsing.
-  const [sshBrowseHome, setSshBrowseHome] = useState<string | null>(null)
+  // Connected SSH hosts ("user@host"). Their projects/sessions surface in the
+  // sidebar without opening a folder; each gets its own host section.
+  const [remoteHosts, setRemoteHosts] = useState<string[]>([])
+  // Host whose remote folder picker is open (optional "open folder" action);
+  // null when not picking.
+  const [folderPickerHost, setFolderPickerHost] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [leftWidth, setLeftWidth] = useState(300)
   const [rightWidth, setRightWidth] = useState(340)
@@ -39,30 +49,71 @@ export function App() {
 
   const sessions = useSessionsStore((s) => s.sessions)
   const setSessions = useSessionsStore((s) => s.setSessions)
-  const setEngineStatus = useSessionsStore((s) => s.setEngineStatus)
+  const projects = useSessionsStore((s) => s.projects)
+  const setProjects = useSessionsStore((s) => s.setProjects)
+  const engineStatus = useSessionsStore((s) => s.engineStatus)
+  const setHostStatus = useSessionsStore((s) => s.setHostStatus)
 
   const tabs = useTabsStore((s) => s.tabs)
   const activeId = useTabsStore((s) => s.activeId)
   const maximized = useTabsStore((s) => s.maximized)
   const openTab = useTabsStore((s) => s.open)
   const pruneChats = useTabsStore((s) => s.pruneChats)
+  const pruneWorkspace = useTabsStore((s) => s.pruneWorkspace)
 
   const active = tabs.find((t) => t.id === activeId) ?? null
   const activeSid = active?.kind === 'chat' ? active.sid : null
+  const activeChatMeta =
+    active?.kind === 'chat' ? (sessions.find((s) => s.id === active.sid) ?? null) : null
+  // The right panel follows the active tab's workspace. For a chat that's the
+  // session's workspace: an open folder that contains it, else a provider rooted
+  // at the session's own cwd (ensured by the effect below). File/diff tabs carry
+  // an explicit workspace id. With no active tab, fall back to the first open one.
+  const activeWorkspace: ProjectInfo | null = !active
+    ? (workspaces[0] ?? null)
+    : active.kind === 'chat'
+      ? activeChatMeta
+        ? (workspaceForSession(activeChatMeta, workspaces) ??
+           sessionWorkspaces.find((w) => matchesSessionDir(w, activeChatMeta)) ??
+           null)
+        : null
+      : ([...workspaces, ...sessionWorkspaces].find((w) => w.id === active.wsId) ?? null)
   const selection: Selection | null =
     active?.kind === 'file'
-      ? { kind: 'file', path: active.path, name: active.name }
+      ? { kind: 'file', wsId: active.wsId, path: active.path, name: active.name }
       : active?.kind === 'diff'
-        ? { kind: 'diff', change: active.change }
+        ? { kind: 'diff', wsId: active.wsId, change: active.change }
         : null
+
+  const addWorkspace = useCallback((info: ProjectInfo) => {
+    setWorkspaces((ws) => (ws.some((w) => w.id === info.id) ? ws : [...ws, info]))
+  }, [])
+
+  // (Re)scan every connected host's ~/.claude/projects for the grouped history.
+  const refreshProjects = useCallback(() => {
+    window.studio.acp.listProjects().then(setProjects).catch(() => {})
+  }, [setProjects])
 
   useEffect(() => {
     const initial = window.studio.initialProjectPath
     if (!initial) return
     window.studio.openLocalPath(initial).then((result) => {
-      if (result.ok) setProject(result.data)
+      if (result.ok) addWorkspace(result.data)
       else setError(result.error)
     })
+  }, [addWorkspace])
+
+  // Reconnect remembered SSH hosts on startup so their projects/sessions
+  // resurface without re-entering credentials.
+  useEffect(() => {
+    window.studio
+      .reconnectSavedHosts()
+      .then((res) => {
+        if (res.ok && res.data.length) {
+          setRemoteHosts((hs) => Array.from(new Set([...hs, ...res.data])))
+        }
+      })
+      .catch(() => {})
   }, [])
 
   // Route engine push events into the stores, and seed the session list.
@@ -76,83 +127,162 @@ export function App() {
     const offResync = window.studio.acp.onResync(({ sid, snapshot }) => {
       useAcpStore.getState().setHistory(sid, snapshot)
     })
-    const offStatus = window.studio.acp.onEngineStatus(({ connected, permanent }) =>
-      setEngineStatus(connected ? 'connected' : permanent ? 'lost' : 'reconnecting')
-    )
+    const offStatus = window.studio.acp.onEngineStatus(({ hostKey, connected, permanent }) => {
+      setHostStatus(hostKey, connected ? 'connected' : permanent ? 'lost' : 'reconnecting')
+      // A host coming (back) online may expose new projects — re-scan.
+      if (connected) refreshProjects()
+    })
     window.studio.acp.listSessions().then(setSessions).catch(() => {})
+    refreshProjects()
     return () => { offEvent(); offSessions(); offResync(); offStatus() }
-  }, [setSessions, setEngineStatus])
+  }, [setSessions, setHostStatus, refreshProjects])
+
+  // Re-scan when the set of open workspaces or connected hosts changes
+  // (connecting a host wires it, so its projects should now appear).
+  useEffect(() => {
+    refreshProjects()
+  }, [workspaces, remoteHosts, refreshProjects])
 
   // Close chat tabs whose session was killed on the engine.
   useEffect(() => {
     pruneChats(new Set(sessions.map((s) => s.id)))
   }, [sessions, pruneChats])
 
+  // When a chat is active and no open folder contains its session, root a
+  // provider at the session's own cwd so the right panel reflects its directory.
+  useEffect(() => {
+    if (!activeChatMeta) return
+    const meta = activeChatMeta
+    if (workspaceForSession(meta, workspaces)) return
+    if (sessionWorkspaces.some((w) => matchesSessionDir(w, meta))) return
+    window.studio
+      .ensureProjectForSession(meta.cwd, meta.host ?? null)
+      .then((res) => {
+        if (res.ok) {
+          setSessionWorkspaces((prev) =>
+            prev.some((w) => w.id === res.data.id) ? prev : [...prev, res.data]
+          )
+        }
+      })
+      .catch(() => {})
+  }, [activeChatMeta, workspaces, sessionWorkspaces])
+
   const openChat = useCallback(
     (sid: string) => {
       const meta = sessions.find((s) => s.id === sid)
-      openTab({ id: chatTabId(sid), kind: 'chat', title: meta?.name ?? 'Session', sid })
+      const ws = meta ? workspaceForSession(meta, workspaces) : null
+      // wsId '' = an "Other sessions" chat with no open folder; the right panel
+      // (which keys off the active tab's workspace) just shows its placeholder.
+      openTab({ id: chatTabId(sid), kind: 'chat', title: meta?.name ?? 'Session', sid, wsId: ws?.id ?? '' })
     },
-    [sessions, openTab]
+    [sessions, workspaces, openTab]
   )
 
-  const newChat = useCallback(() => {
-    openTab({ id: NEW_CHAT_ID, kind: 'new-chat', title: 'New Session' })
-  }, [openTab])
+  const newSession = useCallback(
+    (ws: ProjectInfo) => {
+      openTab({ id: newChatTabId(ws.id), kind: 'new-chat', title: 'New Session', wsId: ws.id })
+    },
+    [openTab]
+  )
+
+  // Open a past conversation from the history: spin up a live session in the
+  // project's folder and resume that conversation into it. If the project is an
+  // open workspace the chat tab is tagged with it (so the right panel follows).
+  const openConversation = useCallback(
+    async (project: ProjectConversations, conv: AcpConversation) => {
+      try {
+        const meta = await window.studio.acp.createSession(
+          project.cwd,
+          project.host ?? null,
+          conv.title ?? undefined
+        )
+        await window.studio.acp.resumeConversation(meta.id, conv.sessionId)
+        const ws = workspaceForSession(meta, workspaces)
+        openTab({ id: chatTabId(meta.id), kind: 'chat', title: meta.name, sid: meta.id, wsId: ws?.id ?? '' })
+      } catch (err: any) {
+        setError(err?.message || String(err))
+      }
+    },
+    [workspaces, openTab]
+  )
 
   const onSelect = useCallback(
-    (sel: Selection) => {
+    (sel: Selection, opts?: { preview?: boolean }) => {
+      // Single click previews (reuses one transient tab); double click keeps.
+      const previewOpts = { preview: opts?.preview !== false }
+      // Tag the tab with the active session so it lives in that session's group.
+      const ownerSid = useTabsStore.getState().activeSid
       if (sel.kind === 'file') {
-        openTab({ id: fileTabId(sel.path), kind: 'file', title: sel.name, path: sel.path, name: sel.name })
+        openTab(
+          { id: fileTabId(ownerSid, sel.wsId, sel.path), kind: 'file', title: sel.name, path: sel.path, name: sel.name, wsId: sel.wsId, ownerSid },
+          previewOpts
+        )
       } else {
-        openTab({
-          id: diffTabId(sel.change),
-          kind: 'diff',
-          title: baseName(sel.change.path),
-          detail: '(Working Tree)',
-          change: sel.change
-        })
+        openTab(
+          {
+            id: diffTabId(ownerSid, sel.wsId, sel.change),
+            kind: 'diff',
+            // Just the file name; the git-compare icon already marks it a diff.
+            title: baseName(sel.change.path),
+            change: sel.change,
+            wsId: sel.wsId,
+            ownerSid
+          },
+          previewOpts
+        )
       }
     },
     [openTab]
   )
 
-  const createSession = useCallback(async (text: string) => {
-    if (!project) return
+  const createSession = useCallback(async (ws: ProjectInfo, text: string) => {
     try {
-      const meta = await window.studio.acp.createSession(project.rootPath)
-      openTab({ id: chatTabId(meta.id), kind: 'chat', title: meta.name, sid: meta.id })
-      useTabsStore.getState().close(NEW_CHAT_ID)
+      const meta = await window.studio.acp.createSession(ws.rootPath, ws.host ?? null)
+      openTab({ id: chatTabId(meta.id), kind: 'chat', title: meta.name, sid: meta.id, wsId: ws.id })
+      useTabsStore.getState().close(newChatTabId(ws.id))
       await window.studio.acp.prompt(meta.id, [{ type: 'text', text }])
     } catch (err: any) {
       setError(err?.message || String(err))
     }
-  }, [project, openTab])
+  }, [openTab])
 
   const openLocal = useCallback(async () => {
     setError(null)
     const result = await window.studio.openLocalProject()
     if (!result.ok) return setError(result.error)
-    if (result.data) setProject(result.data)
-  }, [])
+    if (result.data) addWorkspace(result.data)
+  }, [addWorkspace])
 
-  const closeProject = useCallback(async () => {
-    await window.studio.closeProject()
-    setProject(null)
-    setError(null)
-  }, [])
+  const closeWorkspace = useCallback(
+    async (wsId: string) => {
+      await window.studio.closeProject(wsId)
+      setWorkspaces((ws) => ws.filter((w) => w.id !== wsId))
+      pruneWorkspace(wsId)
+    },
+    [pruneWorkspace]
+  )
+
+  // Disconnect an SSH host: tear down its engine/connection and drop everything
+  // scoped to it. Its live sessions disappear from the pushed list (which prunes
+  // their chat tabs); its discovered projects vanish on the next scan.
+  const disconnectRemote = useCallback(async (host: string) => {
+    await window.studio.sshDisconnect(host)
+    setRemoteHosts((hs) => hs.filter((h) => h !== host))
+    setWorkspaces((ws) => ws.filter((w) => (w.host ?? null) !== host))
+    setSessionWorkspaces((ws) => ws.filter((w) => (w.host ?? null) !== host))
+    refreshProjects()
+  }, [refreshProjects])
 
   return (
     <div className="app">
       <TitleBar
-        project={project}
+        activeWorkspace={activeWorkspace}
         leftVisible={leftVisible}
         rightVisible={rightVisible}
         onToggleLeft={() => setLeftVisible(!leftVisible)}
         onToggleRight={() => setRightVisible(!rightVisible)}
         onOpenLocal={openLocal}
         onOpenSsh={() => setSshDialogOpen(true)}
-        onClose={closeProject}
       />
       {error && (
         <div className="error-banner">
@@ -165,11 +295,20 @@ export function App() {
           <>
             <aside className="panel panel-left" style={{ width: leftWidth }}>
               <SessionsPanel
-                project={project}
+                workspaces={workspaces}
                 sessions={sessions}
+                projects={projects}
+                remoteHosts={remoteHosts}
+                engineStatus={engineStatus}
                 activeSid={activeSid}
-                onSelect={openChat}
-                onNew={newChat}
+                onSelectSession={openChat}
+                onOpenConversation={openConversation}
+                onNewSession={newSession}
+                onCloseWorkspace={closeWorkspace}
+                onOpenLocal={openLocal}
+                onOpenSsh={() => setSshDialogOpen(true)}
+                onOpenRemoteFolder={(host) => setFolderPickerHost(host)}
+                onDisconnectRemote={disconnectRemote}
               />
             </aside>
             <Sash
@@ -180,7 +319,8 @@ export function App() {
         )}
         <main className="panel panel-center">
           <EditorArea
-            project={project}
+            workspaces={workspaces}
+            sessionWorkspaces={sessionWorkspaces}
             onCreateSession={createSession}
             onPickFolder={openLocal}
           />
@@ -192,33 +332,30 @@ export function App() {
               onResize={(d) => setRightWidth(clampWidth(dragBase.current - d))}
             />
             <aside className="panel panel-right" style={{ width: rightWidth }}>
-              <RightPanel project={project} selection={selection} onSelect={onSelect} />
+              <RightPanel project={activeWorkspace} selection={selection} onSelect={onSelect} />
             </aside>
           </>
         )}
       </div>
       {sshDialogOpen && (
         <SshDialog
-          onConnected={(home) => {
+          onConnected={(host) => {
             setSshDialogOpen(false)
-            setSshBrowseHome(home)
+            setRemoteHosts((hs) => (hs.includes(host) ? hs : [...hs, host]))
             setError(null)
           }}
           onCancel={() => setSshDialogOpen(false)}
         />
       )}
-      {sshBrowseHome !== null && (
+      {folderPickerHost !== null && (
         <RemoteFolderPicker
-          initialPath={sshBrowseHome}
+          host={folderPickerHost}
           onOpen={(info) => {
-            setProject(info)
-            setSshBrowseHome(null)
+            addWorkspace(info)
+            setFolderPickerHost(null)
             setError(null)
           }}
-          onCancel={() => {
-            window.studio.sshCancel()
-            setSshBrowseHome(null)
-          }}
+          onCancel={() => setFolderPickerHost(null)}
         />
       )}
     </div>

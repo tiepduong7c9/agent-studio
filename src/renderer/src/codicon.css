@@ -43,6 +43,9 @@
 .codicon-chrome-restore:before { content: '\eabb'; }
 .codicon-circle-slash:before { content: '\eabd'; }
 .codicon-collapse-all:before { content: '\eac5'; }
+.codicon-expand-all:before { content: '\eb95'; }
+.codicon-device-desktop:before { content: '\ea7a'; }
+.codicon-debug-disconnect:before { content: '\ead0'; }
 .codicon-color-mode:before { content: '\eac6'; }
 .codicon-extensions:before { content: '\eae6'; }
 .codicon-folder-opened:before { content: '\eaf7'; }

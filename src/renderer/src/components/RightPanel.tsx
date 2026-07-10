@@ -1,13 +1,13 @@
 import { useState } from 'react'
 import type { ProjectInfo } from '../../../shared/types'
-import type { Selection } from '../selection'
+import type { Selection, SelectHandler } from '../selection'
 import { FileTree } from './FileTree'
 import { GitPanel } from './GitPanel'
 
 interface Props {
   project: ProjectInfo | null
   selection: Selection | null
-  onSelect: (selection: Selection) => void
+  onSelect: SelectHandler
 }
 
 type Tab = 'changes' | 'files'
@@ -45,7 +45,7 @@ export function RightPanel({ project, selection, onSelect }: Props) {
             onSelect={onSelect}
           />
         ) : (
-          <GitPanel key={projectKey(project)} selection={selection} onSelect={onSelect} />
+          <GitPanel key={projectKey(project)} wsId={project.id} onSelect={onSelect} />
         )}
       </div>
     </div>

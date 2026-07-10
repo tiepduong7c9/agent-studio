@@ -186,7 +186,9 @@ export function AcpThread({ sid, visible = true }: { sid: string; visible?: bool
   const resolvePermissionLocal = useAcpStore((s) => s.resolvePermissionLocal)
   const setModeLocal = useAcpStore((s) => s.setModeLocal)
   const setModelLocal = useAcpStore((s) => s.setModelLocal)
-  const engineStatus = useSessionsStore((s) => s.engineStatus)
+  // Transport health for this session's host only — other hosts may be fine.
+  const host = useSessionsStore((s) => s.sessions.find((x) => x.id === sid)?.host ?? null)
+  const engineStatus = useSessionsStore((s) => s.engineStatus[host ? `ssh:${host}` : 'local']) ?? 'connected'
   const [draft, setDraft] = useState('')
   const [focused, setFocused] = useState(false)
   const [resuming, setResuming] = useState(false)

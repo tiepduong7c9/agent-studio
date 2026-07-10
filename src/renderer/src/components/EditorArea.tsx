@@ -1,14 +1,19 @@
-import type { MouseEvent } from 'react'
+import { useState, type MouseEvent } from 'react'
 import type { ProjectInfo } from '../../../shared/types'
-import { useTabsStore, type EditorTab } from '../tabs-store'
+import { useTabsStore, visibleTabs, type EditorTab } from '../tabs-store'
 import { AcpThread } from './AcpThread'
 import { ChatCard } from './ChatCard'
+import { ContextMenu, type MenuItem } from './ContextMenu'
 import { DiffView, FileView } from './editors'
 import letterpress from '../assets/letterpress-light.svg'
 
 interface Props {
-  project: ProjectInfo | null
-  onCreateSession: (text: string) => void
+  workspaces: ProjectInfo[]
+  // Providers rooted at a session's own cwd (folders never opened as a
+  // workspace). Diff tabs can carry one of these ids, so they must be
+  // resolvable here too — otherwise the diff tab renders the empty watermark.
+  sessionWorkspaces: ProjectInfo[]
+  onCreateSession: (ws: ProjectInfo, text: string) => void
   onPickFolder: () => void
 }
 
@@ -30,19 +35,40 @@ function tabIcon(tab: EditorTab): string {
  * new-session card, and file/diff viewers) over a single active editor.
  * Double-clicking a tab toggles maximize, which hides the surrounding panels.
  */
-export function EditorArea({ project, onCreateSession, onPickFolder }: Props) {
-  const tabs = useTabsStore((s) => s.tabs)
+export function EditorArea({ workspaces, sessionWorkspaces, onCreateSession, onPickFolder }: Props) {
+  const allTabs = useTabsStore((s) => s.tabs)
+  const activeSid = useTabsStore((s) => s.activeSid)
+  // Only the active session's tabs are shown; switching sessions swaps the set.
+  const tabs = visibleTabs(allTabs, activeSid)
   const activeId = useTabsStore((s) => s.activeId)
   const maximized = useTabsStore((s) => s.maximized)
   const setActive = useTabsStore((s) => s.setActive)
   const close = useTabsStore((s) => s.close)
+  const keep = useTabsStore((s) => s.keep)
+  const closeOthers = useTabsStore((s) => s.closeOthers)
+  const closeAll = useTabsStore((s) => s.closeAll)
   const toggleMaximize = useTabsStore((s) => s.toggleMaximize)
+  const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null)
 
-  const active = tabs.find((t) => t.id === activeId) ?? null
+  const active = allTabs.find((t) => t.id === activeId) ?? null
 
   const onCloseTab = (e: MouseEvent, id: string) => {
     e.stopPropagation()
     close(id)
+  }
+
+  const onTabContextMenu = (e: MouseEvent, tab: EditorTab) => {
+    e.preventDefault()
+    const isPreview = (tab.kind === 'file' || tab.kind === 'diff') && !!tab.preview
+    const items: MenuItem[] = []
+    if (isPreview) {
+      items.push({ label: 'Keep Open', run: () => keep(tab.id) })
+      items.push({ separator: true })
+    }
+    items.push({ label: 'Close', run: () => close(tab.id) })
+    items.push({ label: 'Close Others', enabled: tabs.length > 1, run: () => closeOthers(tab.id) })
+    items.push({ label: 'Close All', run: () => closeAll() })
+    setMenu({ x: e.clientX, y: e.clientY, items })
   }
 
   return (
@@ -55,14 +81,14 @@ export function EditorArea({ project, onCreateSession, onPickFolder }: Props) {
                 key={tab.id}
                 role="tab"
                 aria-selected={tab.id === activeId}
-                className={`tab ${tab.id === activeId ? 'active' : ''}`}
+                className={`tab ${tab.id === activeId ? 'active' : ''} ${'preview' in tab && tab.preview ? 'preview' : ''}`}
                 title={tab.title}
                 onClick={() => setActive(tab.id)}
                 onDoubleClick={toggleMaximize}
+                onContextMenu={(e) => onTabContextMenu(e, tab)}
               >
                 <span className={`codicon ${tabIcon(tab)} tab-icon`} />
                 <span className="tab-name">{tab.title}</span>
-                {'detail' in tab && tab.detail && <span className="tab-detail">{tab.detail}</span>}
                 <span
                   className="tab-close codicon codicon-close"
                   role="button"
@@ -84,26 +110,31 @@ export function EditorArea({ project, onCreateSession, onPickFolder }: Props) {
       <div className="editor-body">
         <TabContent
           tab={active}
-          project={project}
+          workspace={
+            active
+              ? ([...workspaces, ...sessionWorkspaces].find((w) => w.id === active.wsId) ?? null)
+              : null
+          }
           onCreateSession={onCreateSession}
           onPickFolder={onPickFolder}
           onCloseNewChat={() => active && close(active.id)}
         />
       </div>
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
     </div>
   )
 }
 
 function TabContent({
   tab,
-  project,
+  workspace,
   onCreateSession,
   onPickFolder,
   onCloseNewChat
 }: {
   tab: EditorTab | null
-  project: ProjectInfo | null
-  onCreateSession: (text: string) => void
+  workspace: ProjectInfo | null
+  onCreateSession: (ws: ProjectInfo, text: string) => void
   onPickFolder: () => void
   onCloseNewChat: () => void
 }) {
@@ -119,19 +150,19 @@ function TabContent({
     case 'new-chat':
       return (
         <ChatCard
-          project={project}
+          project={workspace}
           onClose={onCloseNewChat}
           onPickFolder={onPickFolder}
-          onCreate={onCreateSession}
+          onCreate={(text) => workspace && onCreateSession(workspace, text)}
         />
       )
     case 'chat':
       return <AcpThread key={tab.id} sid={tab.sid} />
     case 'file':
-      return <FileView key={tab.id} path={tab.path} />
+      return <FileView key={tab.id} wsId={tab.wsId} path={tab.path} />
     case 'diff':
-      return project ? (
-        <DiffView key={tab.id} project={project} change={tab.change} />
+      return workspace ? (
+        <DiffView key={tab.id} project={workspace} change={tab.change} />
       ) : (
         <div className="editor-watermark">
           <img src={letterpress} alt="" draggable={false} />

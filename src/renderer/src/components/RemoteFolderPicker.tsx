@@ -2,16 +2,18 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ProjectInfo, RemoteDirListing } from '../../../shared/types'
 
 interface Props {
-  /** Directory to start browsing from (the remote home). */
-  initialPath: string
+  /** The connected host ("user@host") whose filesystem is being browsed. */
+  host: string
+  /** Directory to start browsing from (defaults to the remote home). */
+  initialPath?: string
   onOpen: (info: ProjectInfo) => void
   onCancel: () => void
 }
 
-// Browses the connected remote host and lets the user pick a project folder:
+// Browses a connected remote host and lets the user pick a project folder:
 // click a folder to descend, ".." to go up, or type a path to jump. "Open"
 // roots the project at the folder currently shown.
-export function RemoteFolderPicker({ initialPath, onOpen, onCancel }: Props) {
+export function RemoteFolderPicker({ host, initialPath = '~', onOpen, onCancel }: Props) {
   const [current, setCurrent] = useState(initialPath)
   const [pathInput, setPathInput] = useState(initialPath)
   const [listing, setListing] = useState<RemoteDirListing | null>(null)
@@ -22,7 +24,7 @@ export function RemoteFolderPicker({ initialPath, onOpen, onCancel }: Props) {
   const navigate = useCallback(async (target: string) => {
     setLoading(true)
     setError(null)
-    const result = await window.studio.sshListDir(target)
+    const result = await window.studio.sshListDir(host, target)
     setLoading(false)
     if (result.ok) {
       setCurrent(result.data.path)
@@ -31,7 +33,7 @@ export function RemoteFolderPicker({ initialPath, onOpen, onCancel }: Props) {
     } else {
       setError(result.error)
     }
-  }, [])
+  }, [host])
 
   const navigatedOnce = useRef(false)
   useEffect(() => {
@@ -43,7 +45,7 @@ export function RemoteFolderPicker({ initialPath, onOpen, onCancel }: Props) {
   const open = async () => {
     setOpening(true)
     setError(null)
-    const result = await window.studio.sshOpenRemote(current)
+    const result = await window.studio.sshOpenRemote(host, current)
     setOpening(false)
     if (result.ok) onOpen(result.data)
     else setError(result.error)

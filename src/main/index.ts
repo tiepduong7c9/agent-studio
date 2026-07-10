@@ -3,6 +3,17 @@ import * as path from 'path'
 import { registerAcpIpc } from './acp-ipc'
 import { disposeProvider, registerIpcHandlers } from './ipc'
 
+// Render via XWayland, same as VS Code and most Electron apps. On GNOME (48+/50)
+// Chromium's *native-Wayland* input path opens a RemoteDesktop portal session on
+// window focus, which triggers GNOME's "Allow Remote Interaction" consent prompt
+// on every interaction. XWayland uses X11 input directly and avoids it entirely.
+// The desktop session stays Wayland — only this app uses the XWayland layer.
+// Set ELECTRON_OZONE_PLATFORM_HINT=wayland to opt into native Wayland (and the
+// prompt) once the upstream Electron/GNOME behavior is fixed.
+if (!process.env.ELECTRON_OZONE_PLATFORM_HINT) {
+  app.commandLine.appendSwitch('ozone-platform-hint', 'x11')
+}
+
 let mainWindow: BrowserWindow | null = null
 let disposeAcp: (() => void) | null = null
 
@@ -89,8 +100,9 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
-  registerIpcHandlers(() => mainWindow)
-  disposeAcp = registerAcpIpc(() => mainWindow)
+  const acpHub = registerAcpIpc(() => mainWindow)
+  registerIpcHandlers(() => mainWindow, acpHub)
+  disposeAcp = () => acpHub.dispose()
   createWindow()
 
   app.on('activate', () => {
@@ -99,7 +111,9 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
-  disposeProvider()
+  // Dispose the ACP hub first so its drop handlers don't schedule reconnects
+  // while the providers' ssh clients (which back the engine tunnels) are ending.
   disposeAcp?.()
+  disposeProvider()
   if (process.platform !== 'darwin') app.quit()
 })

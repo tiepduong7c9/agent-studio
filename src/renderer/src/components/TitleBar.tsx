@@ -2,26 +2,25 @@ import type { ProjectInfo } from '../../../shared/types'
 import { ThemePicker } from './ThemePicker'
 
 interface Props {
-  project: ProjectInfo | null
+  activeWorkspace: ProjectInfo | null
   leftVisible: boolean
   rightVisible: boolean
   onToggleLeft: () => void
   onToggleRight: () => void
   onOpenLocal: () => void
   onOpenSsh: () => void
-  onClose: () => void
 }
 
 export function TitleBar({
-  project,
+  activeWorkspace,
   leftVisible,
   rightVisible,
   onToggleLeft,
   onToggleRight,
   onOpenLocal,
-  onOpenSsh,
-  onClose
+  onOpenSsh
 }: Props) {
+  const project = activeWorkspace
   return (
     <header className="titlebar">
       <div className="titlebar-side left">
@@ -48,20 +47,12 @@ export function TitleBar({
           title="Toggle Right Panel"
           onClick={onToggleRight}
         />
-        {project ? (
-          <button className="btn btn-primary titlebar-action" onClick={onClose}>
-            Close Project
-          </button>
-        ) : (
-          <>
-            <button className="btn titlebar-action" onClick={onOpenSsh}>
-              SSH…
-            </button>
-            <button className="btn btn-primary titlebar-action" onClick={onOpenLocal}>
-              Open Folder
-            </button>
-          </>
-        )}
+        <button className="btn titlebar-action" onClick={onOpenSsh}>
+          SSH…
+        </button>
+        <button className="btn btn-primary titlebar-action" onClick={onOpenLocal}>
+          Open Folder
+        </button>
         <div className="window-controls">
           <button
             className="window-control codicon codicon-chrome-minimize"

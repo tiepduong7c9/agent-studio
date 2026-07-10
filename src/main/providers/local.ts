@@ -3,6 +3,7 @@ import { promises as fs } from 'fs'
 import * as path from 'path'
 import { promisify } from 'util'
 import type { FileEntry, GitStatus, ProjectInfo } from '../../shared/types'
+import { workspaceId } from '../../shared/types'
 import { parseGitStatus } from '../git/parseStatus'
 import { ensureText, MAX_TEXT_FILE_SIZE } from '../textFile'
 import type { ProjectProvider } from './types'
@@ -15,6 +16,7 @@ export class LocalProjectProvider implements ProjectProvider {
   constructor(rootPath: string) {
     const root = path.resolve(rootPath)
     this.info = {
+      id: workspaceId({ kind: 'local', rootPath: root }),
       kind: 'local',
       name: path.basename(root),
       rootPath: root
@@ -88,7 +90,10 @@ export class LocalProjectProvider implements ProjectProvider {
     try {
       const { stdout } = await execFileAsync(
         'git',
-        ['-C', this.info.rootPath, 'status', '--porcelain=v2', '--branch', '-z'],
+        // --untracked-files=all lists each untracked file individually instead
+        // of collapsing a wholly-untracked directory into one `dir/` entry —
+        // folder entries aren't diffable and mismatch VS Code's SCM behavior.
+        ['-C', this.info.rootPath, 'status', '--porcelain=v2', '--branch', '-z', '--untracked-files=all'],
         { maxBuffer: 16 * 1024 * 1024 }
       )
       return parseGitStatus(stdout)

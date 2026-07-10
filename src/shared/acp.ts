@@ -8,6 +8,9 @@ export interface SessionMeta {
   id: string
   name: string
   cwd: string
+  /** Host the session runs on: "user@host" for ssh, null/absent for local.
+   *  Decorated in the main process when merging engines; not set by the engine. */
+  host?: string | null
   mode: 'acp'
   status: 'running' | 'suspended' | 'exited'
   claudeStatus?: ClaudeStatus
@@ -38,6 +41,18 @@ export interface AcpConversation {
   mtime: number
 }
 
+/** A project folder discovered on a host with its resumable conversations. */
+export interface ProjectConversations {
+  /** Absolute project root on its host. */
+  cwd: string
+  /** Display name — the folder basename of cwd. */
+  name: string
+  /** Host the project lives on: "user@host" for ssh, null/absent for local.
+   *  Decorated in the main process when merging engines. */
+  host?: string | null
+  conversations: AcpConversation[]
+}
+
 /** Payload pushed on the 'acp:event' channel (main → renderer). */
 export interface AcpEventPayload {
   sid: string
@@ -51,6 +66,7 @@ export type EventFn<T> = (listener: (e: T) => void) => Disposable
 
 export interface ISessionManagerClient {
   list(): Promise<SessionMeta[]>
+  listProjects(): Promise<ProjectConversations[]>
   create(opts: { cwd: string; name?: string }): Promise<SessionMeta>
   snapshot(sid: string): Promise<AcpSnapshot | null>
   prompt(sid: string, blocks: any[]): Promise<void>

@@ -1,6 +1,8 @@
 export type ProjectKind = 'local' | 'ssh'
 
 export interface ProjectInfo {
+  /** Stable workspace id — `${kind}:${host ?? 'local'}:${rootPath}` */
+  id: string
   kind: ProjectKind
   /** Display name (folder basename) */
   name: string
@@ -8,6 +10,21 @@ export interface ProjectInfo {
   rootPath: string
   /** Present for ssh projects, e.g. "user@host" */
   host?: string
+}
+
+/** Stable id for an opened folder (workspace). */
+export function workspaceId(info: { kind: ProjectKind; host?: string; rootPath: string }): string {
+  // Normalize a trailing slash so /foo and /foo/ map to the same workspace.
+  const root = info.rootPath.replace(/\/+$/, '') || '/'
+  return `${info.kind}:${info.host ?? 'local'}:${root}`
+}
+
+/**
+ * The engine/host key a workspace's sessions run under. Workspaces on the same
+ * host share one engine; local workspaces all share the local daemon.
+ */
+export function engineHostKey(info: { kind: ProjectKind; host?: string }): string {
+  return info.kind === 'ssh' && info.host ? `ssh:${info.host}` : 'local'
 }
 
 export type FileKind = 'file' | 'dir'
@@ -54,10 +71,13 @@ export interface SshConnectOptions {
   privateKeyPath?: string
 }
 
-/** Result of a successful SSH connect, before a project folder is chosen. */
+/** Result of a successful SSH connect. The host's projects/sessions surface
+ *  immediately; a project folder need not be chosen. */
 export interface SshConnection {
   /** The connected user's home directory — where remote browsing starts. */
   home: string
+  /** The host key for this connection, e.g. "user@host". */
+  host: string
 }
 
 export interface RemoteDirEntry {

@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { CompressibleAsyncDataTree } from 'monaco-editor/esm/vs/base/browser/ui/tree/asyncDataTree.js'
 import * as defaultStyles from 'monaco-editor/esm/vs/platform/theme/browser/defaultStyles.js'
 import type { FileEntry, ProjectInfo, Result } from '../../../shared/types'
-import type { Selection } from '../selection'
+import type { Selection, SelectHandler } from '../selection'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { ConfirmDialog, ErrorDialog, PromptDialog } from './Dialogs'
 import { fileIconStyle } from './FileIcon'
@@ -13,7 +13,7 @@ import { fileIconStyle } from './FileIcon'
 interface Props {
   project: ProjectInfo
   selection: Selection | null
-  onSelect: (selection: Selection) => void
+  onSelect: SelectHandler
 }
 
 type RootInput = { root: true }
@@ -65,7 +65,7 @@ export function FileTree({ project, onSelect }: Props) {
       if (!isRoot && !isDir) {
         items.push({
           label: 'Open',
-          run: () => onSelectRef.current({ kind: 'file', path: targetPath, name: baseName(targetPath) })
+          run: () => onSelectRef.current({ kind: 'file', wsId: project.id, path: targetPath, name: baseName(targetPath) }, { preview: false })
         })
         items.push({ separator: true })
       }
@@ -79,7 +79,7 @@ export function FileTree({ project, onSelect }: Props) {
             submitLabel: 'Create',
             onSubmit: (name) => {
               setDialog(null)
-              runOp(window.studio.createFile(joinPath(newEntryDir, name)))
+              runOp(window.studio.createFile(project.id, joinPath(newEntryDir, name)))
             }
           })
       })
@@ -92,7 +92,7 @@ export function FileTree({ project, onSelect }: Props) {
             submitLabel: 'Create',
             onSubmit: (name) => {
               setDialog(null)
-              runOp(window.studio.createDir(joinPath(newEntryDir, name)))
+              runOp(window.studio.createDir(project.id, joinPath(newEntryDir, name)))
             }
           })
       })
@@ -118,7 +118,7 @@ export function FileTree({ project, onSelect }: Props) {
               onSubmit: (name) => {
                 setDialog(null)
                 if (name !== baseName(targetPath)) {
-                  runOp(window.studio.renamePath(targetPath, joinPath(parentDir, name)))
+                  runOp(window.studio.renamePath(project.id, targetPath, joinPath(parentDir, name)))
                 }
               }
             })
@@ -136,7 +136,7 @@ export function FileTree({ project, onSelect }: Props) {
               confirmLabel: project.kind === 'local' ? 'Move to Trash' : 'Delete',
               onConfirm: () => {
                 setDialog(null)
-                runOp(window.studio.deletePath(targetPath))
+                runOp(window.studio.deletePath(project.id, targetPath))
               }
             })
         })
@@ -166,7 +166,7 @@ export function FileTree({ project, onSelect }: Props) {
       getChildren: async (n: RootInput | TreeNode): Promise<TreeNode[]> => {
         if ('root' in n && n.root === true) return [project]
         const dir = isProject(n as TreeNode) ? (n as ProjectInfo).rootPath : (n as FileEntry).path
-        const result = await window.studio.readDir(dir)
+        const result = await window.studio.readDir(project.id, dir)
         if (!result.ok) throw new Error(result.error)
         return sortEntries(result.data)
       }
@@ -245,10 +245,12 @@ export function FileTree({ project, onSelect }: Props) {
 
     tree.setInput({ root: true }).then(() => tree.expand(project).catch(() => {}))
 
+    // Single click previews the file in the transient tab; it's kept permanent
+    // via the tab's right-click menu ("Keep Open").
     const openListener = tree.onDidChangeSelection((e: any) => {
       const el: TreeNode | undefined = e.elements?.[0]
       if (el && !isProject(el) && el.kind !== 'dir') {
-        onSelectRef.current({ kind: 'file', path: el.path, name: el.name })
+        onSelectRef.current({ kind: 'file', wsId: project.id, path: el.path, name: el.name }, { preview: true })
       }
     })
 
