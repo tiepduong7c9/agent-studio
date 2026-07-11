@@ -1,4 +1,4 @@
-import { type KeyboardEvent, type MouseEvent, useMemo, useRef, useState } from 'react'
+import { type KeyboardEvent, type MouseEvent, useEffect, useMemo, useRef, useState } from 'react'
 import type { AcpConversation, ProjectConversations, SessionMeta } from '../../../shared/acp'
 import { workspaceId, type ProjectInfo } from '../../../shared/types'
 import { useViewPrefsStore } from '../view-prefs-store'
@@ -340,7 +340,13 @@ export function SessionsPanel({
   const [scope, setScope] = useState<{ key: string; name: string; host: string | null } | null>(null)
   const [suggestOpen, setSuggestOpen] = useState(false)
   const [highlight, setHighlight] = useState(0)
+  // The search box is hidden until toggled from the header. Focus it on open.
+  const [searchOpen, setSearchOpen] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (searchOpen) inputRef.current?.focus()
+  }, [searchOpen])
 
   const q = query.trim().toLowerCase()
   const searching = q.length > 0
@@ -363,6 +369,16 @@ export function SessionsPanel({
     setScope(null)
     setQuery('')
     setSuggestOpen(false)
+  }
+  // Toggle the search box; closing it also clears any active query/scope so no
+  // filter stays applied while the box is hidden.
+  const toggleSearch = (): void => {
+    if (searchOpen) {
+      clearSearch()
+      setSearchOpen(false)
+    } else {
+      setSearchOpen(true)
+    }
   }
 
   const onSearchKeyDown = (e: KeyboardEvent<HTMLInputElement>): void => {
@@ -396,7 +412,10 @@ export function SessionsPanel({
     }
     if (e.key === 'Escape') {
       if (query) setQuery('')
-      else clearSearch()
+      else {
+        clearSearch()
+        setSearchOpen(false)
+      }
     }
   }
 
@@ -673,6 +692,13 @@ export function SessionsPanel({
             {hiddenCount}
           </button>
         )}
+        {!nothing && (
+          <button
+            className={`icon-button codicon codicon-search ${searchOpen ? 'active' : ''}`}
+            title={searchOpen ? 'Hide Search' : 'Search'}
+            onClick={toggleSearch}
+          />
+        )}
         {!focusMode && (
           <button
             className={`icon-button codicon ${allCollapsed ? 'codicon-expand-all' : 'codicon-collapse-all'}`}
@@ -683,7 +709,7 @@ export function SessionsPanel({
         <button className="icon-button codicon codicon-new-folder" title="Open Folder" onClick={onOpenLocal} />
         <button className="icon-button codicon codicon-remote" title="Connect SSH" onClick={onOpenSsh} />
       </div>
-      {!nothing && (
+      {!nothing && searchOpen && (
         <div className="sessions-search-wrap">
           <div className="sessions-search">
             <span className="codicon codicon-search sessions-search-icon" />

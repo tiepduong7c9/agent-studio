@@ -300,6 +300,12 @@ body {
   font-weight: 600;
 }
 
+/* Active toggle (e.g. the search button while the box is open) */
+.sessions-header .icon-button.active {
+  color: var(--vscode-foreground);
+  background: var(--vscode-toolbar-activeBackground, var(--vscode-toolbar-hoverBackground));
+}
+
 .new-session-button {
   display: flex;
   align-items: center;
