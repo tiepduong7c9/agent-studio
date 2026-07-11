@@ -1,6 +1,6 @@
 import { type KeyboardEvent, type MouseEvent, useMemo, useRef, useState } from 'react'
 import type { AcpConversation, ProjectConversations, SessionMeta } from '../../../shared/acp'
-import type { ProjectInfo } from '../../../shared/types'
+import { workspaceId, type ProjectInfo } from '../../../shared/types'
 import { useViewPrefsStore } from '../view-prefs-store'
 import { groupKey, workspaceForSession } from '../workspace'
 
@@ -74,6 +74,21 @@ interface Group {
   workspace: ProjectInfo | null
   project: ProjectConversations | null
   live: SessionMeta[]
+}
+
+/** The project a "New Session" targets for a group — the open workspace if the
+ *  group is one, else a project synthesized from its folder (discovered on-disk
+ *  projects with no open workspace still get to start sessions). */
+function groupProject(g: Group): ProjectInfo {
+  if (g.workspace) return g.workspace
+  const kind = g.host ? 'ssh' : 'local'
+  return {
+    id: workspaceId({ kind, host: g.host ?? undefined, rootPath: g.cwd }),
+    kind,
+    name: g.name,
+    rootPath: g.cwd,
+    host: g.host ?? undefined
+  }
 }
 
 interface LiveRowProps {
@@ -477,16 +492,14 @@ export function SessionsPanel({
             {g.name}
           </span>
           <span className="topbar-spacer" />
-          {g.workspace && (
-            <button
-              className="icon-button codicon codicon-add"
-              title="New Session"
-              onClick={(e) => {
-                e.stopPropagation()
-                onNewSession(g.workspace!)
-              }}
-            />
-          )}
+          <button
+            className="icon-button codicon codicon-add"
+            title="New Session"
+            onClick={(e) => {
+              e.stopPropagation()
+              onNewSession(groupProject(g))
+            }}
+          />
           {groupHidden ? (
             <button
               className="icon-button codicon codicon-eye"

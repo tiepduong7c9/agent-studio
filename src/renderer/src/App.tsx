@@ -183,10 +183,25 @@ export function App() {
   )
 
   const newSession = useCallback(
-    (ws: ProjectInfo) => {
-      openTab({ id: newChatTabId(ws.id), kind: 'new-chat', title: 'New Session', wsId: ws.id })
+    async (ws: ProjectInfo) => {
+      try {
+        // Open workspaces already resolve in the panels. For a discovered project
+        // with no open folder, root a provider at its directory (and register it)
+        // so the file/git panels can follow the new session.
+        if (!workspaces.some((w) => w.id === ws.id)) {
+          const res = await window.studio.ensureProjectForSession(ws.rootPath, ws.host ?? null)
+          if (!res.ok) return setError(res.error)
+          ws = res.data
+          setSessionWorkspaces((prev) => (prev.some((w) => w.id === ws.id) ? prev : [...prev, ws]))
+        }
+        // Spin up the live session and open its chat tab straight away.
+        const meta = await window.studio.acp.createSession(ws.rootPath, ws.host ?? null)
+        openTab({ id: chatTabId(meta.id), kind: 'chat', title: 'Claude Code', sid: meta.id, wsId: ws.id })
+      } catch (err: any) {
+        setError(err?.message || String(err))
+      }
     },
-    [openTab]
+    [workspaces, openTab]
   )
 
   // Open a past conversation from the history: spin up a live session in the
