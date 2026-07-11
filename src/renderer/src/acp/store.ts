@@ -81,7 +81,11 @@ export const useAcpStore = create<AcpStore>((set) => ({
     // Drop duplicates fanned out to multiple attachments.
     if (typeof event.seq === 'number' && event.seq <= prev.lastSeq) return {}
     const lastSeq = typeof event.seq === 'number' ? event.seq : prev.lastSeq
-    threads.set(sid, { ...prev, events: [...prev.events, event], lastSeq })
+    // Stamp the arrival time on live events so the UI can measure spans (e.g.
+    // thinking duration) from real event timing. Snapshot/history events keep
+    // whatever rxAt they came with (none), and read as historical.
+    const stamped = event.rxAt != null ? event : { ...event, rxAt: Date.now() }
+    threads.set(sid, { ...prev, events: [...prev.events, stamped], lastSeq })
     return { threads }
   }),
 

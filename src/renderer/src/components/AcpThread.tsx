@@ -3,8 +3,10 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
   AlertTriangle, BrainCircuit, Check, ChevronDown, ChevronRight, CircleSlash,
-  Clock, Cpu, ListTodo, ShieldQuestion, SquarePen, Square, Wrench, ArrowUp, Zap
+  Clock, Copy, Cpu, FileText, FolderTree, Globe, ListTodo, Loader2, Pencil, Search,
+  ShieldQuestion, SquarePen, Square, Terminal, Trash2, Wrench, X, ArrowUp, Zap
 } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import type { AcpConversation } from '../../../shared/acp'
 import { useAcpStore } from '../acp/store'
 import { useSessionsStore } from '../acp/sessions-store'
@@ -14,8 +16,38 @@ import './AcpThread.css'
 
 const acp = () => window.studio.acp
 
+// Copy-to-clipboard affordance for code/output blocks; flips to a check briefly.
+function CopyButton({ getText, className }: { getText: () => string; className?: string }) {
+  const [done, setDone] = useState(false)
+  const onCopy = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    const text = getText()
+    if (!text) return
+    navigator.clipboard?.writeText(text).then(() => {
+      setDone(true)
+      setTimeout(() => setDone(false), 1200)
+    }).catch(() => {})
+  }
+  return (
+    <button type="button" className={`acp-copy${className ? ` ${className}` : ''}`} title="Copy" onClick={onCopy}>
+      {done ? <Check size={12} /> : <Copy size={12} />}
+    </button>
+  )
+}
+
+// Fenced code block in assistant markdown, wrapped with a copy button.
+function CodeBlock({ children }: React.ComponentPropsWithoutRef<'pre'>) {
+  const ref = useRef<HTMLPreElement>(null)
+  return (
+    <div className="acp-code">
+      <CopyButton getText={() => ref.current?.textContent ?? ''} />
+      <pre ref={ref}>{children}</pre>
+    </div>
+  )
+}
+
 const Markdown = memo(function Markdown({ children }: { children: string }) {
-  return <ReactMarkdown remarkPlugins={[remarkGfm]}>{children}</ReactMarkdown>
+  return <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ pre: CodeBlock }}>{children}</ReactMarkdown>
 })
 
 function useOutsideClose(open: boolean, onClose: () => void) {
@@ -29,29 +61,181 @@ function useOutsideClose(open: boolean, onClose: () => void) {
   return ref
 }
 
+// Map an ACP tool kind to a lucide icon + human verb, VS-Code-chat style. The
+// title itself carries the argument (path / command), so the icon + verb just
+// classify the action at a glance.
+const TOOL_KIND: Record<string, { Icon: LucideIcon; verb: string }> = {
+  read: { Icon: FileText, verb: 'Read' },
+  edit: { Icon: Pencil, verb: 'Edit' },
+  delete: { Icon: Trash2, verb: 'Delete' },
+  move: { Icon: FolderTree, verb: 'Move' },
+  search: { Icon: Search, verb: 'Search' },
+  execute: { Icon: Terminal, verb: 'Run' },
+  fetch: { Icon: Globe, verb: 'Fetch' },
+  think: { Icon: BrainCircuit, verb: 'Think' },
+}
+
+function toolMeta(kind?: string) {
+  return (kind && TOOL_KIND[kind]) || { Icon: Wrench, verb: 'Tool' }
+}
+
+// File-operation tools carry a full path in their title; collapse absolute
+// paths to their basename (like the VS Code extension's "Edit AcpThread.tsx"),
+// while leaving shell commands untouched so their paths stay meaningful.
+const FILE_KINDS = new Set(['read', 'edit', 'delete', 'move'])
+function displayTitle(kind: string | undefined, title: string): string {
+  if (!kind || !FILE_KINDS.has(kind)) return title
+  return title.replace(/\/[^\s'"]+/g, (p) => p.split('/').pop() || p)
+}
+
+// Aggregate added/removed line counts across all diff blocks for the header badge.
+function diffStat(content: AcpToolContent[]): { add: number; del: number } | null {
+  let add = 0, del = 0, has = false
+  for (const c of content) {
+    if (c.type !== 'diff') continue
+    has = true
+    for (const r of diffLines(c.oldText ?? '', c.newText ?? '')) {
+      if (r.type === 'add') add++
+      else if (r.type === 'del') del++
+    }
+  }
+  return has ? { add, del } : null
+}
+
+function ToolStatus({ status }: { status: string }) {
+  if (status === 'completed') return <Check className="acp-tool-status ok" size={13} />
+  if (status === 'failed' || status === 'cancelled') return <X className="acp-tool-status err" size={13} />
+  return <Loader2 className="acp-tool-status run" size={13} />
+}
+
 function ToolCard({ item }: { item: Extract<ThreadItem, { kind: 'tool' }> }) {
   const [open, setOpen] = useState(false)
   const hasContent = item.content.some((c) => c.type === 'diff' || textOf(c.content))
-  const statusColor = item.status === 'completed' ? 'var(--vscode-testing-iconPassed,#388a34)'
-    : item.status === 'failed' || item.status === 'cancelled' ? 'var(--vscode-errorForeground,#f14c4c)'
-    : 'var(--vscode-charts-yellow,#cca700)'
+  const running = item.status !== 'completed' && item.status !== 'failed' && item.status !== 'cancelled'
+  const { Icon } = toolMeta(item.toolKind)
+  const title = useMemo(() => displayTitle(item.toolKind, item.title), [item.toolKind, item.title])
+  const stat = useMemo(() => diffStat(item.content), [item.content])
   return (
-    <div className="acp-tool">
-      <button className="acp-tool-head" onClick={() => hasContent && setOpen((o) => !o)}>
-        {hasContent ? <ChevronRight size={12} style={{ transform: open ? 'rotate(90deg)' : undefined, transition: 'transform .1s' }} /> : <span style={{ width: 12 }} />}
-        <Wrench size={12} />
-        <span className="acp-tool-title">{item.title}</span>
-        <span className="acp-tool-status" style={{ color: statusColor }}>{item.status}</span>
+    <div className={`acp-tool${running ? ' running' : ''}${item.status === 'failed' ? ' failed' : ''}`}>
+      <button className="acp-tool-head" disabled={!hasContent} onClick={() => setOpen((o) => !o)}>
+        <Icon className="acp-tool-icon" size={13} />
+        <span className="acp-tool-title" title={item.title}>{title}</span>
+        {stat && (
+          <span className="acp-tool-stat">
+            {stat.add > 0 && <span className="add">+{stat.add}</span>}
+            {stat.del > 0 && <span className="del">−{stat.del}</span>}
+          </span>
+        )}
+        <ToolStatus status={item.status} />
+        {hasContent && (
+          <ChevronRight className="acp-tool-chev" size={13}
+            style={{ transform: open ? 'rotate(90deg)' : undefined, transition: 'transform .1s' }} />
+        )}
       </button>
       {open && hasContent && (
         <div className="acp-tool-body">
           {item.content.map((c: AcpToolContent, i) => {
-            if (c.type === 'diff') return <pre key={i}>{c.path ? `${c.path}\n` : ''}{c.newText ?? ''}</pre>
+            if (c.type === 'diff') {
+              return (
+                <div key={i} className="acp-tool-diff">
+                  {c.path && <div className="acp-tool-diff-path">{c.path}</div>}
+                  <DiffView oldText={c.oldText ?? ''} newText={c.newText ?? ''} />
+                </div>
+              )
+            }
             const t = textOf(c.content)
-            return t ? <pre key={i}>{t}</pre> : null
+            return t ? <ToolOutput key={i} text={t} /> : null
           })}
         </div>
       )}
+    </div>
+  )
+}
+
+// Tool output arrives as markdown-ish text: often a single fenced code block,
+// and frequently laced with <system-reminder> control text. Unwrap the fence so
+// we don't show literal ``` markers, and dim the reminders so real output leads.
+function ToolOutput({ text }: { text: string }) {
+  const fence = text.trim().match(/^```([\w+-]*)\n([\s\S]*?)\n?```$/)
+  const lang = fence?.[1] || undefined
+  const body = fence ? fence[2] : text
+  const parts = body.split(/(<system-reminder>[\s\S]*?<\/system-reminder>)/g)
+  return (
+    <div className="acp-tool-out">
+      {lang && <div className="acp-tool-out-head">{lang}</div>}
+      <CopyButton getText={() => body} />
+      <pre>
+        {parts.map((p, i) =>
+          p.startsWith('<system-reminder>')
+            ? <span key={i} className="acp-tool-reminder">{p}</span>
+            : <span key={i}>{p}</span>
+        )}
+      </pre>
+    </div>
+  )
+}
+
+// Lightweight line-level diff: rows present only in the old text are removals,
+// rows only in the new text are additions, matched lines are context.
+function DiffView({ oldText, newText }: { oldText: string; newText: string }) {
+  const rows = useMemo(() => diffLines(oldText, newText), [oldText, newText])
+  return (
+    <pre className="acp-diff">
+      {rows.map((r, i) => (
+        <div key={i} className={`acp-diff-row ${r.type}`}>
+          <span className="acp-diff-gutter">{r.type === 'add' ? '+' : r.type === 'del' ? '-' : ' '}</span>
+          <span>{r.text}</span>
+        </div>
+      ))}
+    </pre>
+  )
+}
+
+type DiffRow = { type: 'add' | 'del' | 'ctx'; text: string }
+function diffLines(oldText: string, newText: string): DiffRow[] {
+  if (!oldText) return newText.split('\n').map((text) => ({ type: 'add', text }))
+  if (!newText) return oldText.split('\n').map((text) => ({ type: 'del', text }))
+  // Longest-common-subsequence over lines, then walk the table into rows.
+  const a = oldText.split('\n'), b = newText.split('\n')
+  const dp: number[][] = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0))
+  for (let i = a.length - 1; i >= 0; i--)
+    for (let j = b.length - 1; j >= 0; j--)
+      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1])
+  const rows: DiffRow[] = []
+  let i = 0, j = 0
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) { rows.push({ type: 'ctx', text: a[i] }); i++; j++ }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) { rows.push({ type: 'del', text: a[i] }); i++ }
+    else { rows.push({ type: 'add', text: b[j] }); j++ }
+  }
+  while (i < a.length) rows.push({ type: 'del', text: a[i++] })
+  while (j < b.length) rows.push({ type: 'add', text: b[j++] })
+  return rows
+}
+
+// Reasoning stream, rendered as a collapsible "Thinking" block. The brain
+// pulses while this (the latest) thought is still streaming; once it settles we
+// show how long it ran. Neither the API, the Agent SDK, nor ACP emits a thinking
+// duration, so we derive it from event arrival times (store-stamped `rxAt`) —
+// first to last chunk. A thought loaded from history has no rxAt, so no duration.
+function ThoughtBlock({ item, live }: { item: Extract<ThreadItem, { kind: 'thought' }>; live: boolean }) {
+  const [open, setOpen] = useState(true)
+  const hasText = item.text.trim().length > 0
+  const secs = item.startedAt != null && item.endedAt != null
+    ? Math.max(1, Math.round((item.endedAt - item.startedAt) / 1000))
+    : null
+  const label = live ? 'Thinking…' : secs != null ? `Thought for ${secs}s` : 'Thinking'
+  return (
+    <div className={`acp-thought${live ? ' live' : ''}`}>
+      <button className="acp-thought-head" disabled={!hasText} onClick={() => setOpen((o) => !o)}>
+        <span className="acp-thought-icon codicon codicon-sparkle" aria-hidden />
+        <span className="acp-thought-label">{label}</span>
+        {hasText && (
+          <ChevronRight className="acp-thought-chev" size={12}
+            style={{ transform: open ? 'rotate(90deg)' : undefined, transition: 'transform .1s' }} />
+        )}
+      </button>
+      {open && hasText && <div className="acp-thought-body">{item.text}</div>}
     </div>
   )
 }
@@ -84,21 +268,25 @@ const MessageList = memo(function MessageList({
       </div>
     )
   }
+  // The final thought only "pulses" while Claude is still working on it.
+  let lastThoughtId: string | undefined
+  for (const it of items) if (it.kind === 'thought') lastThoughtId = it.id
   return (
     <div className="acp-messages">
       {items.map((item) => {
+        let content: React.ReactNode
         switch (item.kind) {
           case 'user':
-            return <div key={item.id} className="acp-user">{item.text}</div>
+            content = <div className="acp-user">{item.text}</div>; break
           case 'assistant':
-            return <div key={item.id} className="acp-assistant"><Markdown>{item.text}</Markdown></div>
+            content = <div className="acp-assistant"><Markdown>{item.text}</Markdown></div>; break
           case 'thought':
-            return <div key={item.id} className="acp-thought"><BrainCircuit size={13} /><span>{item.text}</span></div>
+            content = <ThoughtBlock item={item} live={working && item.id === lastThoughtId} />; break
           case 'tool':
-            return <ToolCard key={item.id} item={item} />
+            content = <ToolCard item={item} />; break
           case 'plan':
-            return (
-              <div key={item.id} className="acp-plan">
+            content = (
+              <div className="acp-plan">
                 <div className="acp-plan-title"><ListTodo size={14} /> Plan</div>
                 <ul>
                   {item.entries.map((en, i) => (
@@ -109,10 +297,10 @@ const MessageList = memo(function MessageList({
                   ))}
                 </ul>
               </div>
-            )
+            ); break
           case 'permission':
-            return (
-              <div key={item.id} className="acp-permission">
+            content = (
+              <div className="acp-permission">
                 <div className="acp-permission-title"><ShieldQuestion size={15} /> Permission required</div>
                 {item.request.toolCall?.title && <div style={{ fontSize: 12, marginBottom: 8, opacity: 0.75 }}>{item.request.toolCall.title}</div>}
                 {item.resolved ? (
@@ -130,16 +318,23 @@ const MessageList = memo(function MessageList({
                   </div>
                 )}
               </div>
-            )
+            ); break
           case 'notice':
-            return <div key={item.id} className="acp-notice"><Cpu size={12} /><span>{item.text}</span></div>
+            content = <div className="acp-notice"><Cpu size={12} /><span>{item.text}</span></div>; break
           case 'interrupted':
-            return <div key={item.id} className="acp-interrupted"><CircleSlash size={11} /><span>Interrupted by user</span></div>
+            content = <div className="acp-interrupted"><CircleSlash size={11} /><span>Interrupted by user</span></div>; break
           case 'error':
-            return <div key={item.id} className="acp-error"><AlertTriangle size={14} /><span>{item.message}</span></div>
+            content = <div className="acp-error"><AlertTriangle size={14} /><span>{item.message}</span></div>; break
         }
+        const failed = item.kind === 'tool' && (item.status === 'failed' || item.status === 'cancelled')
+        return (
+          <div key={item.id} className={`acp-row acp-row-${item.kind}${failed ? ' failed' : ''}`}>
+            <span className="acp-row-dot" aria-hidden />
+            {content}
+          </div>
+        )
       })}
-      {working && <div className="acp-working"><span>working…</span></div>}
+      {working && <div className="acp-row acp-row-working"><span className="acp-row-dot pulse" aria-hidden /><div className="acp-working"><span>working…</span></div></div>}
     </div>
   )
 })

@@ -8,7 +8,7 @@ import type { AcpContentBlock, AcpEvent, AcpPlanEntry, AcpPermissionRequest, Acp
 export type ThreadItem =
   | { kind: 'user'; id: string; text: string }
   | { kind: 'assistant'; id: string; text: string }
-  | { kind: 'thought'; id: string; text: string }
+  | { kind: 'thought'; id: string; text: string; startedAt?: number; endedAt?: number }
   | { kind: 'tool'; id: string; toolCallId: string; title: string; status: string; toolKind?: string; content: AcpToolContent[] }
   | { kind: 'plan'; id: string; entries: AcpPlanEntry[] }
   | { kind: 'permission'; id: string; requestId: string; request: AcpPermissionRequest; resolved?: string }
@@ -39,8 +39,10 @@ export function buildThread(events: AcpEvent[]): ThreadItem[] {
         else items.push({ kind: 'assistant', id: `a${i}`, text: textOf((u as { content: AcpContentBlock }).content) })
       } else if (su === 'agent_thought_chunk') {
         const last = items[items.length - 1]
-        if (last && last.kind === 'thought') last.text += textOf((u as { content: AcpContentBlock }).content)
-        else items.push({ kind: 'thought', id: `t${i}`, text: textOf((u as { content: AcpContentBlock }).content) })
+        const chunk = textOf((u as { content: AcpContentBlock }).content)
+        // Span the thought from the first to the most recent chunk's arrival time.
+        if (last && last.kind === 'thought') { last.text += chunk; if (e.rxAt != null) last.endedAt = e.rxAt }
+        else items.push({ kind: 'thought', id: `t${i}`, text: chunk, startedAt: e.rxAt, endedAt: e.rxAt })
       } else if (su === 'user_message_chunk') {
         const last = items[items.length - 1]
         if (last && last.kind === 'user') last.text += textOf((u as { content: AcpContentBlock }).content)
@@ -50,16 +52,17 @@ export function buildThread(events: AcpEvent[]): ThreadItem[] {
         toolIndex.set(tu.toolCallId, items.length)
         items.push({ kind: 'tool', id: `tool${i}`, toolCallId: tu.toolCallId, title: tu.title || 'Tool', status: tu.status || 'pending', toolKind: tu.kind, content: tu.content || [] })
       } else if (su === 'tool_call_update') {
-        const tu = u as { toolCallId: string; title?: string; status?: string; content?: AcpToolContent[] }
+        const tu = u as { toolCallId: string; title?: string; kind?: string; status?: string; content?: AcpToolContent[] }
         const idx = toolIndex.get(tu.toolCallId)
         if (idx != null) {
           const it = items[idx] as Extract<ThreadItem, { kind: 'tool' }>
           if (tu.status) it.status = tu.status
           if (tu.title) it.title = tu.title
+          if (tu.kind) it.toolKind = tu.kind
           if (tu.content && tu.content.length) it.content = tu.content
         } else {
           toolIndex.set(tu.toolCallId, items.length)
-          items.push({ kind: 'tool', id: `tool${i}`, toolCallId: tu.toolCallId, title: tu.title || 'Tool', status: tu.status || 'pending', content: tu.content || [] })
+          items.push({ kind: 'tool', id: `tool${i}`, toolCallId: tu.toolCallId, title: tu.title || 'Tool', status: tu.status || 'pending', toolKind: tu.kind, content: tu.content || [] })
         }
       } else if (su === 'plan') {
         const pu = u as { entries: AcpPlanEntry[] }
