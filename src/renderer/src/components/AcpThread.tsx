@@ -11,7 +11,8 @@ import type { AcpConversation } from '../../../shared/acp'
 import { useAcpStore } from '../acp/store'
 import { useSessionsStore } from '../acp/sessions-store'
 import { buildThread, modelLabel, recapOf, textOf, type ThreadItem } from '../acp/buildThread'
-import type { AcpModeState, AcpModelState, AcpToolContent } from '../acp/protocol'
+import type { AcpCommand, AcpModeState, AcpModelState, AcpToolContent } from '../acp/protocol'
+import { useCommandHistory } from '../acp/command-history'
 import './AcpThread.css'
 
 const acp = () => window.studio.acp
@@ -415,6 +416,14 @@ function Header({ sid, title, onBeginResume }: { sid: string; title: string; onB
 /** A pasted image staged in the composer, sent as an ACP image block on submit. */
 type Attachment = { id: string; mimeType: string; data: string }
 
+// Client-side slash commands, handled locally in runText rather than sent to the
+// agent. Merged into the autosuggest so they're discoverable alongside the
+// agent's own advertised commands.
+const BUILTIN_COMMANDS: AcpCommand[] = [
+  { name: 'new', description: 'Start a new conversation' },
+  { name: 'clear', description: 'Start a new conversation' }
+]
+
 export function AcpThread({ sid, visible = true }: { sid: string; visible?: boolean }) {
   const thread = useAcpStore((s) => s.threads.get(sid))
   const setHistory = useAcpStore((s) => s.setHistory)
@@ -431,10 +440,14 @@ export function AcpThread({ sid, visible = true }: { sid: string; visible?: bool
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [focused, setFocused] = useState(false)
   const [resuming, setResuming] = useState(false)
+  const [cmdOpen, setCmdOpen] = useState(false)
+  const [cmdHighlight, setCmdHighlight] = useState(0)
   const scrollRef = useRef<HTMLDivElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
   const stickRef = useRef(true)
   const attachSeq = useRef(0)
+  const recentCommands = useCommandHistory((s) => s.recent)
+  const recordCommand = useCommandHistory((s) => s.record)
 
   // Attach on mount: begin event forwarding (main side) and load the snapshot.
   useEffect(() => {
@@ -450,6 +463,28 @@ export function AcpThread({ sid, visible = true }: { sid: string; visible?: bool
   const modeState = thread?.modeState ?? null
   const modelState = thread?.modelState ?? null
   const model = modelLabel(thread?.model)
+  // Built-ins first, then the agent's advertised commands (deduped by name).
+  const commands = useMemo(() => {
+    const seen = new Set(BUILTIN_COMMANDS.map((c) => c.name))
+    return [...BUILTIN_COMMANDS, ...(thread?.availableCommands ?? []).filter((c) => !seen.has(c.name))]
+  }, [thread?.availableCommands])
+
+  // Slash-command autosuggest: active only while typing the command token — a
+  // leading "/" with no space yet. Recently used commands rank first, the rest
+  // alphabetically. Matched on the text after the slash.
+  const cmdQuery = /^\/(\S*)$/.exec(draft)?.[1]?.toLowerCase() ?? null
+  const cmdSuggestions = useMemo(() => {
+    if (cmdQuery == null || commands.length === 0) return []
+    const rank = (name: string) => {
+      const i = recentCommands.indexOf(name)
+      return i === -1 ? recentCommands.length + 1 : i
+    }
+    return commands
+      .filter((c) => c.name.toLowerCase().includes(cmdQuery))
+      .sort((a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name))
+      .slice(0, 8)
+  }, [cmdQuery, commands, recentCommands])
+  const showCmd = cmdOpen && cmdQuery != null && cmdSuggestions.length > 0
 
   // Auto-scroll while parked at the bottom.
   const onScroll = () => {
@@ -509,13 +544,15 @@ export function AcpThread({ sid, visible = true }: { sid: string; visible?: bool
     }
   }
 
-  const send = () => {
-    const text = draft.trim()
+  const runText = (raw: string) => {
+    const text = raw.trim()
     if (!text && attachments.length === 0) return
     // Slash shortcuts only apply to a bare text command (no attachments).
     if (!attachments.length && (text === '/new' || text === '/clear')) {
-      acp().newConversation(sid); setDraft(''); return
+      acp().newConversation(sid); setDraft(''); setCmdOpen(false); return
     }
+    // Remember the command so it ranks first in the autosuggest next time.
+    if (text.startsWith('/')) recordCommand(text.slice(1).split(/\s+/)[0])
     const blocks = [
       ...attachments.map((a) => ({ type: 'image', mimeType: a.mimeType, data: a.data })),
       ...(text ? [{ type: 'text', text }] : [])
@@ -523,8 +560,22 @@ export function AcpThread({ sid, visible = true }: { sid: string; visible?: bool
     acp().prompt(sid, blocks)
     setDraft('')
     setAttachments([])
+    setCmdOpen(false)
     stickRef.current = true
     requestAnimationFrame(() => { if (taRef.current) taRef.current.style.height = 'auto' })
+  }
+  const send = () => runText(draft)
+
+  // Choose a command from the autosuggest: commands taking input get filled in
+  // for the user to complete; argument-less commands run immediately.
+  const applyCommand = (c: AcpCommand) => {
+    setCmdOpen(false)
+    if (c.input) {
+      setDraft(`/${c.name} `)
+      requestAnimationFrame(() => taRef.current?.focus())
+    } else {
+      runText(`/${c.name}`)
+    }
   }
 
   const answerPermission = useCallback((requestId: string, optionId: string | null) => {
@@ -559,6 +610,25 @@ export function AcpThread({ sid, visible = true }: { sid: string; visible?: bool
       <div className="acp-composer">
         <div className="acp-composer-inner">
           {waiting && <div className="acp-waiting"><ShieldQuestion size={12} /> Claude is waiting for your permission above.</div>}
+          {showCmd && (
+            <ul className="acp-cmd-suggest" role="listbox">
+              {cmdSuggestions.map((c, i) => (
+                <li
+                  key={c.name}
+                  role="option"
+                  aria-selected={i === cmdHighlight}
+                  className={`acp-cmd-item ${i === cmdHighlight ? 'active' : ''}`}
+                  // mouseDown fires before the textarea blur, so the click registers.
+                  onMouseDown={(e) => { e.preventDefault(); applyCommand(c) }}
+                  onMouseEnter={() => setCmdHighlight(i)}
+                >
+                  <span className="acp-cmd-name">/{c.name}</span>
+                  {c.description && <span className="acp-cmd-desc">{c.description}</span>}
+                  {recentCommands.includes(c.name) && <Clock className="acp-cmd-recent" size={11} />}
+                </li>
+              ))}
+            </ul>
+          )}
           <div className={`acp-input-box ${focused ? 'focused' : ''}`}>
             {attachments.length > 0 && (
               <div className="acp-attachments">
@@ -582,10 +652,16 @@ export function AcpThread({ sid, visible = true }: { sid: string; visible?: bool
               value={draft}
               placeholder="Reply to Claude…"
               onFocus={() => setFocused(true)}
-              onBlur={() => setFocused(false)}
+              onBlur={() => { setFocused(false); setCmdOpen(false) }}
               onPaste={onPaste}
-              onChange={(e) => { setDraft(e.target.value); autoGrow(e.target) }}
+              onChange={(e) => { setDraft(e.target.value); autoGrow(e.target); setCmdOpen(true); setCmdHighlight(0) }}
               onKeyDown={(e) => {
+                if (showCmd) {
+                  if (e.key === 'ArrowDown') { e.preventDefault(); setCmdHighlight((h) => (h + 1) % cmdSuggestions.length); return }
+                  if (e.key === 'ArrowUp') { e.preventDefault(); setCmdHighlight((h) => (h - 1 + cmdSuggestions.length) % cmdSuggestions.length); return }
+                  if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); applyCommand(cmdSuggestions[Math.min(cmdHighlight, cmdSuggestions.length - 1)]); return }
+                  if (e.key === 'Escape') { e.preventDefault(); setCmdOpen(false); return }
+                }
                 if (e.key === 'Escape' && working) { e.preventDefault(); acp().cancel(sid); return }
                 if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
               }}
