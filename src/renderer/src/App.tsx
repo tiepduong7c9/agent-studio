@@ -339,8 +339,6 @@ export function App() {
         rightVisible={rightVisible}
         onToggleLeft={() => setLeftVisible(!leftVisible)}
         onToggleRight={() => setRightVisible(!rightVisible)}
-        onOpenLocal={openLocal}
-        onOpenSsh={() => setSshDialogOpen(true)}
       />
       {error && (
         <div className="error-banner">

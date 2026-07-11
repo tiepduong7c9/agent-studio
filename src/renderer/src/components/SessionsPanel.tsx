@@ -3,6 +3,8 @@ import type { AcpConversation, ProjectConversations, SessionMeta } from '../../.
 import { workspaceId, type ProjectInfo } from '../../../shared/types'
 import { useViewPrefsStore } from '../view-prefs-store'
 import { groupKey, normRoot, workspaceForSession } from '../workspace'
+import { ContextMenu, type MenuItem } from './ContextMenu'
+import { ConfirmDialog } from './Dialogs'
 
 const CUSTOMIZATIONS = [
   { icon: 'sparkle', label: 'Agents' },
@@ -104,14 +106,29 @@ interface LiveRowProps {
 }
 
 function LiveRow({ s, active, pinned, hidden, onSelect, onTogglePin, onHide, onUnhide, onDelete }: LiveRowProps) {
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [confirming, setConfirming] = useState(false)
-  const stop = (fn: () => void) => (e: MouseEvent) => {
+
+  const openMenu = (e: MouseEvent) => {
+    e.preventDefault()
     e.stopPropagation()
-    fn()
+    setMenu({ x: e.clientX, y: e.clientY })
   }
+
+  const items: MenuItem[] = [
+    { label: pinned ? 'Unpin' : 'Pin', run: onTogglePin },
+    { label: hidden ? 'Unhide' : 'Hide', run: hidden ? onUnhide : onHide },
+    { separator: true },
+    { label: 'Delete Session', run: () => setConfirming(true) }
+  ]
+
   return (
     <div className={`acp-session-row-wrap ${hidden ? 'hidden' : ''}`}>
-      <button className={`acp-session-row ${active ? 'active' : ''}`} onClick={onSelect}>
+      <button
+        className={`acp-session-row ${active ? 'active' : ''}`}
+        onClick={onSelect}
+        onContextMenu={openMenu}
+      >
         <span className={`acp-status-dot ${statusClass(s.claudeStatus)}`} />
         <span className="acp-session-main">
           <span className="acp-session-name">{s.name}</span>
@@ -120,48 +137,21 @@ function LiveRow({ s, active, pinned, hidden, onSelect, onTogglePin, onHide, onU
           </span>
         </span>
       </button>
-      <span className={`acp-session-actions ${confirming ? 'confirming' : ''}`}>
-        {confirming ? (
-          <>
-            <button
-              className="icon-button act codicon codicon-trash danger"
-              title="Confirm delete — ends the agent"
-              onClick={stop(onDelete)}
-            />
-            <button
-              className="icon-button act codicon codicon-close"
-              title="Cancel"
-              onClick={stop(() => setConfirming(false))}
-            />
-          </>
-        ) : (
-          <>
-            <button
-              className={`icon-button act pin-btn codicon ${pinned ? 'codicon-pinned pinned' : 'codicon-pin'}`}
-              title={pinned ? 'Unpin' : 'Pin'}
-              onClick={stop(onTogglePin)}
-            />
-            {hidden ? (
-              <button
-                className="icon-button act codicon codicon-eye"
-                title="Unhide"
-                onClick={stop(onUnhide)}
-              />
-            ) : (
-              <button
-                className="icon-button act codicon codicon-eye-closed"
-                title="Hide"
-                onClick={stop(onHide)}
-              />
-            )}
-            <button
-              className="icon-button act codicon codicon-trash"
-              title="Delete session"
-              onClick={stop(() => setConfirming(true))}
-            />
-          </>
-        )}
-      </span>
+      {pinned && <span className="acp-session-pin codicon codicon-pinned" title="Pinned" />}
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={items} onClose={() => setMenu(null)} />}
+      {confirming && (
+        <ConfirmDialog
+          message="Delete this session?"
+          detail={`This permanently ends the agent for “${s.name}”.`}
+          confirmLabel="Delete"
+          danger
+          onConfirm={() => {
+            setConfirming(false)
+            onDelete()
+          }}
+          onCancel={() => setConfirming(false)}
+        />
+      )}
     </div>
   )
 }

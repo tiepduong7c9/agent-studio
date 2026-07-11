@@ -7,8 +7,6 @@ interface Props {
   rightVisible: boolean
   onToggleLeft: () => void
   onToggleRight: () => void
-  onOpenLocal: () => void
-  onOpenSsh: () => void
 }
 
 export function TitleBar({
@@ -16,9 +14,7 @@ export function TitleBar({
   leftVisible,
   rightVisible,
   onToggleLeft,
-  onToggleRight,
-  onOpenLocal,
-  onOpenSsh
+  onToggleRight
 }: Props) {
   const project = activeWorkspace
   return (
@@ -47,12 +43,6 @@ export function TitleBar({
           title="Toggle Right Panel"
           onClick={onToggleRight}
         />
-        <button className="btn titlebar-action" onClick={onOpenSsh}>
-          SSH…
-        </button>
-        <button className="btn btn-primary titlebar-action" onClick={onOpenLocal}>
-          Open Folder
-        </button>
         <div className="window-controls">
           <button
             className="window-control codicon codicon-chrome-minimize"

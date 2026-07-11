@@ -635,38 +635,20 @@ body {
 .acp-status-working { background: var(--vscode-charts-yellow, #cca700); }
 .acp-status-waiting { background: var(--vscode-charts-orange, #d18616); }
 
-/* Live session row + hover actions (pin / hide / delete) */
+/* Live session row: actions live in a right-click context menu so the session
+   summary text isn't crowded. Only a pinned marker sits inline, on the right. */
 .acp-session-row-wrap { position: relative; }
 .acp-session-row-wrap .acp-session-row { width: 100%; }
 .acp-session-row-wrap.hidden .acp-session-row { opacity: 0.5; }
-.acp-session-actions {
+.acp-session-pin {
   position: absolute;
-  top: 0;
-  right: 4px;
-  bottom: 0;
-  display: flex;
-  align-items: center;
-  gap: 1px;
-}
-.acp-session-actions .act {
-  opacity: 0;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  font-size: 13px;
+  color: var(--vscode-textLink-foreground);
   pointer-events: none;
 }
-.acp-session-row-wrap:hover .acp-session-actions .act,
-.acp-session-actions.confirming .act,
-.acp-session-actions .pin-btn.pinned {
-  opacity: 1;
-  pointer-events: auto;
-}
-/* A subtle backdrop so the buttons don't clash with the row's sub-text. */
-.acp-session-row-wrap:hover .acp-session-actions,
-.acp-session-actions.confirming {
-  background: var(--vscode-list-hoverBackground);
-  box-shadow: -6px 0 6px -2px var(--vscode-list-hoverBackground);
-}
-.acp-session-actions .pin-btn.pinned { color: var(--vscode-textLink-foreground); }
-.acp-session-actions .codicon-trash.danger,
-.acp-session-actions .codicon-trash:hover { color: var(--vscode-errorForeground, #f14c4c); }
 
 /* All / Focus mode switch (in the Sessions header row) + show-hidden toggle */
 .seg-toggle {
