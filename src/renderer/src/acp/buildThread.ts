@@ -5,8 +5,11 @@
 
 import type { AcpContentBlock, AcpEvent, AcpPlanEntry, AcpPermissionRequest, AcpToolContent } from './protocol'
 
+/** An inline image on a user message (base64 ACP image content block). */
+export type ThreadImage = { mimeType: string; data: string }
+
 export type ThreadItem =
-  | { kind: 'user'; id: string; text: string }
+  | { kind: 'user'; id: string; text: string; images?: ThreadImage[] }
   | { kind: 'assistant'; id: string; text: string }
   | { kind: 'thought'; id: string; text: string; startedAt?: number; endedAt?: number }
   | { kind: 'tool'; id: string; toolCallId: string; title: string; status: string; toolKind?: string; content: AcpToolContent[] }
@@ -22,6 +25,18 @@ export function textOf(c: AcpContentBlock | undefined): string {
   return ''
 }
 
+/** Pull image content blocks (base64) out of a user prompt's blocks. */
+export function imagesOf(blocks: AcpContentBlock[]): ThreadImage[] {
+  const out: ThreadImage[] = []
+  for (const b of blocks) {
+    const bb = b as { type?: string; data?: unknown; mimeType?: unknown }
+    if (bb.type === 'image' && typeof bb.data === 'string' && typeof bb.mimeType === 'string') {
+      out.push({ mimeType: bb.mimeType, data: bb.data })
+    }
+  }
+  return out
+}
+
 export function buildThread(events: AcpEvent[]): ThreadItem[] {
   const items: ThreadItem[] = []
   const toolIndex = new Map<string, number>()
@@ -29,7 +44,8 @@ export function buildThread(events: AcpEvent[]): ThreadItem[] {
 
   events.forEach((e, i) => {
     if (e.type === 'acp_user') {
-      items.push({ kind: 'user', id: `u${i}`, text: e.blocks.map(textOf).join('') })
+      const images = imagesOf(e.blocks)
+      items.push({ kind: 'user', id: `u${i}`, text: e.blocks.map(textOf).join(''), images: images.length ? images : undefined })
     } else if (e.type === 'acp_update') {
       const u = e.update
       const su = u.sessionUpdate

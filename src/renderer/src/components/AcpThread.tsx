@@ -277,7 +277,23 @@ const MessageList = memo(function MessageList({
         let content: React.ReactNode
         switch (item.kind) {
           case 'user':
-            content = <div className="acp-user">{item.text}</div>; break
+            content = (
+              <div className="acp-user">
+                {item.images?.length ? (
+                  <div className="acp-user-images">
+                    {item.images.map((img, i) => (
+                      <img
+                        key={i}
+                        className="acp-user-image"
+                        src={`data:${img.mimeType};base64,${img.data}`}
+                        alt="pasted"
+                      />
+                    ))}
+                  </div>
+                ) : null}
+                {item.text && <div className="acp-user-text">{item.text}</div>}
+              </div>
+            ); break
           case 'assistant':
             content = <div className="acp-assistant"><Markdown>{item.text}</Markdown></div>; break
           case 'thought':
@@ -375,6 +391,9 @@ function Header({ sid, title, onBeginResume }: { sid: string; title: string; onB
   )
 }
 
+/** A pasted image staged in the composer, sent as an ACP image block on submit. */
+type Attachment = { id: string; mimeType: string; data: string }
+
 export function AcpThread({ sid, visible = true }: { sid: string; visible?: boolean }) {
   const thread = useAcpStore((s) => s.threads.get(sid))
   const setHistory = useAcpStore((s) => s.setHistory)
@@ -388,11 +407,13 @@ export function AcpThread({ sid, visible = true }: { sid: string; visible?: bool
   const sessionName = useSessionsStore((s) => s.sessions.find((x) => x.id === sid)?.name ?? null)
   const engineStatus = useSessionsStore((s) => s.engineStatus[host ? `ssh:${host}` : 'local']) ?? 'connected'
   const [draft, setDraft] = useState('')
+  const [attachments, setAttachments] = useState<Attachment[]>([])
   const [focused, setFocused] = useState(false)
   const [resuming, setResuming] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
   const stickRef = useRef(true)
+  const attachSeq = useRef(0)
 
   // Attach on mount: begin event forwarding (main side) and load the snapshot.
   useEffect(() => {
@@ -442,12 +463,45 @@ export function AcpThread({ sid, visible = true }: { sid: string; visible?: bool
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`
   }
 
+  // Pasted images become inline attachments (base64 ACP image blocks), sent
+  // alongside the text on the next prompt. Non-image clipboard content pastes
+  // as usual (the default text paste is left untouched).
+  const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const images = Array.from(e.clipboardData.items).filter((it) => it.type.startsWith('image/'))
+    if (!images.length) return
+    e.preventDefault()
+    for (const it of images) {
+      const file = it.getAsFile()
+      if (!file) continue
+      const reader = new FileReader()
+      reader.onload = () => {
+        const res = String(reader.result)
+        const data = res.slice(res.indexOf(',') + 1) // strip the "data:...;base64," prefix
+        if (data) {
+          setAttachments((prev) => [
+            ...prev,
+            { id: `att${attachSeq.current++}`, mimeType: file.type || 'image/png', data }
+          ])
+        }
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
   const send = () => {
     const text = draft.trim()
-    if (!text) return
-    if (text === '/new' || text === '/clear') { acp().newConversation(sid); setDraft(''); return }
-    acp().prompt(sid, [{ type: 'text', text }])
+    if (!text && attachments.length === 0) return
+    // Slash shortcuts only apply to a bare text command (no attachments).
+    if (!attachments.length && (text === '/new' || text === '/clear')) {
+      acp().newConversation(sid); setDraft(''); return
+    }
+    const blocks = [
+      ...attachments.map((a) => ({ type: 'image', mimeType: a.mimeType, data: a.data })),
+      ...(text ? [{ type: 'text', text }] : [])
+    ]
+    acp().prompt(sid, blocks)
     setDraft('')
+    setAttachments([])
     stickRef.current = true
     requestAnimationFrame(() => { if (taRef.current) taRef.current.style.height = 'auto' })
   }
@@ -485,6 +539,22 @@ export function AcpThread({ sid, visible = true }: { sid: string; visible?: bool
         <div className="acp-composer-inner">
           {waiting && <div className="acp-waiting"><ShieldQuestion size={12} /> Claude is waiting for your permission above.</div>}
           <div className={`acp-input-box ${focused ? 'focused' : ''}`}>
+            {attachments.length > 0 && (
+              <div className="acp-attachments">
+                {attachments.map((a) => (
+                  <div key={a.id} className="acp-attachment">
+                    <img src={`data:${a.mimeType};base64,${a.data}`} alt="attachment" />
+                    <button
+                      className="acp-attachment-remove"
+                      title="Remove image"
+                      onClick={() => setAttachments((prev) => prev.filter((x) => x.id !== a.id))}
+                    >
+                      <X size={11} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
             <textarea
               ref={taRef}
               rows={1}
@@ -492,6 +562,7 @@ export function AcpThread({ sid, visible = true }: { sid: string; visible?: bool
               placeholder="Reply to Claude…"
               onFocus={() => setFocused(true)}
               onBlur={() => setFocused(false)}
+              onPaste={onPaste}
               onChange={(e) => { setDraft(e.target.value); autoGrow(e.target) }}
               onKeyDown={(e) => {
                 if (e.key === 'Escape' && working) { e.preventDefault(); acp().cancel(sid); return }
@@ -513,7 +584,7 @@ export function AcpThread({ sid, visible = true }: { sid: string; visible?: bool
               {working ? (
                 <button className="acp-send" title="Stop" onClick={() => acp().cancel(sid)}><Square size={14} /></button>
               ) : (
-                <button className="acp-send" title="Send" disabled={!draft.trim()} onClick={send}><ArrowUp size={16} /></button>
+                <button className="acp-send" title="Send" disabled={!draft.trim() && attachments.length === 0} onClick={send}><ArrowUp size={16} /></button>
               )}
             </div>
           </div>
