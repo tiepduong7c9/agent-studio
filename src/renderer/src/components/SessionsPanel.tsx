@@ -24,7 +24,7 @@ interface Props {
   activeSid: string | null
   onSelectSession: (sid: string) => void
   onOpenConversation: (project: ProjectConversations, conv: AcpConversation) => void
-  onNewSession: (ws: ProjectInfo) => void
+  onNewSession: (ws: ProjectInfo, opts?: { pin?: boolean }) => void
   onCloseWorkspace: (wsId: string) => void
   /** Permanently end (kill) a live session on the engine. */
   onDeleteSession: (sid: string) => void
@@ -455,6 +455,22 @@ export function SessionsPanel({
     return [...map.values()]
   }, [focusList, groups])
 
+  // The project a Focus-mode group starts new sessions in: the matching known
+  // group (so an open workspace keeps its controls/ordering), else one
+  // synthesized from the group's host + folder.
+  const focusGroupProject = (fg: { key: string; name: string; host: string | null; cwd: string }): ProjectInfo => {
+    const g = groups.find((x) => x.key === fg.key)
+    if (g) return groupProject(g)
+    const kind = fg.host ? 'ssh' : 'local'
+    return {
+      id: workspaceId({ kind, host: fg.host ?? undefined, rootPath: fg.cwd }),
+      kind,
+      name: fg.name,
+      rootPath: fg.cwd,
+      host: fg.host ?? undefined
+    }
+  }
+
   // Groups to render. Scoped: just that project, its rows filtered by the query.
   // Unscoped: free-text filter across every group (project name/host/path match
   // keeps all rows, else only matching rows).
@@ -773,6 +789,12 @@ export function SessionsPanel({
                   {fg.host && (
                     <span className="sessions-group-host">{fg.host.slice(fg.host.lastIndexOf('@') + 1)}</span>
                   )}
+                  <span className="topbar-spacer" />
+                  <button
+                    className="icon-button codicon codicon-add"
+                    title="New pinned session"
+                    onClick={() => onNewSession(focusGroupProject(fg), { pin: true })}
+                  />
                 </div>
                 {fg.list.map((s) => (
                   <LiveRow key={s.id} {...liveRowProps(s)} />

@@ -196,7 +196,7 @@ export function App() {
   )
 
   const newSession = useCallback(
-    async (ws: ProjectInfo) => {
+    async (ws: ProjectInfo, opts?: { pin?: boolean }) => {
       try {
         // Open workspaces already resolve in the panels. For a discovered project
         // with no open folder, root a provider at its directory (and register it)
@@ -209,6 +209,8 @@ export function App() {
         }
         // Spin up the live session and open its chat tab straight away.
         const meta = await window.studio.acp.createSession(ws.rootPath, ws.host ?? null)
+        // Pin on request (e.g. started from Focus mode) so it surfaces there.
+        if (opts?.pin) useViewPrefsStore.getState().togglePin(meta.id)
         openTab({ id: chatTabId(meta.id), kind: 'chat', title: 'Claude Code', sid: meta.id, wsId: ws.id })
       } catch (err: any) {
         setError(err?.message || String(err))
