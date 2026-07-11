@@ -27,6 +27,44 @@ export interface SessionMeta {
 /** One thread event or transient state update for a session. */
 export type AcpEvent = { type: string; seq?: number; [k: string]: any }
 
+/** Context-window occupancy for a session, from the adapter's usage_update. */
+export interface AcpUsage {
+  /** Tokens occupying the context window after the latest turn. */
+  used: number
+  /** Total context window size in tokens. */
+  size: number
+  /** Cumulative session cost, when the adapter reports it. */
+  cost?: { amount: number; currency: string } | null
+}
+
+/** One rate-limit window from the Anthropic OAuth usage endpoint. */
+export interface AcpUsageWindow { utilization: number; resets_at: string }
+/** Subscription usage across the account's rate-limit windows. */
+export interface AcpUsageData {
+  five_hour?: AcpUsageWindow | null
+  seven_day?: AcpUsageWindow | null
+  seven_day_opus?: AcpUsageWindow | null
+  seven_day_sonnet?: AcpUsageWindow | null
+  extra_usage?: {
+    is_enabled: boolean
+    monthly_limit: number
+    used_credits: number
+    utilization: number | null
+    currency: string
+    disabled_reason: string | null
+  } | null
+}
+/** Claude account details from `claude auth status --json`. */
+export interface AcpAccount {
+  authMethod?: string
+  email?: string
+  orgName?: string
+  subscriptionType?: string
+  [k: string]: any
+}
+/** Account + subscription usage for one engine host. */
+export interface AcpUsageDetail { account: AcpAccount | null; usage: AcpUsageData | null }
+
 export interface AcpSnapshot {
   events: AcpEvent[]
   claudeStatus?: ClaudeStatus
@@ -35,6 +73,7 @@ export interface AcpSnapshot {
   availableCommands?: any[]
   model?: string | null
   modelState?: any
+  usage?: AcpUsage | null
   loading?: boolean
 }
 
@@ -70,6 +109,7 @@ export type EventFn<T> = (listener: (e: T) => void) => Disposable
 export interface ISessionManagerClient {
   list(): Promise<SessionMeta[]>
   listProjects(): Promise<ProjectConversations[]>
+  getUsage(): Promise<AcpUsageDetail>
   create(opts: { cwd: string; name?: string }): Promise<SessionMeta>
   snapshot(sid: string): Promise<AcpSnapshot | null>
   prompt(sid: string, blocks: any[]): Promise<void>

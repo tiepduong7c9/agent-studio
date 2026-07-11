@@ -193,6 +193,19 @@ export function registerAcpIpc(getWindow: () => BrowserWindow | null): AcpHub {
     return perHost.flat()
   })
 
+  // Account + subscription usage for a host's Claude credentials (null host =
+  // local). Fetched on the owning engine, so each host reports its own limits.
+  // Returns nulls rather than throwing if the host isn't reachable.
+  ipcMain.handle('acp:getUsage', async (_e, host?: string | null) => {
+    const key = host ? `ssh:${host}` : LOCAL_HOST_KEY
+    try {
+      const e = await connectHost(ensureHostConn(key))
+      return await e.sm.getUsage()
+    } catch {
+      return { account: null, usage: null }
+    }
+  })
+
   ipcMain.handle('acp:create', async (_e, arg: { cwd: string; host?: string | null; name?: string }) => {
     const key = arg.host ? `ssh:${arg.host}` : LOCAL_HOST_KEY
     const e = await connectHost(ensureHostConn(key))

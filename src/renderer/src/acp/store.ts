@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { AcpSnapshot } from '../../../shared/acp'
-import type { AcpCommand, AcpEvent, AcpModeState, AcpModelState } from './protocol'
+import type { AcpCommand, AcpEvent, AcpModeState, AcpModelState, AcpUsage } from './protocol'
 
 // Per-session thread state. Keyed by session id (sid). Ported from ccremote's
 // acp-store; the only change is setHistory taking the engine's snapshot object.
@@ -14,6 +14,7 @@ export interface AcpThreadState {
   model?: string | null
   modelState?: AcpModelState | null
   pendingModelId?: string | null
+  usage?: AcpUsage | null
   lastSeq: number
   historyLoaded?: boolean
   historyLoading?: boolean
@@ -56,6 +57,7 @@ export const useAcpStore = create<AcpStore>((set) => ({
       availableCommands: snap.availableCommands ?? [],
       model: snap.model ?? null,
       modelState: snap.modelState ?? null,
+      usage: snap.usage ?? null,
       lastSeq,
       historyLoaded: true,
       historyLoading: !!snap.loading,
@@ -74,8 +76,9 @@ export const useAcpStore = create<AcpStore>((set) => ({
       threads.set(sid, { ...prev, model: event.model, modelState: event.modelState ?? prev.modelState ?? null, pendingModelId: null })
       return { threads }
     }
+    if (event.type === 'acp_usage') { threads.set(sid, { ...prev, usage: event.usage }); return { threads } }
     if (event.type === 'acp_reset') {
-      threads.set(sid, { ...prev, events: [], lastSeq: -1, claudeStatus: undefined, acpSessionId: event.acpSessionId, model: null })
+      threads.set(sid, { ...prev, events: [], lastSeq: -1, claudeStatus: undefined, acpSessionId: event.acpSessionId, model: null, usage: null })
       return { threads }
     }
     // Drop duplicates fanned out to multiple attachments.

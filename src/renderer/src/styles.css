@@ -1587,3 +1587,168 @@ body {
   font-size: 12px;
   flex-shrink: 0;
 }
+
+/* ── Bottom status bar ─────────────────────────────────────────────────────
+   Shows the active host's subscription-usage limits (5h / 7d windows), with a
+   click-through popover for the full breakdown. Sits below .panels inside the
+   flex-column .app, so it's always at the foot. */
+.status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 22px;
+  padding: 0 8px;
+  flex-shrink: 0;
+  font-size: 12px;
+  background: var(--vscode-statusBar-background, var(--vscode-titleBar-activeBackground));
+  color: var(--vscode-statusBar-foreground, var(--vscode-titleBar-activeForeground));
+  border-top: 1px solid var(--vscode-statusBar-border, transparent);
+  user-select: none;
+}
+.status-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  overflow: hidden;
+}
+.status-bar-right {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.status-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+.status-muted {
+  opacity: 0.6;
+}
+
+/* Usage summary button */
+.status-usage-btn {
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  padding: 0 4px;
+  height: 22px;
+  border-radius: 3px;
+}
+.status-usage-btn:hover,
+.status-usage-btn.active {
+  background: var(--vscode-statusBarItem-hoverBackground, rgba(255, 255, 255, 0.12));
+}
+.usage-summary {
+  font-variant-numeric: tabular-nums;
+}
+.usage-num {
+  font-weight: 600;
+}
+.usage-sep {
+  opacity: 0.5;
+}
+.usage-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--vscode-testing-iconPassed, #388a34);
+}
+.usage-dot.warn {
+  background: var(--vscode-inputValidation-warningBorder, #cca700);
+}
+.usage-dot.danger {
+  background: var(--vscode-errorForeground, #f14c4c);
+}
+
+/* Meter (shared by summary + popover rows) */
+.usage-meter {
+  position: relative;
+  height: 5px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: color-mix(in srgb, currentColor 22%, transparent);
+}
+.usage-meter.wide {
+  width: 100%;
+}
+.usage-meter-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 3px;
+  background: var(--vscode-testing-iconPassed, #388a34);
+  transition: width 0.3s ease;
+}
+.usage-meter.warn .usage-meter-fill {
+  background: var(--vscode-inputValidation-warningBorder, #cca700);
+}
+.usage-meter.danger .usage-meter-fill {
+  background: var(--vscode-errorForeground, #f14c4c);
+}
+
+/* Details popover, anchored above the summary button */
+.usage-popover {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: 0;
+  width: 240px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--vscode-menu-background, var(--vscode-editorWidget-background));
+  color: var(--vscode-menu-foreground, var(--vscode-foreground));
+  border: 1px solid var(--vscode-menu-border, var(--vscode-editorWidget-border, transparent));
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  z-index: 50;
+  cursor: default;
+}
+.usage-popover-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.usage-popover-email {
+  font-weight: 400;
+  font-size: 11px;
+  opacity: 0.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.usage-row {
+  margin-top: 9px;
+}
+.usage-row-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  margin-bottom: 3px;
+}
+.usage-row-pct {
+  font-variant-numeric: tabular-nums;
+}
+.usage-row-reset {
+  font-size: 10px;
+  opacity: 0.45;
+  margin-top: 2px;
+}
+.usage-row-extra {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--vscode-menu-separatorBackground, rgba(128, 128, 128, 0.25));
+}
+.usage-empty {
+  font-size: 12px;
+  opacity: 0.5;
+  margin-top: 4px;
+}

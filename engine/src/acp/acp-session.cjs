@@ -13,6 +13,7 @@
 //   { type: 'acp_permission', requestId, request, resolved? } — pending tool permission
 //   { type: 'acp_stop', stopReason }             — a prompt turn finished
 //   { type: 'acp_status', claudeStatus }         — derived status change (not stored)
+//   { type: 'acp_usage', usage }                 — latest context-window usage (not stored)
 //   { type: 'acp_title', title }                 — Claude's generated conversation title (not stored)
 //   { type: 'acp_error', message }               — adapter/turn error
 //   { type: 'exit', code }                       — adapter subprocess exited
@@ -51,6 +52,7 @@ class AcpSession {
     this.availableCommands = [];     // [{ name, description, input? }] — slash commands
     this.model = null;               // current model id (from configOptions, transcript fallback)
     this.modelState = null;          // { currentModelId, availableModels:[{id,name,description}] }
+    this.usage = null;               // { used, size, cost? } — latest context-window occupancy
     this._lastTitle = null;          // last ai-title emitted, to dedupe acp_title events
     this._titleWatcher = null;       // fs.watch on the project dir → picks up ai-title whenever Claude writes it
     this._titleDebounce = null;
@@ -179,6 +181,10 @@ class AcpSession {
     this._emit({ type: 'acp_model', model: this.model, modelState: this.modelState });
   }
 
+  _emitUsage() {
+    this._emit({ type: 'acp_usage', usage: this.usage });
+  }
+
   // Pull the model selector out of the adapter's configOptions (the authoritative
   // source for the current model and the list of selectable ones). Options may be
   // a flat array or grouped (`{ group, options }`); flatten either shape.
@@ -218,6 +224,14 @@ class AcpSession {
     if (update && update.sessionUpdate === 'available_commands_update') {
       this.availableCommands = update.availableCommands || [];
       this._emit({ type: 'acp_commands', commands: this.availableCommands });
+      return;
+    }
+    // Context-window usage — the adapter emits this after each turn (and resets it
+    // to 0 on compaction). Kept as transient session state (like mode/model) and
+    // surfaced as acp_usage rather than a thread entry.
+    if (update && update.sessionUpdate === 'usage_update') {
+      this.usage = { used: update.used, size: update.size, cost: update.cost || null };
+      this._emitUsage();
       return;
     }
     const item = { type: 'acp_update', update };
@@ -580,6 +594,7 @@ class AcpSession {
       availableCommands: this.availableCommands,
       model: this.model,
       modelState: this.modelState,
+      usage: this.usage,
       // True while a resume is still replaying history; the snapshot is empty
       // now and the conversation will stream in via subsequent acp_event frames.
       loading: this._resumeRequested && !this.isReady,

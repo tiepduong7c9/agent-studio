@@ -507,6 +507,14 @@
 }
 .acp-send:disabled { opacity: 0.4; cursor: default; }
 .acp-pill { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; }
+.acp-context {
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.acp-context.warn { color: var(--vscode-inputValidation-warningBorder, #cca700); }
+.acp-context.danger { color: var(--vscode-errorForeground, #f14c4c); }
 
 .acp-menu {
   position: absolute;

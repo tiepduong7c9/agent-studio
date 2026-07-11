@@ -3,12 +3,14 @@ import type { AcpConversation, ProjectConversations, SessionMeta } from '../../s
 import type { ProjectInfo } from '../../shared/types'
 import { useAcpStore } from './acp/store'
 import { useSessionsStore } from './acp/sessions-store'
+import { useUsageStore } from './acp/usage-store'
 import { EditorArea } from './components/EditorArea'
 import { RemoteFolderPicker } from './components/RemoteFolderPicker'
 import { RightPanel } from './components/RightPanel'
 import { Sash } from './components/Sash'
 import { SessionsPanel } from './components/SessionsPanel'
 import { SshDialog } from './components/SshDialog'
+import { StatusBar } from './components/StatusBar'
 import { TitleBar } from './components/TitleBar'
 import { baseName } from './components/editors'
 import type { Selection } from './selection'
@@ -120,6 +122,18 @@ export function App() {
       })
       .catch(() => {})
   }, [])
+
+  // Poll each connected host's subscription usage for the status bar: once now,
+  // then every 15 minutes (the rate-limit windows move slowly). Local (null) is
+  // always polled; SSH hosts are added as they connect.
+  useEffect(() => {
+    const refresh = useUsageStore.getState().refresh
+    const targets: (string | null)[] = [null, ...remoteHosts]
+    const tick = () => targets.forEach((h) => refresh(h))
+    tick()
+    const id = window.setInterval(tick, 15 * 60 * 1000)
+    return () => window.clearInterval(id)
+  }, [remoteHosts])
 
   // Route engine push events into the stores, and seed the session list.
   useEffect(() => {
@@ -382,6 +396,7 @@ export function App() {
           </>
         )}
       </div>
+      <StatusBar activeHost={activeWorkspace?.host ?? null} />
       {sshDialogOpen && (
         <SshDialog
           onConnected={(host) => {

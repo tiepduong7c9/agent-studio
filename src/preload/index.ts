@@ -3,6 +3,7 @@ import type {
   AcpConversation,
   AcpEventPayload,
   AcpSnapshot,
+  AcpUsageDetail,
   ProjectConversations,
   SessionMeta
 } from '../shared/acp'
@@ -71,6 +72,9 @@ const api = {
     listSessions: (): Promise<SessionMeta[]> => ipcRenderer.invoke('acp:list'),
     /** All projects + their conversations across every connected host. */
     listProjects: (): Promise<ProjectConversations[]> => ipcRenderer.invoke('acp:listProjects'),
+    /** Account + subscription usage for a host (null/undefined = local engine). */
+    getUsage: (host?: string | null): Promise<AcpUsageDetail> =>
+      ipcRenderer.invoke('acp:getUsage', host ?? null),
     createSession: (cwd: string, host?: string | null, name?: string): Promise<SessionMeta> =>
       ipcRenderer.invoke('acp:create', { cwd, host, name }),
     /** Start receiving this session's events and get its replay snapshot. */

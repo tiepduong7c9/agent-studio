@@ -14,7 +14,9 @@ import { Emitter, Event } from '../vendor/vs/base/common/event.js';
 import { toDisposable, IDisposable } from '../vendor/vs/base/common/lifecycle.js';
 import { STATE_DIR, SESSIONS_FILE } from '../constants.js';
 import { listAllProjects } from './projects.js';
-import type { AcpConversation, AcpEvent, AcpSnapshot, ClaudeStatus, CreateSessionOptions, ProjectConversations, SessionMeta } from './types.js';
+// CommonJS usage fetcher (account + rate-limit windows); esbuild interops the named export.
+import { getUsageDetail } from './usage.cjs';
+import type { AcpConversation, AcpEvent, AcpSnapshot, AcpUsageDetail, ClaudeStatus, CreateSessionOptions, ProjectConversations, SessionMeta } from './types.js';
 
 const ADJECTIVES = ['amber', 'arctic', 'bold', 'brave', 'bright', 'calm', 'cool', 'crisp', 'dawn', 'deep', 'fast', 'fierce', 'gentle', 'golden', 'grand', 'hidden', 'jade', 'keen', 'lively', 'lucid', 'mellow', 'misty', 'noble', 'quiet', 'rapid', 'royal', 'shady', 'sharp', 'silent', 'silver', 'sleek', 'solar', 'still', 'sturdy', 'swift', 'teal', 'vivid', 'warm', 'wild', 'wise'];
 const ANIMALS = ['bear', 'bison', 'boar', 'cobra', 'crane', 'crow', 'deer', 'dove', 'eagle', 'elk', 'falcon', 'finch', 'fox', 'goat', 'goose', 'hawk', 'heron', 'hound', 'jay', 'kite', 'lark', 'lion', 'lynx', 'mink', 'moose', 'newt', 'orca', 'otter', 'owl', 'panda', 'puma', 'quail', 'raven', 'robin', 'seal', 'shark', 'snipe', 'stag', 'swan', 'tiger', 'trout', 'viper', 'vole', 'wasp', 'weasel', 'whale', 'wolf', 'wren'];
@@ -118,6 +120,13 @@ export class SessionManager {
   // from ~/.claude/projects/ — independent of the sessions this daemon manages.
   listProjects(): Promise<ProjectConversations[]> {
     return listAllProjects();
+  }
+
+  // Account + subscription-usage windows for this host's Claude credentials.
+  // Fetched out-of-band (the ACP adapter doesn't forward rate-limit windows);
+  // returns nulls when credentials/endpoint are unavailable.
+  getUsage(): Promise<AcpUsageDetail> {
+    return getUsageDetail();
   }
 
   snapshot(id: string): AcpSnapshot | null {

@@ -463,6 +463,10 @@ export function AcpThread({ sid, visible = true }: { sid: string; visible?: bool
   const modeState = thread?.modeState ?? null
   const modelState = thread?.modelState ?? null
   const model = modelLabel(thread?.model)
+  // Context-window occupancy from the latest usage_update (see acp store).
+  const usage = thread?.usage ?? null
+  const contextPct =
+    usage && usage.size > 0 ? Math.min(100, Math.round((usage.used / usage.size) * 100)) : null
   // Built-ins first, then the agent's advertised commands (deduped by name).
   const commands = useMemo(() => {
     const seen = new Set(BUILTIN_COMMANDS.map((c) => c.name))
@@ -677,6 +681,14 @@ export function AcpThread({ sid, visible = true }: { sid: string; visible?: bool
                   {(close) => <ModelMenu modelState={modelState} onSelect={(id) => { selectModel(id); close() }} />}
                 </Dropdown>
               ) : (model && <span className="acp-pill"><Cpu size={12} /> {model}</span>)}
+              {contextPct != null && (
+                <span
+                  className={`acp-context${contextPct >= 90 ? ' danger' : contextPct >= 75 ? ' warn' : ''}`}
+                  title="Context window used"
+                >
+                  {contextPct}% context
+                </span>
+              )}
               <span className="acp-input-spacer" />
               {working ? (
                 <button className="acp-send" title="Stop" onClick={() => acp().cancel(sid)}><Square size={14} /></button>
