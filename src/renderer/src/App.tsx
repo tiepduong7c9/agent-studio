@@ -47,6 +47,10 @@ export function App() {
   const [leftVisible, setLeftVisible] = useState(true)
   const [rightVisible, setRightVisible] = useState(true)
   const dragBase = useRef(0)
+  // Gate pruning of persisted view-prefs/tabs until the engine has actually
+  // reported its sessions. Without this, the initial empty list (before
+  // listSessions resolves) would wipe every persisted pin/hide on each launch.
+  const sessionsLoaded = useRef(false)
 
   const sessions = useSessionsStore((s) => s.sessions)
   const setSessions = useSessionsStore((s) => s.setSessions)
@@ -123,7 +127,11 @@ export function App() {
       // The wire type is intentionally loose; the store uses the rich union.
       useAcpStore.getState().appendEvent(sid, event as never)
     })
-    const offSessions = window.studio.acp.onSessions((list) => setSessions(list))
+    const markLoaded = (list: SessionMeta[]) => {
+      sessionsLoaded.current = true
+      setSessions(list)
+    }
+    const offSessions = window.studio.acp.onSessions(markLoaded)
     // A reconnect pushes a fresh snapshot per attached session; re-seat the thread.
     const offResync = window.studio.acp.onResync(({ sid, snapshot }) => {
       useAcpStore.getState().setHistory(sid, snapshot)
@@ -133,7 +141,7 @@ export function App() {
       // A host coming (back) online may expose new projects — re-scan.
       if (connected) refreshProjects()
     })
-    window.studio.acp.listSessions().then(setSessions).catch(() => {})
+    window.studio.acp.listSessions().then(markLoaded).catch(() => {})
     refreshProjects()
     return () => { offEvent(); offSessions(); offResync(); offStatus() }
   }, [setSessions, setHostStatus, refreshProjects])
@@ -145,12 +153,17 @@ export function App() {
   }, [workspaces, remoteHosts, refreshProjects])
 
   // Close chat tabs whose session was killed on the engine, and drop any
-  // pin/hide prefs left behind by sessions that no longer exist.
+  // pin/hide prefs left behind by sessions that no longer exist. Deferred until
+  // the engine has reported (so a pre-load empty list can't wipe persisted
+  // prefs), and skipped while any host is reconnecting (its sessions aren't in
+  // the list yet — pruning then would drop live pins for that host).
   useEffect(() => {
+    if (!sessionsLoaded.current) return
+    if (remoteHosts.some((h) => engineStatus[`ssh:${h}`] === 'reconnecting')) return
     const live = new Set(sessions.map((s) => s.id))
     pruneChats(live)
     useViewPrefsStore.getState().pruneSessions(live)
-  }, [sessions, pruneChats])
+  }, [sessions, pruneChats, remoteHosts, engineStatus])
 
   // When a chat is active and no open folder contains its session, root a
   // provider at the session's own cwd so the right panel reflects its directory.

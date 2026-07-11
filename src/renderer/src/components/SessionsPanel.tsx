@@ -2,7 +2,7 @@ import { type KeyboardEvent, type MouseEvent, useMemo, useRef, useState } from '
 import type { AcpConversation, ProjectConversations, SessionMeta } from '../../../shared/acp'
 import { workspaceId, type ProjectInfo } from '../../../shared/types'
 import { useViewPrefsStore } from '../view-prefs-store'
-import { groupKey, workspaceForSession } from '../workspace'
+import { groupKey, normRoot, workspaceForSession } from '../workspace'
 
 const CUSTOMIZATIONS = [
   { icon: 'sparkle', label: 'Agents' },
@@ -423,12 +423,37 @@ export function SessionsPanel({
     onDelete: () => onDeleteSession(s.id)
   })
 
-  // Focus mode: a flat, cross-project list of pinned sessions (most recent
-  // first), filtered by the search query. Grouping/scoping is bypassed.
+  // Focus mode: a cross-project list of pinned sessions (most recent first),
+  // filtered by the search query. Scoping is bypassed.
   const focusList = sessions
     .filter((s) => pinnedSessions[s.id] && !hiddenSessions[s.id])
     .filter((s) => !searching || matches(s.name))
     .sort(byPinThenActivity)
+
+  // Group the focus list by project so each carries its host/project heading
+  // instead of a context-free flat list. Insertion order follows focusList, so
+  // the most recently active project's group leads. The display name comes from
+  // a matching project group when one exists, else the folder's basename.
+  const focusGroups = useMemo(() => {
+    const nameByKey = new Map(groups.map((g) => [g.key, g.name]))
+    const map = new Map<string, { key: string; name: string; host: string | null; cwd: string; list: SessionMeta[] }>()
+    for (const s of focusList) {
+      const key = groupKey(s.host ?? null, s.cwd)
+      let entry = map.get(key)
+      if (!entry) {
+        entry = {
+          key,
+          name: nameByKey.get(key) ?? normRoot(s.cwd).split('/').pop() ?? s.cwd,
+          host: s.host ?? null,
+          cwd: s.cwd,
+          list: []
+        }
+        map.set(key, entry)
+      }
+      entry.list.push(s)
+    }
+    return [...map.values()]
+  }, [focusList, groups])
 
   // Groups to render. Scoped: just that project, its rows filtered by the query.
   // Unscoped: free-text filter across every group (project name/host/path match
@@ -733,9 +758,27 @@ export function SessionsPanel({
             <button className="btn" onClick={onOpenSsh}>Connect SSH…</button>
           </div>
         ) : focusMode ? (
-          // Focus mode — flat list of pinned sessions across all projects/hosts.
+          // Focus mode — pinned sessions grouped under their host/project heading.
           focusList.length > 0 ? (
-            focusList.map((s) => <LiveRow key={s.id} {...liveRowProps(s)} />)
+            focusGroups.map((fg) => (
+              <div key={fg.key} className="sessions-group sessions-focus-group">
+                <div
+                  className="sessions-group-header sessions-focus-group-header"
+                  title={fg.host ? `${fg.host}:${fg.cwd}` : fg.cwd}
+                >
+                  <span
+                    className={`codicon ${fg.host ? 'codicon-server' : 'codicon-device-desktop'} sessions-focus-group-icon`}
+                  />
+                  <span className="sessions-group-name">{fg.name}</span>
+                  {fg.host && (
+                    <span className="sessions-group-host">{fg.host.slice(fg.host.lastIndexOf('@') + 1)}</span>
+                  )}
+                </div>
+                {fg.list.map((s) => (
+                  <LiveRow key={s.id} {...liveRowProps(s)} />
+                ))}
+              </div>
+            ))
           ) : (
             <div className="sessions-empty sessions-focus-empty">
               {searching

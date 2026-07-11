@@ -534,6 +534,23 @@ body {
   font-style: italic;
 }
 
+/* Focus-mode project headings are labels, not collapsible controls. */
+.sessions-focus-group {
+  margin-bottom: 6px;
+}
+.sessions-focus-group-header {
+  cursor: default;
+  padding-left: 8px;
+}
+.sessions-focus-group-header:hover {
+  color: var(--vscode-descriptionForeground);
+}
+.sessions-focus-group-icon {
+  font-size: 13px;
+  flex: 0 0 auto;
+  opacity: 0.85;
+}
+
 /* Connected SSH host section: a header with its projects nested beneath. */
 .sessions-host-section {
   margin-bottom: 6px;
