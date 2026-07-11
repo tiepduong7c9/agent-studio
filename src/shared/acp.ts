@@ -7,6 +7,9 @@ export type ClaudeStatus = 'idle' | 'working' | 'waiting'
 export interface SessionMeta {
   id: string
   name: string
+  /** True once the name is user-owned (explicit at create, or a manual rename),
+   *  so Claude's generated title no longer overrides it. */
+  titleLocked?: boolean
   cwd: string
   /** Host the session runs on: "user@host" for ssh, null/absent for local.
    *  Decorated in the main process when merging engines; not set by the engine. */

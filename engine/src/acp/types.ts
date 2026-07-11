@@ -6,6 +6,9 @@ export type ClaudeStatus = 'idle' | 'working' | 'waiting';
 export interface SessionMeta {
   id: string;
   name: string;
+  /** True once the name is user-owned (explicit at create, or a manual rename),
+   *  so Claude's generated title no longer overrides it. */
+  titleLocked?: boolean;
   cwd: string;
   mode: 'acp';
   status: 'running' | 'suspended' | 'exited';

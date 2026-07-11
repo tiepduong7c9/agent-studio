@@ -56,8 +56,11 @@ export class SessionManager {
     const cwd = path.resolve(opts.cwd.replace(/^~(?=$|\/)/, os.homedir()));
 
     const meta: SessionMeta = {
-      id, name, cwd, mode: 'acp', status: 'running',
-      acpSessionId: null, claudeStatus: undefined,
+      id, name, mode: 'acp', status: 'running',
+      // A name the caller chose is theirs to keep; an auto-generated one yields
+      // to Claude's title once it lands.
+      titleLocked: !!opts.name,
+      cwd, acpSessionId: null, claudeStatus: undefined,
       createdAt: new Date().toISOString(), lastAttachedAt: null,
     };
     const acp = new AcpSession({ cwd, env: this._childEnv(id) });
@@ -168,6 +171,7 @@ export class SessionManager {
     const rec = this._sessions.get(id);
     if (!rec) return null;
     rec.meta.name = name;
+    rec.meta.titleLocked = true;
     this._changed();
     return { ...rec.meta };
   }
@@ -205,6 +209,14 @@ export class SessionManager {
         const next = event.claudeStatus as ClaudeStatus | undefined;
         if (meta.claudeStatus !== next) {
           if (next === undefined) delete meta.claudeStatus; else meta.claudeStatus = next;
+          this._changed();
+        }
+      } else if (event.type === 'acp_title') {
+        // Claude generated a conversation title — adopt it as the session name
+        // unless the user has claimed the name themselves.
+        const title = String(event.title || '').trim();
+        if (title && !meta.titleLocked && meta.name !== title) {
+          meta.name = title;
           this._changed();
         }
       } else if (event.type === 'acp_reset') {

@@ -13,6 +13,7 @@
 //   { type: 'acp_permission', requestId, request, resolved? } — pending tool permission
 //   { type: 'acp_stop', stopReason }             — a prompt turn finished
 //   { type: 'acp_status', claudeStatus }         — derived status change (not stored)
+//   { type: 'acp_title', title }                 — Claude's generated conversation title (not stored)
 //   { type: 'acp_error', message }               — adapter/turn error
 //   { type: 'exit', code }                       — adapter subprocess exited
 
@@ -50,6 +51,9 @@ class AcpSession {
     this.availableCommands = [];     // [{ name, description, input? }] — slash commands
     this.model = null;               // current model id (from configOptions, transcript fallback)
     this.modelState = null;          // { currentModelId, availableModels:[{id,name,description}] }
+    this._lastTitle = null;          // last ai-title emitted, to dedupe acp_title events
+    this._titleWatcher = null;       // fs.watch on the project dir → picks up ai-title whenever Claude writes it
+    this._titleDebounce = null;
     this.alive = false;
     this.isReady = false;            // true once initialize + new/loadSession has resolved (note: ready() is a method)
     this._resumeRequested = false;   // true when started via resume (history will replay)
@@ -138,6 +142,8 @@ class AcpSession {
     this._emitMode();
     this._emitModel();
     this._refreshModel();
+    this._refreshTitle();
+    this._watchTitle();
     this.isReady = true;
     return this.acpSessionId;
   }
@@ -307,6 +313,7 @@ class AcpSession {
       this._emit(stop);
       this._setStatus('idle');
       this._scheduleModelRefresh();
+      this._scheduleTitleRefresh();
       return res;
     } catch (err) {
       const errItem = { type: 'acp_error', message: err && err.message ? err.message : String(err) };
@@ -330,6 +337,7 @@ class AcpSession {
     this._seq = 0;
     this.claudeStatus = undefined;
     this.model = null;
+    this._lastTitle = null;          // new conversation → let its own title surface
     this._emit({ type: 'acp_reset', acpSessionId: this.acpSessionId });
   }
 
@@ -358,6 +366,7 @@ class AcpSession {
       if (res && res.modes) { this.modeState = res.modes; this._emitMode(); }
       if (res) { this._applyConfigOptions(res.configOptions); this._emitModel(); }
       this._refreshModel();
+      this._refreshTitle();
     } catch (err) {
       this._emit({ type: 'acp_error', message: `Failed to resume conversation: ${err && err.message ? err.message : err}` });
     }
@@ -397,6 +406,66 @@ class AcpSession {
           }
           return;
         }
+      }
+    } catch (_) {
+      // best-effort
+    }
+  }
+
+  // Claude Code generates the conversation title asynchronously (a separate
+  // background summarization), so it can land well after a turn ends. Poll a few
+  // times AND watch the project dir so we catch it whenever it's written.
+  _scheduleTitleRefresh() {
+    this._refreshTitle();
+    setTimeout(() => this._refreshTitle(), 2000);
+    setTimeout(() => this._refreshTitle(), 6000);
+    setTimeout(() => this._refreshTitle(), 15000);
+    this._watchTitle();
+  }
+
+  // Watch the project's log dir; any write (Claude persisting the ai-title line)
+  // triggers a debounced re-read. One watcher per session; retried until the dir
+  // exists (it's created lazily on the first conversation).
+  _watchTitle() {
+    if (this._titleWatcher || !this.alive) return;
+    const dir = this._projectDir();
+    let watcher;
+    try {
+      watcher = fs.watch(dir, () => {
+        clearTimeout(this._titleDebounce);
+        this._titleDebounce = setTimeout(() => this._refreshTitle(), 400);
+      });
+    } catch (_) {
+      // Dir not there yet — retry shortly while the session is alive.
+      if (this.alive) setTimeout(() => this._watchTitle(), 1500);
+      return;
+    }
+    watcher.on('error', () => {});
+    this._titleWatcher = watcher;
+  }
+
+  // Read the AI-generated title for the current conversation from the project
+  // logs and surface it as acp_title when it first appears or changes.
+  async _refreshTitle() {
+    if (!this.acpSessionId) return;
+    try {
+      const dir = this._projectDir();
+      let names;
+      try { names = await fs.promises.readdir(dir); } catch (_) { return; }
+      const files = [];
+      for (const f of names) {
+        if (!f.endsWith('.jsonl')) continue;
+        const full = path.join(dir, f);
+        let stat;
+        try { stat = await fs.promises.stat(full); } catch (_) { continue; }
+        if (!stat.size) continue;
+        files.push({ full, mtime: stat.mtimeMs });
+      }
+      const titles = await this._readAiTitles(files);
+      const title = titles.get(this.acpSessionId);
+      if (title && title !== this._lastTitle) {
+        this._lastTitle = title;
+        this._emit({ type: 'acp_title', title });
       }
     } catch (_) {
       // best-effort
@@ -519,6 +588,9 @@ class AcpSession {
 
   kill() {
     this.alive = false;
+    clearTimeout(this._titleDebounce);
+    try { if (this._titleWatcher) this._titleWatcher.close(); } catch (_) {}
+    this._titleWatcher = null;
     try { if (this._child) this._child.kill(); } catch (_) {}
   }
 }
