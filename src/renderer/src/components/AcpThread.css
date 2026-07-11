@@ -378,7 +378,13 @@
   gap: 6px;
   word-break: break-word;
 }
-.acp-working { align-self: flex-start; font-size: 12px; color: var(--vscode-descriptionForeground); display: flex; gap: 8px; align-items: center; }
+.acp-working { align-self: flex-start; font-size: 12px; color: var(--vscode-descriptionForeground); display: flex; gap: 6px; align-items: center; }
+.acp-working-icon {
+  flex: 0 0 auto;
+  font-size: 13px;
+  color: var(--vscode-charts-purple, #b180d7);
+  animation: acp-pulse 1.4s ease-in-out infinite;
+}
 
 /* composer — floats over the scroll area so messages scroll behind it */
 .acp-composer {
