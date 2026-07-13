@@ -21,9 +21,9 @@ export async function connectRemoteEngine(
   sftp: SFTPWrapper,
   host: string
 ): Promise<Engine> {
-  const remoteDir = await provisionEngine(client, sftp, mod.VERSION)
+  const { remoteDir, nodePath } = await provisionEngine(client, sftp, mod.VERSION)
 
-  const info = await connectInfo(client, remoteDir)
+  const info = await connectInfo(client, remoteDir, nodePath)
   const stream = await streamLocalForward(client, info.socket)
 
   const conn = mod.connectOverStream(stream, `agent-studio-ssh-${host}`)
@@ -31,8 +31,8 @@ export async function connectRemoteEngine(
   return { sm, stream, dispose: () => { conn.dispose(); stream.destroy() } }
 }
 
-async function connectInfo(client: SshClient, remoteDir: string): Promise<ConnectInfo> {
-  const res = await sshExec(client, `node ${shellQuote(`${remoteDir}/dist/cli.js`)} connect-info`)
+async function connectInfo(client: SshClient, remoteDir: string, nodePath: string): Promise<ConnectInfo> {
+  const res = await sshExec(client, `${shellQuote(nodePath)} ${shellQuote(`${remoteDir}/dist/cli.js`)} connect-info`)
   if (res.code !== 0) throw new Error(`Remote engine connect-info failed: ${res.stderr.trim() || res.code}`)
   // Take the last JSON line (a login shell may emit banner text first).
   const line = res.stdout.trim().split('\n').filter((l) => l.trim().startsWith('{')).pop()
