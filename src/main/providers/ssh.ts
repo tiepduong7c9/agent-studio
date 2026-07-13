@@ -14,6 +14,7 @@ import { workspaceId } from '../../shared/types'
 import { parseGitStatus } from '../git/parseStatus'
 import { LOG_FORMAT, parseGitLog } from '../git/parseLog'
 import { ensureText, MAX_TEXT_FILE_SIZE } from '../textFile'
+import { MAX_IMAGE_FILE_SIZE } from '../../shared/imageTypes'
 import { assertRepoRelative, isMissingInHead } from './local'
 import type { ProjectProvider } from './types'
 
@@ -195,6 +196,20 @@ export class SshProjectProvider implements ProjectProvider {
       this.sftp.readFile(file, (err, data) => (err ? reject(err) : resolve(data)))
     })
     return ensureText(buf)
+  }
+
+  async readFileBase64(filePath: string): Promise<string> {
+    const file = this.confine(filePath)
+    const stat = await new Promise<import('ssh2').Stats>((resolve, reject) => {
+      this.sftp.stat(file, (err, stats) => (err ? reject(err) : resolve(stats)))
+    })
+    if (stat.size > MAX_IMAGE_FILE_SIZE) {
+      throw new Error(`File is too large to display (${(stat.size / 1024 / 1024).toFixed(1)} MB)`)
+    }
+    const buf = await new Promise<Buffer>((resolve, reject) => {
+      this.sftp.readFile(file, (err, data) => (err ? reject(err) : resolve(data)))
+    })
+    return buf.toString('base64')
   }
 
   async gitShowHead(relPath: string): Promise<string | null> {

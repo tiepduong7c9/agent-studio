@@ -10,6 +10,8 @@ export interface ProjectProvider {
   readDir(dirPath: string): Promise<FileEntry[]>
   /** Reads a text file. `filePath` is absolute on the project host. */
   readFile(filePath: string): Promise<string>
+  /** Reads a file as base64 (for inline image display). `filePath` is absolute. */
+  readFileBase64(filePath: string): Promise<string>
   /** Git status of the project root, or isRepo:false when not a repo. */
   gitStatus(): Promise<GitStatus>
   /**

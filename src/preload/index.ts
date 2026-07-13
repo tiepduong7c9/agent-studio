@@ -50,6 +50,8 @@ const api = {
     ipcRenderer.invoke('fs:readDir', wsId, dirPath),
   readFile: (wsId: string, filePath: string): Promise<Result<string>> =>
     ipcRenderer.invoke('fs:readFile', wsId, filePath),
+  readFileBase64: (wsId: string, filePath: string): Promise<Result<string>> =>
+    ipcRenderer.invoke('fs:readFileBase64', wsId, filePath),
   gitStatus: (wsId: string): Promise<Result<GitStatus>> => ipcRenderer.invoke('git:status', wsId),
   gitShowHead: (wsId: string, relPath: string): Promise<Result<string | null>> =>
     ipcRenderer.invoke('git:showHead', wsId, relPath),

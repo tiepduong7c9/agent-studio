@@ -216,6 +216,10 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, hub: 
     return requireProvider(wsId).readFile(filePath)
   })
 
+  handle('fs:readFileBase64', async (wsId: string, filePath: string) => {
+    return requireProvider(wsId).readFileBase64(filePath)
+  })
+
   handle('git:status', async (wsId: string) => {
     return requireProvider(wsId).gitStatus()
   })

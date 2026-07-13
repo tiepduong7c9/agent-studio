@@ -1073,6 +1073,90 @@ body {
   min-height: 0;
 }
 
+/* ── Image viewer (inline preview of image files) ────────────────────── */
+
+.image-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.image-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 30px;
+  flex-shrink: 0;
+  padding: 0 8px;
+  background: var(--vscode-editor-background);
+  border-bottom: 1px solid var(--vscode-tab-border);
+}
+
+.image-toolbar-info {
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.image-toolbar-zoom {
+  min-width: 44px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+  font-variant-numeric: tabular-nums;
+}
+
+.image-toolbar-btn {
+  height: 22px;
+  padding: 0 6px;
+  font-size: 11px;
+  color: var(--vscode-foreground);
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.image-toolbar-btn:hover:not(:disabled) {
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.image-toolbar-btn.active {
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.image-toolbar-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.image-viewer {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: auto;
+  padding: 16px;
+  /* Checkerboard so transparent images read clearly against either theme. */
+  background-color: var(--vscode-editor-background);
+  background-image:
+    linear-gradient(45deg, rgba(128, 128, 128, 0.12) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(128, 128, 128, 0.12) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(128, 128, 128, 0.12) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(128, 128, 128, 0.12) 75%);
+  background-size: 20px 20px;
+  background-position: 0 0, 0 10px, 10px -10px, -10px 0;
+}
+
+/* margin:auto (not justify/align center) so an overflowing image still scrolls
+   to its top-left instead of being clipped by the centered flex container. */
+.image-viewer img {
+  margin: auto;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  image-rendering: auto;
+}
+
 /* ── Diff viewer toolbar (navigate changes / toggle layout) ──────────── */
 
 .diff-editor {

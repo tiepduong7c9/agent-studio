@@ -7,6 +7,7 @@ import { workspaceId } from '../../shared/types'
 import { parseGitStatus } from '../git/parseStatus'
 import { LOG_FORMAT, parseGitLog } from '../git/parseLog'
 import { ensureText, MAX_TEXT_FILE_SIZE } from '../textFile'
+import { MAX_IMAGE_FILE_SIZE } from '../../shared/imageTypes'
 import type { ProjectProvider } from './types'
 
 const execFileAsync = promisify(execFile)
@@ -64,6 +65,15 @@ export class LocalProjectProvider implements ProjectProvider {
       return ensureText(Buffer.alloc(0), stat.size)
     }
     return ensureText(await fs.readFile(file))
+  }
+
+  async readFileBase64(filePath: string): Promise<string> {
+    const file = this.confine(filePath)
+    const stat = await fs.stat(file)
+    if (stat.size > MAX_IMAGE_FILE_SIZE) {
+      throw new Error(`File is too large to display (${(stat.size / 1024 / 1024).toFixed(1)} MB)`)
+    }
+    return (await fs.readFile(file)).toString('base64')
   }
 
   async gitShowHead(relPath: string): Promise<string | null> {

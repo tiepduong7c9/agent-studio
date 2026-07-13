@@ -1,11 +1,19 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { GitFileChange, ProjectInfo } from '../../../shared/types'
+import { imageMimeType } from '../../../shared/imageTypes'
 import { monaco } from '../monaco'
 
 // File and diff viewers backed by Monaco. The tabbed editor area mounts one
 // per open file/diff tab.
 
+/** Routes image files to the inline image viewer; everything else to Monaco. */
 export function FileView({ wsId, path }: { wsId: string; path: string }) {
+  const mimeType = imageMimeType(path)
+  if (mimeType) return <ImageView wsId={wsId} path={path} mimeType={mimeType} />
+  return <TextFileView wsId={wsId} path={path} />
+}
+
+function TextFileView({ wsId, path }: { wsId: string; path: string }) {
   const [content, setContent] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -24,6 +32,147 @@ export function FileView({ wsId, path }: { wsId: string; path: string }) {
   if (error) return <ViewerMessage message={error} />
   if (content === null) return <ViewerMessage message="Loading…" />
   return <MonacoViewer content={content} path={path} />
+}
+
+const MIN_ZOOM = 0.1
+const MAX_ZOOM = 32
+const ZOOM_STEP = 1.2
+
+function clampZoom(z: number): number {
+  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z))
+}
+
+function ImageView({ wsId, path, mimeType }: { wsId: string; path: string; mimeType: string }) {
+  const [src, setSrc] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  // Intrinsic pixel size, known once the image loads; null until then.
+  const [natural, setNatural] = useState<{ w: number; h: number } | null>(null)
+  const [zoom, setZoom] = useState(1)
+  // In fit mode the zoom tracks the container (recomputed on resize); any manual
+  // zoom pins it to an explicit factor until the user clicks "Fit" again.
+  const [fit, setFit] = useState(true)
+  const viewportRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setSrc(null)
+    setError(null)
+    setNatural(null)
+    window.studio.readFileBase64(wsId, path).then((result) => {
+      if (cancelled) return
+      if (result.ok) setSrc(`data:${mimeType};base64,${result.data}`)
+      else setError(result.error)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [wsId, path, mimeType])
+
+  // The zoom that makes the image fit the viewport (never upscaling past 100%).
+  const fitZoom = useCallback((): number => {
+    const el = viewportRef.current
+    if (!el || !natural) return 1
+    const availW = el.clientWidth - 32 // matches the viewport's 16px padding
+    const availH = el.clientHeight - 32
+    if (availW <= 0 || availH <= 0) return 1
+    return Math.min(1, availW / natural.w, availH / natural.h)
+  }, [natural])
+
+  // While fitting, follow the container size.
+  useLayoutEffect(() => {
+    if (!fit || !natural) return
+    const el = viewportRef.current
+    if (!el) return
+    const apply = () => setZoom(fitZoom())
+    apply()
+    const ro = new ResizeObserver(apply)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [fit, natural, fitZoom])
+
+  const zoomTo = useCallback((z: number) => {
+    setFit(false)
+    setZoom(clampZoom(z))
+  }, [])
+
+  // Ctrl/Cmd + wheel zooms toward the cursor. Attached natively so we can
+  // preventDefault (React's wheel listener is passive and can't).
+  useEffect(() => {
+    const el = viewportRef.current
+    if (!el) return
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return
+      e.preventDefault()
+      setFit(false)
+      setZoom((z) => clampZoom(z * (e.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP)))
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [])
+
+  if (error) return <ViewerMessage message={error} />
+
+  const imgStyle = natural
+    ? {
+        width: `${Math.round(natural.w * zoom)}px`,
+        height: `${Math.round(natural.h * zoom)}px`,
+        maxWidth: 'none',
+        maxHeight: 'none'
+      }
+    : undefined
+
+  return (
+    <div className="image-editor">
+      <div className="image-toolbar">
+        <span className="image-toolbar-info">
+          {natural ? `${natural.w} × ${natural.h}` : ''}
+        </span>
+        <span className="topbar-spacer" />
+        <button
+          className="icon-button codicon codicon-zoom-out"
+          title="Zoom Out"
+          disabled={!natural || zoom <= MIN_ZOOM}
+          onClick={() => zoomTo(zoom / ZOOM_STEP)}
+        />
+        <span className="image-toolbar-zoom">{Math.round(zoom * 100)}%</span>
+        <button
+          className="icon-button codicon codicon-zoom-in"
+          title="Zoom In"
+          disabled={!natural || zoom >= MAX_ZOOM}
+          onClick={() => zoomTo(zoom * ZOOM_STEP)}
+        />
+        <span className="diff-toolbar-sep" />
+        <button
+          className="image-toolbar-btn"
+          title="Actual Size (100%)"
+          disabled={!natural}
+          onClick={() => zoomTo(1)}
+        >
+          1:1
+        </button>
+        <button
+          className={`image-toolbar-btn ${fit ? 'active' : ''}`}
+          title="Fit to Window"
+          disabled={!natural}
+          onClick={() => setFit(true)}
+        >
+          Fit
+        </button>
+      </div>
+      <div className="image-viewer" ref={viewportRef}>
+        {src && (
+          <img
+            src={src}
+            alt={baseName(path)}
+            style={imgStyle}
+            onLoad={(e) =>
+              setNatural({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })
+            }
+          />
+        )}
+      </div>
+    </div>
+  )
 }
 
 export function DiffView({ project, change }: { project: ProjectInfo; change: GitFileChange }) {
