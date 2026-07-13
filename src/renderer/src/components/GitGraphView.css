@@ -1,0 +1,129 @@
+.git-graph-wrap {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--vscode-editor-background);
+}
+
+.git-graph-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--vscode-panel-border, var(--vscode-sideBar-border));
+}
+
+.git-graph {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: var(--vscode-editor-background);
+  font-size: 12px;
+}
+
+.git-graph-msg {
+  padding: 16px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+}
+
+.git-graph-inner {
+  position: relative;
+  min-height: 100%;
+}
+
+/* The renderer appends its <svg> here; keep it pinned behind the rows. */
+.git-graph-svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+.git-graph-svg circle.current {
+  fill: var(--vscode-editor-background);
+  stroke-width: 2;
+}
+.git-graph-svg circle:not(.current) {
+  stroke: var(--vscode-editor-background);
+  stroke-width: 1;
+  stroke-opacity: 0.75;
+}
+.git-graph-svg path.shaddow {
+  fill: none;
+  stroke: var(--vscode-editor-background);
+  stroke-opacity: 0.75;
+  stroke-width: 4;
+}
+.git-graph-svg path.line {
+  fill: none;
+  stroke-width: 2;
+}
+
+.git-graph-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: 12px;
+  white-space: nowrap;
+  cursor: default;
+}
+.git-graph-row:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.git-graph-subject {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.git-graph-refs {
+  display: inline-flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.git-graph-ref {
+  padding: 0 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  line-height: 15px;
+  border: 1px solid transparent;
+}
+.git-graph-ref.head {
+  background: var(--vscode-gitDecoration-modifiedResourceForeground, #e2c08d);
+  color: #000;
+  font-weight: 600;
+}
+.git-graph-ref.branch {
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+}
+.git-graph-ref.remote {
+  background: none;
+  border-color: var(--vscode-badge-background);
+  color: var(--vscode-descriptionForeground);
+}
+.git-graph-ref.tag {
+  background: none;
+  border-color: var(--vscode-gitDecoration-untrackedResourceForeground, #73c991);
+  color: var(--vscode-gitDecoration-untrackedResourceForeground, #73c991);
+}
+
+.git-graph-meta {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 12px;
+  flex-shrink: 0;
+  color: var(--vscode-descriptionForeground);
+  font-variant-numeric: tabular-nums;
+}
+.git-graph-hash {
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+.git-graph-author {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

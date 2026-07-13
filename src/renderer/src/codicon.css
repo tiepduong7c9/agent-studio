@@ -62,6 +62,8 @@
 .codicon-sparkle:before { content: '\ec10'; }
 .codicon-robot:before { content: '\ec20'; }
 .codicon-git-branch:before { content: '\ec6f'; }
+.codicon-git-commit:before { content: '\eafc'; }
+.codicon-git-compare:before { content: '\eafd'; }
 
 .codicon-circle-filled:before { content: '\ea71'; }
 .codicon-circle-large-filled:before { content: '\ebb4'; }

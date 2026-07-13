@@ -9,6 +9,7 @@ import type {
 } from '../shared/acp'
 import type {
   FileEntry,
+  GitLog,
   GitStatus,
   ProjectInfo,
   RemoteDirListing,
@@ -52,6 +53,8 @@ const api = {
   gitStatus: (wsId: string): Promise<Result<GitStatus>> => ipcRenderer.invoke('git:status', wsId),
   gitShowHead: (wsId: string, relPath: string): Promise<Result<string | null>> =>
     ipcRenderer.invoke('git:showHead', wsId, relPath),
+  gitLog: (wsId: string, limit?: number, allBranches?: boolean): Promise<Result<GitLog>> =>
+    ipcRenderer.invoke('git:log', wsId, limit, allBranches),
   createFile: (wsId: string, filePath: string): Promise<Result<void>> =>
     ipcRenderer.invoke('fs:createFile', wsId, filePath),
   createDir: (wsId: string, dirPath: string): Promise<Result<void>> =>

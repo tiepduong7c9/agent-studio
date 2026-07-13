@@ -4,6 +4,7 @@ import * as path from 'path'
 import { Client, type SFTPWrapper } from 'ssh2'
 import type {
   FileEntry,
+  GitLog,
   GitStatus,
   ProjectInfo,
   RemoteDirListing,
@@ -11,6 +12,7 @@ import type {
 } from '../../shared/types'
 import { workspaceId } from '../../shared/types'
 import { parseGitStatus } from '../git/parseStatus'
+import { LOG_FORMAT, parseGitLog } from '../git/parseLog'
 import { ensureText, MAX_TEXT_FILE_SIZE } from '../textFile'
 import { assertRepoRelative, isMissingInHead } from './local'
 import type { ProjectProvider } from './types'
@@ -229,6 +231,22 @@ export class SshProjectProvider implements ProjectProvider {
       throw new Error(stderr.trim() || `git exited with code ${code}`)
     }
     return parseGitStatus(stdout.toString('utf8'))
+  }
+
+  async gitLog(limit = 300, allBranches = true): Promise<GitLog> {
+    // --all: every branch so the graph shows real branch/merge structure;
+    // omit it to follow only the current branch (HEAD). --topo-order keeps
+    // parents below children so lane layout is stable.
+    const all = allBranches ? '--all ' : ''
+    const cmd = `git -C ${shellQuote(this.info.rootPath)} log ${all}--topo-order --max-count=${limit} --format=${shellQuote(LOG_FORMAT)}`
+    const { code, stdout, stderr } = await this.exec(cmd)
+    if (code !== 0) {
+      if (stderr.includes('not a git repository')) return { isRepo: false, commits: [] }
+      // Freshly-initialized repo with no commits yet.
+      if (stderr.includes('does not have any commits')) return { isRepo: true, commits: [] }
+      throw new Error(stderr.trim() || `git exited with code ${code}`)
+    }
+    return parseGitLog(stdout.toString('utf8'))
   }
 
   async createFile(filePath: string): Promise<void> {

@@ -446,7 +446,16 @@ export function App() {
           </>
         )}
       </div>
-      <StatusBar activeHost={activeWorkspace?.host ?? null} />
+      <StatusBar
+        activeHost={activeWorkspace?.host ?? null}
+        activeWorkspace={activeWorkspace}
+        activeSid={activeSid}
+        leftWidth={leftWidth}
+        rightWidth={rightWidth}
+        leftVisible={leftVisible}
+        rightVisible={rightVisible}
+        maximized={maximized}
+      />
       {sshDialogOpen && (
         <SshDialog
           onConnected={(host) => {

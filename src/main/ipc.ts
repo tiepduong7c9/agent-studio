@@ -224,6 +224,10 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, hub: 
     return requireProvider(wsId).gitShowHead(relPath)
   })
 
+  handle('git:log', async (wsId: string, limit?: number, allBranches?: boolean) => {
+    return requireProvider(wsId).gitLog(limit, allBranches)
+  })
+
   handle('fs:createFile', async (wsId: string, filePath: string) => {
     await requireProvider(wsId).createFile(filePath)
   })

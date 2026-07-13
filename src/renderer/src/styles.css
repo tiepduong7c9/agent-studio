@@ -1652,10 +1652,8 @@ body {
 .status-bar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
   height: 22px;
-  padding: 0 8px;
+  padding: 0;
   flex-shrink: 0;
   font-size: 12px;
   background: var(--vscode-statusBar-background, var(--vscode-titleBar-activeBackground));
@@ -1663,18 +1661,49 @@ body {
   border-top: 1px solid var(--vscode-statusBar-border, transparent);
   user-select: none;
 }
-.status-bar-left {
+.status-seg {
   display: flex;
   align-items: center;
   gap: 12px;
+  height: 100%;
+}
+/* Left segment spans the sidebar width (set inline) so the center segment
+   aligns under the editor column. */
+.status-bar-left {
+  flex-shrink: 0;
   min-width: 0;
   overflow: hidden;
+  padding-left: 8px;
+}
+.status-bar-center {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  padding-left: 8px;
 }
 .status-bar-right {
   position: relative;
-  display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-shrink: 0;
+  padding-right: 8px;
+  margin-left: auto;
+}
+.status-branch {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.status-graph-btn {
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  padding: 0 4px;
+  height: 22px;
+  border-radius: 3px;
+}
+.status-graph-btn:hover {
+  background: var(--vscode-statusBarItem-hoverBackground, rgba(255, 255, 255, 0.12));
 }
 .status-item {
   display: flex;

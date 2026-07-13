@@ -61,6 +61,25 @@ export interface GitStatus {
   changes: GitFileChange[]
 }
 
+/** One commit in the graph/history log. */
+export interface GitCommit {
+  hash: string
+  /** Parent commit hashes (2+ for a merge). */
+  parents: string[]
+  author: string
+  email: string
+  /** Author date, ms since epoch. */
+  date: number
+  subject: string
+  /** Decoration refs, e.g. ['HEAD -> main', 'origin/main', 'tag: v1.0']. */
+  refs: string[]
+}
+
+export interface GitLog {
+  isRepo: boolean
+  commits: GitCommit[]
+}
+
 export interface SshConnectOptions {
   host: string
   port?: number

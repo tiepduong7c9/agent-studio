@@ -2,9 +2,10 @@ import { execFile } from 'child_process'
 import { promises as fs } from 'fs'
 import * as path from 'path'
 import { promisify } from 'util'
-import type { FileEntry, GitStatus, ProjectInfo } from '../../shared/types'
+import type { FileEntry, GitLog, GitStatus, ProjectInfo } from '../../shared/types'
 import { workspaceId } from '../../shared/types'
 import { parseGitStatus } from '../git/parseStatus'
+import { LOG_FORMAT, parseGitLog } from '../git/parseLog'
 import { ensureText, MAX_TEXT_FILE_SIZE } from '../textFile'
 import type { ProjectProvider } from './types'
 
@@ -100,6 +101,25 @@ export class LocalProjectProvider implements ProjectProvider {
     } catch (err: any) {
       if (typeof err?.stderr === 'string' && err.stderr.includes('not a git repository')) {
         return { isRepo: false, ahead: 0, behind: 0, changes: [] }
+      }
+      throw err
+    }
+  }
+
+  async gitLog(limit = 300, allBranches = true): Promise<GitLog> {
+    try {
+      // --all: every branch so the graph shows real branch/merge structure;
+      // omit it to follow only the current branch (HEAD). --topo-order keeps
+      // parents below children so lane layout is stable.
+      const args = ['-C', this.info.rootPath, 'log', '--topo-order', `--max-count=${limit}`, `--format=${LOG_FORMAT}`]
+      if (allBranches) args.splice(3, 0, '--all')
+      const { stdout } = await execFileAsync('git', args, { maxBuffer: 16 * 1024 * 1024 })
+      return parseGitLog(stdout)
+    } catch (err: any) {
+      if (typeof err?.stderr === 'string') {
+        if (err.stderr.includes('not a git repository')) return { isRepo: false, commits: [] }
+        // Freshly-initialized repo with no commits yet.
+        if (err.stderr.includes('does not have any commits')) return { isRepo: true, commits: [] }
       }
       throw err
     }

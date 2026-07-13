@@ -3,6 +3,7 @@ import type { ProjectInfo } from '../../../shared/types'
 import { useTabsStore, visibleTabs, type EditorTab } from '../tabs-store'
 import { AcpThread } from './AcpThread'
 import { ChatCard } from './ChatCard'
+import { GitGraphView } from './GitGraphView'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { ErrorBoundary } from './ErrorBoundary'
 import { DiffView, FileView } from './editors'
@@ -24,6 +25,8 @@ function tabIcon(tab: EditorTab): string {
       return 'codicon-robot'
     case 'diff':
       return 'codicon-git-compare'
+    case 'git-graph':
+      return 'codicon-git-commit'
     case 'new-chat':
       return 'codicon-add'
     default:
@@ -161,6 +164,8 @@ function TabContent({
       )
     case 'chat':
       return <AcpThread key={tab.id} sid={tab.sid} />
+    case 'git-graph':
+      return <GitGraphView key={tab.id} wsId={tab.wsId} />
     case 'file':
       return <FileView key={tab.id} wsId={tab.wsId} path={tab.path} />
     case 'diff':

@@ -21,6 +21,7 @@ export type EditorTab =
   | { id: string; kind: 'chat'; title: string; sid: string; wsId: string }
   | { id: string; kind: 'file'; title: string; path: string; name: string; wsId: string; ownerSid: string | null; preview?: boolean }
   | { id: string; kind: 'diff'; title: string; change: GitFileChange; wsId: string; ownerSid: string | null; preview?: boolean }
+  | { id: string; kind: 'git-graph'; title: string; wsId: string; ownerSid: string | null }
 
 /** Agent tabs (the new-session card and live chats) stay left of file/diff tabs. */
 export function isAgentTab(tab: EditorTab): boolean {
@@ -33,11 +34,11 @@ function isFileOrDiff(tab: EditorTab): tab is Extract<EditorTab, { kind: 'file' 
 
 /**
  * Whether a tab belongs to the current session context. Chat/new-chat tabs are
- * always shown; file/diff tabs only when owned by the active session.
+ * always shown; file/diff/git-graph tabs only when owned by the active session.
  */
 export function tabInSession(tab: EditorTab, activeSid: string | null): boolean {
-  if (!isFileOrDiff(tab)) return true
-  return (tab.ownerSid ?? null) === activeSid
+  if (isAgentTab(tab)) return true
+  return (('ownerSid' in tab ? tab.ownerSid : null) ?? null) === activeSid
 }
 
 /** The tabs shown for the active session, in strip order. */
@@ -62,6 +63,11 @@ export function fileTabId(ownerSid: string | null, wsId: string, path: string): 
 
 export function diffTabId(ownerSid: string | null, wsId: string, change: GitFileChange): string {
   return `diff:${ownerSid ?? ''}:${wsId}:${change.path}:${change.index}${change.worktree}`
+}
+
+/** One git-graph tab per (session, workspace). */
+export function gitGraphTabId(ownerSid: string | null, wsId: string): string {
+  return `gitgraph:${ownerSid ?? ''}:${wsId}`
 }
 
 interface TabsStore {
@@ -218,8 +224,8 @@ export const useTabsStore = create<TabsStore>((set) => ({
     set((s) => {
       const tabs = s.tabs.filter((t) => {
         if (t.kind === 'chat') return liveSids.has(t.sid)
-        // Drop files/diffs whose owning session is gone; keep session-less ones.
-        if (isFileOrDiff(t) && t.ownerSid) return liveSids.has(t.ownerSid)
+        // Drop files/diffs/graphs whose owning session is gone; keep session-less ones.
+        if ('ownerSid' in t && t.ownerSid) return liveSids.has(t.ownerSid)
         return true
       })
       const activeSidStale = s.activeSid != null && !liveSids.has(s.activeSid)

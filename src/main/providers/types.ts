@@ -1,4 +1,4 @@
-import type { FileEntry, GitStatus, ProjectInfo } from '../../shared/types'
+import type { FileEntry, GitLog, GitStatus, ProjectInfo } from '../../shared/types'
 
 /**
  * Abstracts a project folder so the rest of the app doesn't care whether it
@@ -17,6 +17,10 @@ export interface ProjectProvider {
    * null when the file doesn't exist in HEAD (new/untracked files).
    */
   gitShowHead(relPath: string): Promise<string | null>
+  /** Commit history for the graph, newest first, capped at `limit`.
+   *  `allBranches` (default true) logs every branch; false follows only the
+   *  current branch (HEAD). Returns isRepo:false when the root isn't a git repo. */
+  gitLog(limit?: number, allBranches?: boolean): Promise<GitLog>
   /** Creates an empty file. Fails if it already exists. */
   createFile(filePath: string): Promise<void>
   createDir(dirPath: string): Promise<void>
