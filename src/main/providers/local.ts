@@ -9,6 +9,7 @@ import { parseGitStatus } from '../git/parseStatus'
 import { LOG_FORMAT, parseGitLog } from '../git/parseLog'
 import { ensureText, MAX_TEXT_FILE_SIZE } from '../textFile'
 import { MAX_IMAGE_FILE_SIZE } from '../../shared/imageTypes'
+import { capFiles, walkFiles } from '../fileList'
 import type { ProjectProvider } from './types'
 
 const execFileAsync = promisify(execFile)
@@ -57,6 +58,31 @@ export class LocalProjectProvider implements ProjectProvider {
         return { name: e.name, path: entryPath, kind, symlink }
       })
     )
+  }
+
+  async listFiles(): Promise<string[]> {
+    // `ls-files --cached --others --exclude-standard` = tracked + untracked but
+    // not ignored — the same set VS Code's quick-open shows in a repo. -z keeps
+    // paths raw (no quoting) so odd filenames survive.
+    try {
+      const { stdout } = await execFileAsync(
+        'git',
+        ['-C', this.info.rootPath, 'ls-files', '--cached', '--others', '--exclude-standard', '-z'],
+        { maxBuffer: 64 * 1024 * 1024, encoding: 'utf8' }
+      )
+      return capFiles(stdout.split('\0'))
+    } catch (err: any) {
+      const stderr = err?.stderr?.toString?.() ?? ''
+      // Not a repo, git missing, or output too big → walk the tree instead.
+      if (
+        stderr.includes('not a git repository') ||
+        err?.code === 'ENOENT' ||
+        err?.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'
+      ) {
+        return capFiles(await walkFiles(this.info.rootPath))
+      }
+      throw new Error(stderr.trim() || err?.message || String(err))
+    }
   }
 
   async readFile(filePath: string): Promise<string> {

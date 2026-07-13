@@ -1442,6 +1442,105 @@ body {
   margin-bottom: 14px;
 }
 
+/* ── Quick Open (Ctrl/Cmd+P file search) ─────────────────────────────── */
+
+.quick-open {
+  width: 600px;
+  max-width: 90vw;
+  background: var(--vscode-editor-background);
+  border: 1px solid var(--vscode-widget-border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.quick-open-input {
+  margin: 8px;
+  padding: 5px 8px;
+  font-size: 13px;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-focusBorder);
+  border-radius: 4px;
+  outline: none;
+}
+
+.quick-open-input::placeholder {
+  color: var(--vscode-input-placeholderForeground);
+}
+
+.quick-open-status {
+  padding: 6px 12px 12px;
+  font-size: 13px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.quick-open-list {
+  max-height: 44vh;
+  overflow-y: auto;
+  padding-bottom: 4px;
+}
+
+.quick-open-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px 12px;
+  font-size: 13px;
+  line-height: 20px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.quick-open-row.active {
+  background: var(--vscode-list-activeSelectionBackground);
+  color: var(--vscode-list-activeSelectionForeground);
+}
+
+.quick-open-icon {
+  flex-shrink: 0;
+  font-size: 14px;
+  opacity: 0.8;
+  align-self: center;
+}
+
+.quick-open-name {
+  flex-shrink: 0;
+}
+
+.quick-open-path {
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.quick-open-row.active .quick-open-path {
+  color: inherit;
+  opacity: 0.75;
+}
+
+.quick-open-ws {
+  margin-left: auto;
+  padding-left: 8px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.quick-open-hl {
+  color: var(--vscode-list-activeSelectionForeground);
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+.quick-open-row:not(.active) .quick-open-hl {
+  color: var(--vscode-focusBorder);
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: 100px 1fr;

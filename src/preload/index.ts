@@ -48,6 +48,8 @@ const api = {
   closeProject: (wsId: string): Promise<Result<void>> => ipcRenderer.invoke('project:close', wsId),
   readDir: (wsId: string, dirPath: string): Promise<Result<FileEntry[]>> =>
     ipcRenderer.invoke('fs:readDir', wsId, dirPath),
+  listFiles: (wsId: string): Promise<Result<string[]>> =>
+    ipcRenderer.invoke('fs:listFiles', wsId),
   readFile: (wsId: string, filePath: string): Promise<Result<string>> =>
     ipcRenderer.invoke('fs:readFile', wsId, filePath),
   readFileBase64: (wsId: string, filePath: string): Promise<Result<string>> =>

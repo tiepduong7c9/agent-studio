@@ -6,6 +6,7 @@ import { useSessionsStore } from './acp/sessions-store'
 import { useUsageStore } from './acp/usage-store'
 import { useDrafts } from './acp/drafts-store'
 import { EditorArea } from './components/EditorArea'
+import { QuickOpen } from './components/QuickOpen'
 import { RemoteFolderPicker } from './components/RemoteFolderPicker'
 import { RightPanel } from './components/RightPanel'
 import { Sash } from './components/Sash'
@@ -44,6 +45,7 @@ export function App() {
   // Host whose remote folder picker is open (optional "open folder" action);
   // null when not picking.
   const [folderPickerHost, setFolderPickerHost] = useState<string | null>(null)
+  const [quickOpen, setQuickOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [leftWidth, setLeftWidth] = useState(300)
   const [rightWidth, setRightWidth] = useState(340)
@@ -337,6 +339,19 @@ export function App() {
     [openTab]
   )
 
+  // Ctrl/Cmd+P toggles quick-open. Capture-phase so it wins over Monaco and any
+  // focused input; guarded against the other modifier combos.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && (e.key === 'p' || e.key === 'P')) {
+        e.preventDefault()
+        setQuickOpen((v) => !v)
+      }
+    }
+    window.addEventListener('keydown', onKey, { capture: true })
+    return () => window.removeEventListener('keydown', onKey, { capture: true })
+  }, [])
+
   const createSession = useCallback(async (ws: ProjectInfo, text: string) => {
     try {
       const meta = await window.studio.acp.createSession(ws.rootPath, ws.host ?? null)
@@ -466,6 +481,13 @@ export function App() {
             setError(null)
           }}
           onCancel={() => setSshDialogOpen(false)}
+        />
+      )}
+      {quickOpen && (
+        <QuickOpen
+          workspaces={activeWorkspace ? [activeWorkspace] : []}
+          onSelect={onSelect}
+          onClose={() => setQuickOpen(false)}
         />
       )}
       {folderPickerHost !== null && (

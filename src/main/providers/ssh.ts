@@ -16,6 +16,7 @@ import { parseGitStatus } from '../git/parseStatus'
 import { LOG_FORMAT, parseGitLog } from '../git/parseLog'
 import { ensureText, MAX_TEXT_FILE_SIZE } from '../textFile'
 import { MAX_IMAGE_FILE_SIZE } from '../../shared/imageTypes'
+import { capFiles, IGNORED_DIRS } from '../fileList'
 import { assertRepoRelative, isMissingInHead } from './local'
 import type { ProjectProvider } from './types'
 
@@ -183,6 +184,35 @@ export class SshProjectProvider implements ProjectProvider {
         return { name: item.filename, path: entryPath, kind, symlink }
       })
     )
+  }
+
+  async listFiles(): Promise<string[]> {
+    const root = shellQuote(this.info.rootPath)
+    const cap = 64 * 1024 * 1024
+    // Prefer git (honors .gitignore); -z keeps paths raw. 16MB is too small for
+    // a big tree, so raise the exec cap.
+    const git = await this.exec(
+      `git -C ${root} ls-files --cached --others --exclude-standard -z`,
+      cap
+    )
+    if (git.code === 0) return capFiles(git.stdout.toString('utf8').split('\0'))
+
+    // Not a repo (or git unavailable): fall back to find, pruning heavy dirs.
+    const prune = [...IGNORED_DIRS].map((d) => `-name ${shellQuote(d)}`).join(' -o ')
+    const find = await this.exec(
+      `find ${root} \\( ${prune} \\) -prune -o -type f -print0`,
+      cap
+    )
+    if (find.code !== 0) {
+      throw new Error(find.stderr.trim() || git.stderr.trim() || `find exited with code ${find.code}`)
+    }
+    const base = this.info.rootPath.replace(/\/+$/, '')
+    const files = find.stdout
+      .toString('utf8')
+      .split('\0')
+      .filter(Boolean)
+      .map((p) => (p.startsWith(base + '/') ? p.slice(base.length + 1) : p))
+    return capFiles(files)
   }
 
   async readFile(filePath: string): Promise<string> {

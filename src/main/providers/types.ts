@@ -9,6 +9,11 @@ export interface ProjectProvider {
   readonly info: ProjectInfo
   /** Lists a directory. `dirPath` is absolute on the project host. */
   readDir(dirPath: string): Promise<FileEntry[]>
+  /**
+   * All files under the project root as posix paths relative to it, for
+   * quick-open search. Honors .gitignore in a repo; capped for huge trees.
+   */
+  listFiles(): Promise<string[]>
   /** Reads a text file. `filePath` is absolute on the project host. */
   readFile(filePath: string): Promise<string>
   /** Reads a file as base64 (for inline image display). `filePath` is absolute. */
