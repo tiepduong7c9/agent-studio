@@ -70,6 +70,39 @@ export function App() {
 
   const active = tabs.find((t) => t.id === activeId) ?? null
   const activeSid = active?.kind === 'chat' ? active.sid : null
+
+  // Selecting/opening a session means the user is now looking at it — clear its
+  // "done" (unread-completion) marker. Deliberately not cleared on mere window
+  // refocus, so a session that finished while you were away still reads as
+  // "done" when you come back, until you actually visit it or start a new turn.
+  useEffect(() => {
+    if (activeSid) useSessionsStore.getState().clearDone(activeSid)
+  }, [activeSid])
+
+  // Watch the session list for a working → idle transition (a finished turn).
+  // The engine mirrors claudeStatus onto every session's meta and broadcasts it
+  // regardless of which session the UI is attached to, so this catches
+  // background sessions — the per-session event stream does not (it only flows
+  // while a session is attached/viewed). A turn that finishes while the session
+  // isn't being watched flips it to "done"; starting a new turn clears it.
+  const prevClaudeStatus = useRef<Map<string, string | undefined>>(new Map())
+  useEffect(() => {
+    const prev = prevClaudeStatus.current
+    const { markDone, clearDone } = useSessionsStore.getState()
+    for (const s of sessions) {
+      const before = prev.get(s.id)
+      const now = s.claudeStatus
+      if (before === 'working' && now === 'idle') {
+        const watching = useTabsStore.getState().activeSid === s.id && document.hasFocus()
+        if (!watching) markDone(s.id)
+      } else if (now === 'working') {
+        clearDone(s.id)
+      }
+      prev.set(s.id, now)
+    }
+    const live = new Set(sessions.map((s) => s.id))
+    for (const id of [...prev.keys()]) if (!live.has(id)) prev.delete(id)
+  }, [sessions])
   const activeChatMeta =
     active?.kind === 'chat' ? (sessions.find((s) => s.id === active.sid) ?? null) : null
   // The right panel follows the active tab's workspace. For a chat that's the

@@ -1,6 +1,7 @@
 import { type KeyboardEvent, type MouseEvent, useEffect, useMemo, useRef, useState } from 'react'
 import type { AcpConversation, ProjectConversations, SessionMeta } from '../../../shared/acp'
 import { workspaceId, type ProjectInfo } from '../../../shared/types'
+import { useSessionsStore } from '../acp/sessions-store'
 import { useViewPrefsStore } from '../view-prefs-store'
 import { groupKey, normRoot, workspaceForSession } from '../workspace'
 import { ContextMenu, type MenuItem } from './ContextMenu'
@@ -53,6 +54,7 @@ function relTime(ms: number): string {
 function statusClass(status?: string): string {
   if (status === 'working') return 'acp-status-working'
   if (status === 'waiting') return 'acp-status-waiting'
+  if (status === 'done') return 'acp-status-done'
   return 'acp-status-idle'
 }
 
@@ -98,6 +100,8 @@ interface LiveRowProps {
   active: boolean
   pinned: boolean
   hidden: boolean
+  /** Finished a turn while unwatched — shown as a "done" status until viewed. */
+  done: boolean
   onSelect: () => void
   onTogglePin: () => void
   onHide: () => void
@@ -105,7 +109,10 @@ interface LiveRowProps {
   onDelete: () => void
 }
 
-function LiveRow({ s, active, pinned, hidden, onSelect, onTogglePin, onHide, onUnhide, onDelete }: LiveRowProps) {
+function LiveRow({ s, active, pinned, hidden, done, onSelect, onTogglePin, onHide, onUnhide, onDelete }: LiveRowProps) {
+  // "done" only stands in when Claude is otherwise idle — a live working/waiting
+  // status always wins (a new turn clears the marker anyway).
+  const displayStatus = done && (!s.claudeStatus || s.claudeStatus === 'idle') ? 'done' : s.claudeStatus
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [confirming, setConfirming] = useState(false)
 
@@ -125,15 +132,15 @@ function LiveRow({ s, active, pinned, hidden, onSelect, onTogglePin, onHide, onU
   return (
     <div className={`acp-session-row-wrap ${hidden ? 'hidden' : ''}`}>
       <button
-        className={`acp-session-row ${active ? 'active' : ''}`}
+        className={`acp-session-row ${active ? 'active' : ''} ${displayStatus === 'done' ? 'done' : ''}`}
         onClick={onSelect}
         onContextMenu={openMenu}
       >
-        <span className={`acp-status-dot ${statusClass(s.claudeStatus)}`} />
+        <span className={`acp-status-dot ${statusClass(displayStatus)}`} />
         <span className="acp-session-main">
           <span className="acp-session-name">{s.name}</span>
           <span className="acp-session-sub">
-            {s.claudeStatus ?? s.status} · {relTime(activity(s))}
+            {displayStatus ?? s.status} · {relTime(activity(s))}
           </span>
         </span>
       </button>
@@ -185,6 +192,7 @@ export function SessionsPanel({
   onOpenRemoteFolder,
   onDisconnectRemote
 }: Props) {
+  const doneSessions = useSessionsStore((s) => s.doneSessions)
   const pinnedSessions = useViewPrefsStore((s) => s.pinnedSessions)
   const hiddenSessions = useViewPrefsStore((s) => s.hiddenSessions)
   const hiddenProjects = useViewPrefsStore((s) => s.hiddenProjects)
@@ -425,6 +433,7 @@ export function SessionsPanel({
     active: s.id === activeSid,
     pinned: !!pinnedSessions[s.id],
     hidden: !!hiddenSessions[s.id],
+    done: !!doneSessions[s.id],
     onSelect: () => onSelectSession(s.id),
     onTogglePin: () => togglePin(s.id),
     onHide: () => hideSession(s.id),

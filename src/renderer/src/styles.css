@@ -640,6 +640,31 @@ body {
 .acp-status-idle { background: var(--vscode-testing-iconPassed, #388a34); }
 .acp-status-working { background: var(--vscode-charts-yellow, #cca700); }
 .acp-status-waiting { background: var(--vscode-charts-orange, #d18616); }
+.acp-status-done { background: var(--vscode-charts-blue, #3794ff); }
+
+/* "Done" (unread-completion) rows draw the eye: an accent-tinted background with
+   a left bar, a bolder name, an accent label, and a pulsing/glowing dot. */
+.acp-session-row.done {
+  background: color-mix(in srgb, var(--vscode-charts-blue, #3794ff) 13%, transparent);
+  box-shadow: inset 2px 0 0 var(--vscode-charts-blue, #3794ff);
+}
+.acp-session-row.done:hover {
+  background: color-mix(in srgb, var(--vscode-charts-blue, #3794ff) 20%, transparent);
+}
+.acp-session-row.done .acp-session-name { font-weight: 600; }
+.acp-session-row.done .acp-session-sub {
+  color: var(--vscode-charts-blue, #3794ff);
+  font-weight: 600;
+  text-transform: capitalize;
+}
+.acp-session-row.done .acp-status-done {
+  animation: acp-done-pulse 1.8s ease-out infinite;
+}
+@keyframes acp-done-pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--vscode-charts-blue, #3794ff) 60%, transparent); }
+  70% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--vscode-charts-blue, #3794ff) 0%, transparent); }
+  100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--vscode-charts-blue, #3794ff) 0%, transparent); }
+}
 
 /* Live session row: actions live in a right-click context menu so the session
    summary text isn't crowded. Only a pinned marker sits inline, on the right. */
