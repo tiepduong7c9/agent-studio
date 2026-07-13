@@ -13,6 +13,7 @@ import { useSessionsStore } from '../acp/sessions-store'
 import { buildThread, modelLabel, recapOf, textOf, type ThreadItem } from '../acp/buildThread'
 import type { AcpCommand, AcpModeState, AcpModelState, AcpToolContent } from '../acp/protocol'
 import { useCommandHistory } from '../acp/command-history'
+import { useDrafts } from '../acp/drafts-store'
 import './AcpThread.css'
 
 const acp = () => window.studio.acp
@@ -436,7 +437,12 @@ export function AcpThread({ sid, visible = true }: { sid: string; visible?: bool
   // fixed "Claude Code" label instead).
   const sessionName = useSessionsStore((s) => s.sessions.find((x) => x.id === sid)?.name ?? null)
   const engineStatus = useSessionsStore((s) => s.engineStatus[host ? `ssh:${host}` : 'local']) ?? 'connected'
-  const [draft, setDraft] = useState('')
+  // Draft lives in a per-session store, not local state: the composer remounts on
+  // every session switch (its tab key changes), so keeping it here would drop
+  // whatever was typed. Reading from the store restores it when switching back.
+  const draft = useDrafts((s) => s.drafts[sid] ?? '')
+  const setSessionDraft = useDrafts((s) => s.set)
+  const setDraft = useCallback((text: string) => setSessionDraft(sid, text), [setSessionDraft, sid])
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [focused, setFocused] = useState(false)
   const [resuming, setResuming] = useState(false)

@@ -4,6 +4,7 @@ import type { ProjectInfo } from '../../shared/types'
 import { useAcpStore } from './acp/store'
 import { useSessionsStore } from './acp/sessions-store'
 import { useUsageStore } from './acp/usage-store'
+import { useDrafts } from './acp/drafts-store'
 import { EditorArea } from './components/EditorArea'
 import { RemoteFolderPicker } from './components/RemoteFolderPicker'
 import { RightPanel } from './components/RightPanel'
@@ -229,6 +230,7 @@ export function App() {
     const live = new Set(sessions.map((s) => s.id))
     pruneChats(live)
     useViewPrefsStore.getState().pruneSessions(live)
+    useDrafts.getState().prune(live)
   }, [sessions, pruneChats, remoteHosts, engineStatus])
 
   // When a chat is active and no open folder contains its session, root a
