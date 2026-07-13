@@ -1,3 +1,4 @@
+import type { Readable } from 'stream'
 import type { FileEntry, GitLog, GitStatus, ProjectInfo } from '../../shared/types'
 
 /**
@@ -12,6 +13,13 @@ export interface ProjectProvider {
   readFile(filePath: string): Promise<string>
   /** Reads a file as base64 (for inline image display). `filePath` is absolute. */
   readFileBase64(filePath: string): Promise<string>
+  /** Byte size of a file, for range/streaming media over studio-media://. */
+  mediaFileSize(filePath: string): Promise<number>
+  /**
+   * A read stream for a byte range of a file (`start`/`end` inclusive), backing
+   * ranged media playback. `filePath` is absolute on the project host.
+   */
+  createMediaStream(filePath: string, range: { start: number; end: number }): Readable
   /** Git status of the project root, or isRepo:false when not a repo. */
   gitStatus(): Promise<GitStatus>
   /**

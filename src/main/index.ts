@@ -2,6 +2,10 @@ import { app, BrowserWindow, shell } from 'electron'
 import * as path from 'path'
 import { registerAcpIpc } from './acp-ipc'
 import { disposeProvider, registerIpcHandlers } from './ipc'
+import { registerMediaProtocol, registerMediaScheme } from './media-protocol'
+
+// The studio-media:// streaming scheme must be declared before app `ready`.
+registerMediaScheme()
 
 // Render via XWayland, same as VS Code and most Electron apps. On GNOME (48+/50)
 // Chromium's *native-Wayland* input path opens a RemoteDesktop portal session on
@@ -102,6 +106,7 @@ function createWindow(): void {
 app.whenReady().then(() => {
   const acpHub = registerAcpIpc(() => mainWindow)
   registerIpcHandlers(() => mainWindow, acpHub)
+  registerMediaProtocol()
   disposeAcp = () => acpHub.dispose()
   createWindow()
 

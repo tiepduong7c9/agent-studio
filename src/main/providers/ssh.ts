@@ -1,6 +1,7 @@
 import { promises as fs } from 'fs'
 import * as os from 'os'
 import * as path from 'path'
+import type { Readable } from 'stream'
 import { Client, type SFTPWrapper } from 'ssh2'
 import type {
   FileEntry,
@@ -210,6 +211,23 @@ export class SshProjectProvider implements ProjectProvider {
       this.sftp.readFile(file, (err, data) => (err ? reject(err) : resolve(data)))
     })
     return buf.toString('base64')
+  }
+
+  async mediaFileSize(filePath: string): Promise<number> {
+    const file = this.confine(filePath)
+    const stat = await new Promise<import('ssh2').Stats>((resolve, reject) => {
+      this.sftp.stat(file, (err, stats) => (err ? reject(err) : resolve(stats)))
+    })
+    return stat.size
+  }
+
+  createMediaStream(filePath: string, range: { start: number; end: number }): Readable {
+    // SFTP read streams are created synchronously; the confine() re-check guards
+    // this separate entry point (see the local provider for the same note).
+    return this.sftp.createReadStream(this.confine(filePath), {
+      start: range.start,
+      end: range.end
+    })
   }
 
   async gitShowHead(relPath: string): Promise<string | null> {

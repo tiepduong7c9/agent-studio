@@ -111,6 +111,11 @@ function requireProvider(wsId: string): ProjectProvider {
   return provider
 }
 
+/** The open provider for a workspace, or undefined. Used by the media protocol. */
+export function getProvider(wsId: string): ProjectProvider | undefined {
+  return providers.get(wsId)
+}
+
 function handle<T>(channel: string, fn: (...args: any[]) => Promise<T>): void {
   ipcMain.handle(channel, async (_event, ...args): Promise<Result<T>> => {
     try {

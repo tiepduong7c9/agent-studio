@@ -1,16 +1,28 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { GitFileChange, ProjectInfo } from '../../../shared/types'
 import { imageMimeType } from '../../../shared/imageTypes'
+import { videoMimeType } from '../../../shared/videoTypes'
 import { monaco } from '../monaco'
 
 // File and diff viewers backed by Monaco. The tabbed editor area mounts one
 // per open file/diff tab.
 
-/** Routes image files to the inline image viewer; everything else to Monaco. */
+/** Routes video/image files to their inline viewers; everything else to Monaco. */
 export function FileView({ wsId, path }: { wsId: string; path: string }) {
+  if (videoMimeType(path)) return <VideoView wsId={wsId} path={path} />
   const mimeType = imageMimeType(path)
   if (mimeType) return <ImageView wsId={wsId} path={path} mimeType={mimeType} />
   return <TextFileView wsId={wsId} path={path} />
+}
+
+/** Streams a video via the studio-media:// protocol (see main/media-protocol.ts). */
+function VideoView({ wsId, path }: { wsId: string; path: string }) {
+  const src = `studio-media://stream/?ws=${encodeURIComponent(wsId)}&p=${encodeURIComponent(path)}`
+  return (
+    <div className="video-viewer">
+      <video src={src} controls preload="metadata" />
+    </div>
+  )
 }
 
 function TextFileView({ wsId, path }: { wsId: string; path: string }) {

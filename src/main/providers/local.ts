@@ -1,6 +1,7 @@
 import { execFile } from 'child_process'
-import { promises as fs } from 'fs'
+import { createReadStream, promises as fs } from 'fs'
 import * as path from 'path'
+import type { Readable } from 'stream'
 import { promisify } from 'util'
 import type { FileEntry, GitLog, GitStatus, ProjectInfo } from '../../shared/types'
 import { workspaceId } from '../../shared/types'
@@ -74,6 +75,16 @@ export class LocalProjectProvider implements ProjectProvider {
       throw new Error(`File is too large to display (${(stat.size / 1024 / 1024).toFixed(1)} MB)`)
     }
     return (await fs.readFile(file)).toString('base64')
+  }
+
+  async mediaFileSize(filePath: string): Promise<number> {
+    return (await fs.stat(this.confine(filePath))).size
+  }
+
+  createMediaStream(filePath: string, range: { start: number; end: number }): Readable {
+    // confine() already validated the path when the size was fetched, but the
+    // stream is a separate entry point, so re-check here too.
+    return createReadStream(this.confine(filePath), { start: range.start, end: range.end })
   }
 
   async gitShowHead(relPath: string): Promise<string | null> {
