@@ -4,6 +4,7 @@ import { useTabsStore, visibleTabs, type EditorTab } from '../tabs-store'
 import { AcpThread } from './AcpThread'
 import { ChatCard } from './ChatCard'
 import { ContextMenu, type MenuItem } from './ContextMenu'
+import { ErrorBoundary } from './ErrorBoundary'
 import { DiffView, FileView } from './editors'
 import letterpress from '../assets/letterpress-light.svg'
 
@@ -108,17 +109,19 @@ export function EditorArea({ workspaces, sessionWorkspaces, onCreateSession, onP
         </div>
       )}
       <div className="editor-body">
-        <TabContent
-          tab={active}
-          workspace={
-            active
-              ? ([...workspaces, ...sessionWorkspaces].find((w) => w.id === active.wsId) ?? null)
-              : null
-          }
-          onCreateSession={onCreateSession}
-          onPickFolder={onPickFolder}
-          onCloseNewChat={() => active && close(active.id)}
-        />
+        <ErrorBoundary inline resetKeys={[active?.id]}>
+          <TabContent
+            tab={active}
+            workspace={
+              active
+                ? ([...workspaces, ...sessionWorkspaces].find((w) => w.id === active.wsId) ?? null)
+                : null
+            }
+            onCreateSession={onCreateSession}
+            onPickFolder={onPickFolder}
+            onCloseNewChat={() => active && close(active.id)}
+          />
+        </ErrorBoundary>
       </div>
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
     </div>

@@ -20,27 +20,45 @@ export function ContextMenu({ x, y, items, onClose }: Props) {
   const hostRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    const host = hostRef.current!
+    const host = hostRef.current
+    if (!host) return
 
     const actions = items.map((item) => {
       if (item.separator) return new Separator()
       const action = new Action(item.label, item.label, undefined, item.enabled !== false, async () => {
         onClose()
-        item.run()
+        // A throwing action handler must not escape into the Menu widget's
+        // click path (an unhandled rejection / crash); report and swallow.
+        try {
+          await item.run()
+        } catch (err) {
+          console.error('Context menu action failed:', err)
+        }
       })
       // the vs/base Menu renders a check mark for checked actions
       action.checked = item.checked
       return action
     })
 
-    const menu = new Menu(host, actions, {}, defaultMenuStyles)
-    const cancelListener = menu.onDidCancel?.(() => onClose())
-    menu.focus?.(0)
+    // Constructing/mounting the Monaco Menu widget runs inside this effect, so a
+    // throw here would propagate out of commit and (absent a boundary) blank the
+    // window. Contain it: on failure, close so the app stays usable.
+    let menu: { dispose(): void; onDidCancel?: (cb: () => void) => { dispose?: () => void }; focus?: (i: number) => void }
+    let cancelListener: { dispose?: () => void } | undefined
+    try {
+      menu = new Menu(host, actions, {}, defaultMenuStyles)
+      cancelListener = menu.onDidCancel?.(() => onClose())
+      menu.focus?.(0)
 
-    // keep the menu inside the window
-    const rect = host.getBoundingClientRect()
-    if (rect.right > window.innerWidth) host.style.left = `${Math.max(0, window.innerWidth - rect.width - 4)}px`
-    if (rect.bottom > window.innerHeight) host.style.top = `${Math.max(0, window.innerHeight - rect.height - 4)}px`
+      // keep the menu inside the window
+      const rect = host.getBoundingClientRect()
+      if (rect.right > window.innerWidth) host.style.left = `${Math.max(0, window.innerWidth - rect.width - 4)}px`
+      if (rect.bottom > window.innerHeight) host.style.top = `${Math.max(0, window.innerHeight - rect.height - 4)}px`
+    } catch (err) {
+      console.error('Failed to open context menu:', err)
+      onClose()
+      return
+    }
 
     const onMouseDown = (e: MouseEvent) => {
       if (!host.contains(e.target as Node)) onClose()
