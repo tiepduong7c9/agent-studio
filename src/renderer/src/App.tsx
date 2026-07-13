@@ -56,6 +56,11 @@ export function App() {
   // reported its sessions. Without this, the initial empty list (before
   // listSessions resolves) would wipe every persisted pin/hide on each launch.
   const sessionsLoaded = useRef(false)
+  // False until reconnectSavedHosts() has settled. Until then remoteHosts may
+  // still be empty, so the prune gate below has no host to skip on and would
+  // wipe remote pins against a local-only session list. State (not a ref) so
+  // flipping it re-runs the prune effect.
+  const [savedHostsResolved, setSavedHostsResolved] = useState(false)
 
   const sessions = useSessionsStore((s) => s.sessions)
   const setSessions = useSessionsStore((s) => s.setSessions)
@@ -157,6 +162,7 @@ export function App() {
         }
       })
       .catch(() => {})
+      .finally(() => setSavedHostsResolved(true))
   }, [])
 
   // Poll each connected host's subscription usage for the status bar: once now,
@@ -222,18 +228,25 @@ export function App() {
   }, [workspaces, remoteHosts, refreshProjects])
 
   // Close chat tabs whose session was killed on the engine, and drop any
-  // pin/hide prefs left behind by sessions that no longer exist. Deferred until
-  // the engine has reported (so a pre-load empty list can't wipe persisted
-  // prefs), and skipped while any host is reconnecting (its sessions aren't in
-  // the list yet — pruning then would drop live pins for that host).
+  // pin/hide prefs left behind by sessions that no longer exist. This is gated
+  // so a startup snapshot that doesn't yet include a host's sessions can't wipe
+  // that host's persisted pins:
+  //  - sessionsLoaded: the engine has reported at least once (a pre-load empty
+  //    list would otherwise wipe everything).
+  //  - savedHostsResolved: reconnectSavedHosts() has settled, so remoteHosts is
+  //    populated and the per-host check below actually has hosts to guard.
+  //  - every remembered host is 'connected': a host still connecting (status
+  //    undefined) or reconnecting hasn't delivered its sessions yet, so pruning
+  //    against a list missing them would drop that host's live pins — the bug
+  //    where remote pins went missing after an app restart.
   useEffect(() => {
-    if (!sessionsLoaded.current) return
-    if (remoteHosts.some((h) => engineStatus[`ssh:${h}`] === 'reconnecting')) return
+    if (!sessionsLoaded.current || !savedHostsResolved) return
+    if (remoteHosts.some((h) => engineStatus[`ssh:${h}`] !== 'connected')) return
     const live = new Set(sessions.map((s) => s.id))
     pruneChats(live)
     useViewPrefsStore.getState().pruneSessions(live)
     useDrafts.getState().prune(live)
-  }, [sessions, pruneChats, remoteHosts, engineStatus])
+  }, [sessions, pruneChats, remoteHosts, engineStatus, savedHostsResolved])
 
   // When a chat is active and no open folder contains its session, root a
   // provider at the session's own cwd so the right panel reflects its directory.

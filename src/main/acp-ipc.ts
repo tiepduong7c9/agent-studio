@@ -111,6 +111,11 @@ export function registerAcpIpc(getWindow: () => BrowserWindow | null): AcpHub {
         if (snapshot) send('acp:resync', { sid, snapshot })
       }
       rebuildAndBroadcast()
+      // Announce the host as connected. Previously only reconnect() emitted this,
+      // so a host that connected normally on startup never reported 'connected' —
+      // leaving its status undefined and the renderer unable to tell it had
+      // finished loading its sessions.
+      send('acp:engine-status', { hostKey: hc.key, connected: true })
       return e
     })()
     hc.connecting = p
