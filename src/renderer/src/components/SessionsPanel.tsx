@@ -102,6 +102,8 @@ interface LiveRowProps {
   hidden: boolean
   /** Finished a turn while unwatched — shown as a "done" status until viewed. */
   done: boolean
+  /** When that turn finished (ms epoch); shown as the row time on a done row. */
+  doneAt?: number
   onSelect: () => void
   onTogglePin: () => void
   onHide: () => void
@@ -109,10 +111,12 @@ interface LiveRowProps {
   onDelete: () => void
 }
 
-function LiveRow({ s, active, pinned, hidden, done, onSelect, onTogglePin, onHide, onUnhide, onDelete }: LiveRowProps) {
+function LiveRow({ s, active, pinned, hidden, done, doneAt, onSelect, onTogglePin, onHide, onUnhide, onDelete }: LiveRowProps) {
   // "done" only stands in when Claude is otherwise idle — a live working/waiting
   // status always wins (a new turn clears the marker anyway).
   const displayStatus = done && (!s.claudeStatus || s.claudeStatus === 'idle') ? 'done' : s.claudeStatus
+  // On a done row the time is when the turn finished; otherwise it's last activity.
+  const subTime = displayStatus === 'done' && doneAt ? relTime(doneAt) : relTime(activity(s))
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [confirming, setConfirming] = useState(false)
 
@@ -140,7 +144,7 @@ function LiveRow({ s, active, pinned, hidden, done, onSelect, onTogglePin, onHid
         <span className="acp-session-main">
           <span className="acp-session-name">{s.name}</span>
           <span className="acp-session-sub">
-            {displayStatus ?? s.status} · {relTime(activity(s))}
+            {displayStatus ?? s.status} · {subTime}
           </span>
         </span>
       </button>
@@ -434,6 +438,7 @@ export function SessionsPanel({
     pinned: !!pinnedSessions[s.id],
     hidden: !!hiddenSessions[s.id],
     done: !!doneSessions[s.id],
+    doneAt: doneSessions[s.id],
     onSelect: () => onSelectSession(s.id),
     onTogglePin: () => togglePin(s.id),
     onHide: () => hideSession(s.id),

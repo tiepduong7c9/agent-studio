@@ -16,9 +16,11 @@ interface SessionsStore {
   engineStatus: Record<string, EngineStatus>
   /** Sessions that finished a turn while the user wasn't watching them — an
    *  "unread completion" marker shown as a "done" status until the session is
-   *  viewed. Per-viewer UI state, deliberately kept out of the engine's shared
-   *  claudeStatus (which can't know which session this window is looking at). */
-  doneSessions: Record<string, boolean>
+   *  viewed. The value is the completion time (ms epoch), so the row can show
+   *  how long ago the turn finished. Per-viewer UI state, deliberately kept out
+   *  of the engine's shared claudeStatus (which can't know which session this
+   *  window is looking at). */
+  doneSessions: Record<string, number>
   setSessions: (sessions: SessionMeta[]) => void
   setProjects: (projects: ProjectConversations[]) => void
   setHostStatus: (hostKey: string, status: EngineStatus) => void
@@ -36,7 +38,9 @@ export const useSessionsStore = create<SessionsStore>((set) => ({
   setHostStatus: (hostKey, status) =>
     set((s) => ({ engineStatus: { ...s.engineStatus, [hostKey]: status } })),
   markDone: (sid) =>
-    set((s) => (s.doneSessions[sid] ? s : { doneSessions: { ...s.doneSessions, [sid]: true } })),
+    // Keep the first completion time if already marked (a re-broadcast of the
+    // same idle status shouldn't reset "finished N ago").
+    set((s) => (s.doneSessions[sid] ? s : { doneSessions: { ...s.doneSessions, [sid]: Date.now() } })),
   clearDone: (sid) =>
     set((s) => {
       if (!s.doneSessions[sid]) return s
