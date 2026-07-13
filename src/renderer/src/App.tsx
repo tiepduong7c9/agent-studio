@@ -170,9 +170,28 @@ export function App() {
 
   // Route engine push events into the stores, and seed the session list.
   useEffect(() => {
+    // Coalesce incoming events per animation frame: a resumed conversation
+    // replays its whole history as individual frames, and applying each one
+    // separately re-renders the thread (and rebuilds it) once per event — O(n²)
+    // and a scroll jump per event. Buffering a frame's worth into one store
+    // update collapses that to a single render per frame.
+    const buffer = new Map<string, unknown[]>()
+    let raf = 0
+    const flush = () => {
+      raf = 0
+      const store = useAcpStore.getState()
+      for (const [sid, evs] of buffer) store.appendEvents(sid, evs as never)
+      buffer.clear()
+    }
     const offEvent = window.studio.acp.onEvent(({ sid, event }) => {
-      // The wire type is intentionally loose; the store uses the rich union.
-      useAcpStore.getState().appendEvent(sid, event as never)
+      // Stamp arrival time now, before batching, so folding a frame's events in
+      // one update doesn't collapse their individual timings. The wire type is
+      // intentionally loose; the store uses the rich union.
+      const e = event && (event as { rxAt?: number }).rxAt != null ? event : { ...(event as object), rxAt: Date.now() }
+      const arr = buffer.get(sid)
+      if (arr) arr.push(e)
+      else buffer.set(sid, [e])
+      if (!raf) raf = requestAnimationFrame(flush)
     })
     const markLoaded = (list: SessionMeta[]) => {
       sessionsLoaded.current = true
@@ -190,7 +209,7 @@ export function App() {
     })
     window.studio.acp.listSessions().then(markLoaded).catch(() => {})
     refreshProjects()
-    return () => { offEvent(); offSessions(); offResync(); offStatus() }
+    return () => { offEvent(); offSessions(); offResync(); offStatus(); if (raf) cancelAnimationFrame(raf) }
   }, [setSessions, setHostStatus, refreshProjects])
 
   // Re-scan when the set of open workspaces or connected hosts changes

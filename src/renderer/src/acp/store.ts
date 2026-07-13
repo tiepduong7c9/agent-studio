@@ -25,11 +25,43 @@ interface AcpStore {
   threads: Map<string, AcpThreadState>
   setHistory: (sid: string, snap: AcpSnapshot) => void
   appendEvent: (sid: string, event: AcpEvent) => void
+  /** Apply a burst of events in a single update — used to fold a streamed
+   *  history replay into one render instead of one per event. */
+  appendEvents: (sid: string, events: AcpEvent[]) => void
   resolvePermissionLocal: (sid: string, requestId: string, optionId: string | null) => void
   setModeLocal: (sid: string, modeId: string) => void
   setModelLocal: (sid: string, modelId: string) => void
   clearPendingModel: (sid: string) => void
   clear: (sid: string) => void
+}
+
+const EMPTY_THREAD: AcpThreadState = {
+  events: [], claudeStatus: undefined, acpSessionId: null, modeState: null, lastSeq: -1
+}
+
+// Apply one event to a thread's state, returning the next state — or the SAME
+// reference when the event is a control no-op / duplicate, so callers can skip
+// the render. Pure and side-effect-free so a streamed history replay can be
+// folded over in a single store update (see appendEvents).
+function reduceEvent(prev: AcpThreadState, event: AcpEvent): AcpThreadState {
+  switch (event.type) {
+    case 'acp_status': return { ...prev, claudeStatus: event.claudeStatus }
+    case 'acp_mode': return { ...prev, modeState: event.modeState }
+    case 'acp_commands': return { ...prev, availableCommands: event.commands }
+    case 'acp_model':
+      return { ...prev, model: event.model, modelState: event.modelState ?? prev.modelState ?? null, pendingModelId: null }
+    case 'acp_usage': return { ...prev, usage: event.usage }
+    case 'acp_reset':
+      return { ...prev, events: [], lastSeq: -1, claudeStatus: undefined, acpSessionId: event.acpSessionId, model: null, usage: null }
+  }
+  // Drop duplicates fanned out to multiple attachments.
+  if (typeof event.seq === 'number' && event.seq <= prev.lastSeq) return prev
+  const lastSeq = typeof event.seq === 'number' ? event.seq : prev.lastSeq
+  // Stamp arrival time on live events so the UI can measure spans (e.g. thinking
+  // duration) from real event timing. Events pre-stamped on arrival (batched) or
+  // from snapshot history keep their existing rxAt.
+  const stamped = event.rxAt != null ? event : { ...event, rxAt: Date.now() }
+  return { ...prev, events: [...prev.events, stamped], lastSeq }
 }
 
 export const useAcpStore = create<AcpStore>((set) => ({
@@ -67,28 +99,21 @@ export const useAcpStore = create<AcpStore>((set) => ({
   }),
 
   appendEvent: (sid, event) => set((s) => {
+    const prev = s.threads.get(sid) ?? EMPTY_THREAD
+    const next = reduceEvent(prev, event)
+    if (next === prev) return {} // duplicate / no-op — skip the re-render
     const threads = new Map(s.threads)
-    const prev = threads.get(sid) ?? { events: [], claudeStatus: undefined, acpSessionId: null, modeState: null, lastSeq: -1 } as AcpThreadState
-    if (event.type === 'acp_status') { threads.set(sid, { ...prev, claudeStatus: event.claudeStatus }); return { threads } }
-    if (event.type === 'acp_mode') { threads.set(sid, { ...prev, modeState: event.modeState }); return { threads } }
-    if (event.type === 'acp_commands') { threads.set(sid, { ...prev, availableCommands: event.commands }); return { threads } }
-    if (event.type === 'acp_model') {
-      threads.set(sid, { ...prev, model: event.model, modelState: event.modelState ?? prev.modelState ?? null, pendingModelId: null })
-      return { threads }
-    }
-    if (event.type === 'acp_usage') { threads.set(sid, { ...prev, usage: event.usage }); return { threads } }
-    if (event.type === 'acp_reset') {
-      threads.set(sid, { ...prev, events: [], lastSeq: -1, claudeStatus: undefined, acpSessionId: event.acpSessionId, model: null, usage: null })
-      return { threads }
-    }
-    // Drop duplicates fanned out to multiple attachments.
-    if (typeof event.seq === 'number' && event.seq <= prev.lastSeq) return {}
-    const lastSeq = typeof event.seq === 'number' ? event.seq : prev.lastSeq
-    // Stamp the arrival time on live events so the UI can measure spans (e.g.
-    // thinking duration) from real event timing. Snapshot/history events keep
-    // whatever rxAt they came with (none), and read as historical.
-    const stamped = event.rxAt != null ? event : { ...event, rxAt: Date.now() }
-    threads.set(sid, { ...prev, events: [...prev.events, stamped], lastSeq })
+    threads.set(sid, next)
+    return { threads }
+  }),
+
+  appendEvents: (sid, events) => set((s) => {
+    const prev = s.threads.get(sid) ?? EMPTY_THREAD
+    let next = prev
+    for (const event of events) next = reduceEvent(next, event)
+    if (next === prev) return {}
+    const threads = new Map(s.threads)
+    threads.set(sid, next)
     return { threads }
   }),
 
