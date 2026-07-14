@@ -4,6 +4,7 @@ import type { ProjectInfo } from '../../shared/types'
 import { useAcpStore } from './acp/store'
 import { useSessionsStore } from './acp/sessions-store'
 import { useUsageStore } from './acp/usage-store'
+import { useUsageWarnings } from './acp/usage-warnings'
 import { useDrafts } from './acp/drafts-store'
 import { EditorArea } from './components/EditorArea'
 import { QuickOpen } from './components/QuickOpen'
@@ -14,6 +15,7 @@ import { SessionsPanel } from './components/SessionsPanel'
 import { SshDialog } from './components/SshDialog'
 import { StatusBar } from './components/StatusBar'
 import { TitleBar } from './components/TitleBar'
+import { Toasts } from './components/Toasts'
 import { baseName } from './components/editors'
 import type { Selection } from './selection'
 import { chatTabId, diffTabId, fileTabId, newChatTabId, useTabsStore } from './tabs-store'
@@ -165,17 +167,20 @@ export function App() {
       .finally(() => setSavedHostsResolved(true))
   }, [])
 
-  // Poll each connected host's subscription usage for the status bar: once now,
-  // then every 15 minutes (the rate-limit windows move slowly). Local (null) is
-  // always polled; SSH hosts are added as they connect.
+  // Poll each connected host's subscription usage for the status bar and the
+  // 50%/75% warnings: once now, then every 5 minutes. Local (null) is always
+  // polled; SSH hosts are added as they connect.
   useEffect(() => {
     const refresh = useUsageStore.getState().refresh
     const targets: (string | null)[] = [null, ...remoteHosts]
     const tick = () => targets.forEach((h) => refresh(h))
     tick()
-    const id = window.setInterval(tick, 15 * 60 * 1000)
+    const id = window.setInterval(tick, 5 * 60 * 1000)
     return () => window.clearInterval(id)
   }, [remoteHosts])
+
+  // Pop a toast when any host's usage crosses 50% / 75%.
+  useUsageWarnings()
 
   // Route engine push events into the stores, and seed the session list.
   useEffect(() => {
@@ -514,6 +519,7 @@ export function App() {
           onCancel={() => setFolderPickerHost(null)}
         />
       )}
+      <Toasts />
     </div>
   )
 }

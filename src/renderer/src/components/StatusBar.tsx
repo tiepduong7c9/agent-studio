@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import type { AcpUsageData, AcpUsageWindow } from '../../../shared/acp'
+import type { AcpUsageWindow } from '../../../shared/acp'
 import type { ProjectInfo } from '../../../shared/types'
-import { hostKey, useUsageStore } from '../acp/usage-store'
+import { hostKey, peakUtil, useUsageStore } from '../acp/usage-store'
 import { gitGraphTabId, useTabsStore } from '../tabs-store'
 
 interface Props {
@@ -17,13 +17,6 @@ interface Props {
   leftVisible: boolean
   rightVisible: boolean
   maximized: boolean
-}
-
-/** Highest utilization across the windows — drives the bar's summary colour. */
-function peakUtil(u: AcpUsageData | null | undefined): number {
-  if (!u) return 0
-  const wins = [u.five_hour, u.seven_day, u.seven_day_opus, u.seven_day_sonnet]
-  return wins.reduce((m, w) => (w ? Math.max(m, w.utilization) : m), 0)
 }
 
 function level(pct: number): string {
