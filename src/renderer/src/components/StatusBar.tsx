@@ -66,16 +66,35 @@ export function StatusBar({
   const [branch, setBranch] = useState<string | null>(null)
   const ref = useRef<HTMLDivElement>(null)
 
-  // Fetch the active workspace's branch. Refetched when the workspace changes.
+  // Fetch the active workspace's branch. Refetched when the workspace changes,
+  // and kept current with external branch switches (e.g. `git checkout` in a
+  // terminal) by re-polling on window focus and on a slow interval while the
+  // window is visible — there's no fs watcher to notify us otherwise.
   const wsId = activeWorkspace?.id ?? null
   useEffect(() => {
     let cancelled = false
     setBranch(null)
     if (!wsId) return
-    window.studio.gitStatus(wsId).then((res) => {
+
+    const load = async () => {
+      const res = await window.studio.gitStatus(wsId)
       if (!cancelled && res.ok && res.data.isRepo) setBranch(res.data.branch ?? null)
-    })
-    return () => { cancelled = true }
+    }
+    load()
+
+    const onFocus = () => {
+      if (document.visibilityState === 'visible') load()
+    }
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onFocus)
+    const timer = window.setInterval(onFocus, 5000)
+
+    return () => {
+      cancelled = true
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onFocus)
+      window.clearInterval(timer)
+    }
   }, [wsId])
 
   const openGraph = () => {
