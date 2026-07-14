@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, clipboard, Menu, shell } from 'electron'
 import * as path from 'path'
 import { registerAcpIpc } from './acp-ipc'
 import { disposeProvider, registerIpcHandlers } from './ipc'
@@ -63,6 +63,18 @@ function createWindow(): void {
     }
     event.preventDefault()
     shell.openExternal(url)
+  })
+
+  // Right-clicking a link offers open/copy. Gated on linkURL so it only shows
+  // on actual links — other right-clicks fall through to the app's own custom
+  // context menus (session rows, etc.).
+  mainWindow.webContents.on('context-menu', (_event, params) => {
+    const url = params.linkURL
+    if (!url) return
+    Menu.buildFromTemplate([
+      { label: 'Open Link', click: () => shell.openExternal(url) },
+      { label: 'Copy Link', click: () => clipboard.writeText(url) }
+    ]).popup()
   })
 
   if (process.env.ELECTRON_RENDERER_URL) {
