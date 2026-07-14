@@ -3,6 +3,7 @@ import type { GitFileChange, ProjectInfo } from '../../../shared/types'
 import { imageMimeType } from '../../../shared/imageTypes'
 import { videoMimeType } from '../../../shared/videoTypes'
 import { monaco } from '../monaco'
+import { fileIconStyle } from './FileIcon'
 
 // File and diff viewers backed by Monaco. The tabbed editor area mounts one
 // per open file/diff tab.
@@ -318,6 +319,42 @@ function MonacoDiffViewer({
 
 export function ViewerMessage({ message }: { message: string }) {
   return <div className="viewer-message">{message}</div>
+}
+
+/**
+ * VS Code-style breadcrumb bar: the file's repo-relative path split into
+ * chevron-separated folder crumbs, ending in the file (with its icon).
+ * `relPath` is already relative to the workspace root.
+ */
+export function Breadcrumbs({ relPath }: { relPath: string }) {
+  const segments = relPath.split('/').filter(Boolean)
+  if (segments.length === 0) return null
+  const last = segments.length - 1
+  const { glyph, color } = fileIconStyle(segments[last])
+  return (
+    <div className="breadcrumbs" role="navigation" aria-label="Breadcrumbs">
+      {segments.map((seg, i) => (
+        <span key={i} className="breadcrumb-item" title={seg}>
+          {i > 0 && <span className="breadcrumb-sep codicon codicon-chevron-right" />}
+          {i === last ? (
+            <span className="seti-icon breadcrumb-icon" style={{ color }}>
+              {glyph}
+            </span>
+          ) : (
+            <span className="codicon codicon-folder breadcrumb-icon" />
+          )}
+          <span className="breadcrumb-label">{seg}</span>
+        </span>
+      ))}
+    </div>
+  )
+}
+
+/** Strips the workspace root prefix, yielding a repo-relative path. */
+export function relativeToRoot(root: string | undefined, path: string): string {
+  if (!root) return path
+  const trimmed = root.replace(/\/+$/, '')
+  return path.startsWith(trimmed + '/') ? path.slice(trimmed.length + 1) : path
 }
 
 /**

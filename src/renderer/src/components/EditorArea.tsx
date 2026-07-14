@@ -6,7 +6,7 @@ import { ChatCard } from './ChatCard'
 import { GitGraphView } from './GitGraphView'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { ErrorBoundary } from './ErrorBoundary'
-import { DiffView, FileView } from './editors'
+import { Breadcrumbs, DiffView, FileView, relativeToRoot } from './editors'
 import letterpress from '../assets/letterpress-light.svg'
 
 interface Props {
@@ -167,10 +167,22 @@ function TabContent({
     case 'git-graph':
       return <GitGraphView key={tab.id} wsId={tab.wsId} />
     case 'file':
-      return <FileView key={tab.id} wsId={tab.wsId} path={tab.path} />
+      return (
+        <div className="editor-pane">
+          <Breadcrumbs relPath={relativeToRoot(workspace?.rootPath, tab.path)} />
+          <div className="editor-pane-body">
+            <FileView key={tab.id} wsId={tab.wsId} path={tab.path} />
+          </div>
+        </div>
+      )
     case 'diff':
       return workspace ? (
-        <DiffView key={tab.id} project={workspace} change={tab.change} />
+        <div className="editor-pane">
+          <Breadcrumbs relPath={tab.change.path} />
+          <div className="editor-pane-body">
+            <DiffView key={tab.id} project={workspace} change={tab.change} />
+          </div>
+        </div>
       ) : (
         <div className="editor-watermark">
           <img src={letterpress} alt="" draggable={false} />

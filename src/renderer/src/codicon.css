@@ -52,6 +52,8 @@
 .codicon-refresh:before { content: '\eb37'; }
 .codicon-remote:before { content: '\eb3a'; }
 .codicon-list-filter:before { content: '\eb83'; }
+.codicon-list-flat:before { content: '\eb84'; }
+.codicon-list-tree:before { content: '\eb86'; }
 .codicon-plug:before { content: '\eb2d'; }
 .codicon-server:before { content: '\eb50'; }
 .codicon-layout-sidebar-left:before { content: '\ebf3'; }

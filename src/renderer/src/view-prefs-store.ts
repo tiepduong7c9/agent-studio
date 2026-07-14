@@ -21,6 +21,8 @@ interface ViewPrefsState {
   focusMode: boolean
   /** Reveal hidden sessions/projects (temporary escape hatch). */
   showHidden: boolean
+  /** Changes panel layout: flat list of files or a nested folder tree. */
+  changesViewMode: 'list' | 'tree'
 
   togglePin: (sid: string) => void
   hideSession: (sid: string) => void
@@ -29,6 +31,7 @@ interface ViewPrefsState {
   unhideProject: (key: string) => void
   setFocusMode: (on: boolean) => void
   setShowHidden: (on: boolean) => void
+  setChangesViewMode: (mode: 'list' | 'tree') => void
   /** Drop pin/hide keys for sessions that no longer exist, so stale keys can't
    *  accumulate (mirrors how dead sessions' chat tabs are pruned). */
   pruneSessions: (liveIds: Set<string>) => void
@@ -49,6 +52,7 @@ export const useViewPrefsStore = create<ViewPrefsState>()(
       hiddenProjects: {},
       focusMode: false,
       showHidden: false,
+      changesViewMode: 'list',
 
       togglePin: (sid) =>
         set((s) =>
@@ -68,6 +72,7 @@ export const useViewPrefsStore = create<ViewPrefsState>()(
       unhideProject: (key) => set((s) => ({ hiddenProjects: without(s.hiddenProjects, key) })),
       setFocusMode: (on) => set({ focusMode: on }),
       setShowHidden: (on) => set({ showHidden: on }),
+      setChangesViewMode: (mode) => set({ changesViewMode: mode }),
 
       pruneSessions: (liveIds) =>
         set((s) => {
