@@ -49,6 +49,22 @@ function createWindow(): void {
     return { action: 'deny' }
   })
 
+  // setWindowOpenHandler only catches window.open / target="_blank". Plain
+  // links (e.g. markdown anchors in the chat) navigate the window itself, which
+  // would replace the app with the page. Intercept those: same-origin
+  // navigation (dev-server reload/HMR) is allowed through; everything else
+  // opens in the external browser.
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    const current = mainWindow?.webContents.getURL()
+    try {
+      if (current && new URL(url).origin === new URL(current).origin) return
+    } catch {
+      // Unparseable URL — fall through and treat as external.
+    }
+    event.preventDefault()
+    shell.openExternal(url)
+  })
+
   if (process.env.ELECTRON_RENDERER_URL) {
     mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
   } else {
