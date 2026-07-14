@@ -271,8 +271,24 @@ function MonacoDiffViewer({
     })
     editor.setModel({ original: originalModel, modified: modifiedModel })
     editorRef.current = editor
-    // getLineChanges is only populated once the diff has been computed.
-    const sub = editor.onDidUpdateDiff(() => setChangeCount(editor.getLineChanges()?.length ?? 0))
+    // getLineChanges is only populated once the diff has been computed. The
+    // event can fire more than once (e.g. layout/option changes), so scroll to
+    // the first hunk only on the initial computation that yields changes.
+    let revealed = false
+    const sub = editor.onDidUpdateDiff(() => {
+      const changes = editor.getLineChanges() ?? []
+      setChangeCount(changes.length)
+      if (!revealed && changes.length > 0) {
+        revealed = true
+        const first = changes[0]
+        // Prefer the modified side; fall back to the original for pure deletions.
+        const line = first.modifiedStartLineNumber || first.originalStartLineNumber
+        const target = first.modifiedStartLineNumber
+          ? editor.getModifiedEditor()
+          : editor.getOriginalEditor()
+        target.revealLineNearTop(line, monaco.editor.ScrollType.Immediate)
+      }
+    })
     return () => {
       sub.dispose()
       editor.dispose()
