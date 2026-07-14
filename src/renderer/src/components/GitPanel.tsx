@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
 // VS Code's real tree widget, reused from monaco-editor's esm distribution
 import { ObjectTree } from 'monaco-editor/esm/vs/base/browser/ui/tree/objectTree.js'
 import * as defaultStyles from 'monaco-editor/esm/vs/platform/theme/browser/defaultStyles.js'
@@ -6,10 +6,13 @@ import type { GitFileChange, GitStatus } from '../../../shared/types'
 import type { SelectHandler } from '../selection'
 import { useViewPrefsStore } from '../view-prefs-store'
 import { fileIconStyle } from './FileIcon'
+import type { PanelHandle } from './RightPanel'
 
 interface Props {
   wsId: string
   onSelect: SelectHandler
+  /** Case-insensitive substring; hides non-matching changes when non-empty. */
+  filter?: string
 }
 
 interface GroupNode {
@@ -38,7 +41,10 @@ interface DirNode {
 
 type GitNode = GroupNode | ChangeNode | DirNode
 
-export function GitPanel({ wsId, onSelect }: Props) {
+export const GitPanel = forwardRef<PanelHandle, Props>(function GitPanel(
+  { wsId, onSelect, filter = '' },
+  ref
+) {
   const [status, setStatus] = useState<GitStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -51,6 +57,11 @@ export function GitPanel({ wsId, onSelect }: Props) {
   // The change renderer reads this to decide whether to show the dir suffix.
   const viewModeRef = useRef(viewMode)
   viewModeRef.current = viewMode
+  // The tree's filter callback reads the live (lowercased) query from here.
+  const filterRef = useRef('')
+  // The current top-level groups, kept for collapseAll (re-expanded so the
+  // resource groups stay open while their folders collapse).
+  const groupsRef = useRef<GroupNode[]>([])
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -167,6 +178,16 @@ export function GitPanel({ wsId, onSelect }: Props) {
         getAriaLabel: (el: GitNode) =>
           el.type === 'group' ? el.title : el.type === 'dir' ? el.path : el.change.path,
         getWidgetAriaLabel: () => 'Changes'
+      },
+      // Change rows match on their full relative path; groups/folders recurse
+      // so they show only when a descendant change matches. (0=hide, 1=show, 2=recurse)
+      filter: {
+        filter(el: GitNode) {
+          const q = filterRef.current
+          if (!q) return 1
+          if (el.type === 'change') return el.change.path.toLowerCase().includes(q) ? 1 : 0
+          return 2
+        }
       }
     })
 
@@ -201,6 +222,7 @@ export function GitPanel({ wsId, onSelect }: Props) {
     const tree = treeRef.current
     if (!tree || !status?.isRepo) return
     const groups = buildGroups(status)
+    groupsRef.current = groups
     tree.setChildren(
       null,
       groups.map((g) => ({
@@ -210,6 +232,28 @@ export function GitPanel({ wsId, onSelect }: Props) {
       }))
     )
   }, [status, viewMode])
+
+  // Re-run the filter whenever the query changes.
+  useEffect(() => {
+    filterRef.current = filter.trim().toLowerCase()
+    treeRef.current?.refilter?.()
+  }, [filter])
+
+  useImperativeHandle(ref, () => ({
+    collapseAll() {
+      const tree = treeRef.current
+      if (!tree) return
+      tree.collapse(null, true)
+      // Keep the resource groups open; only their folders stay collapsed.
+      for (const g of groupsRef.current) {
+        try {
+          tree.expand(g)
+        } catch {
+          // group may have been filtered out — ignore
+        }
+      }
+    }
+  }))
 
   if (error) return <div className="tree-error">{error}</div>
   if (!status) return <div className="tree-message">Loading…</div>
@@ -244,7 +288,7 @@ export function GitPanel({ wsId, onSelect }: Props) {
       <div ref={containerRef} className="widget-tree" />
     </div>
   )
-}
+})
 
 function buildGroups(status: GitStatus): GroupNode[] {
   const staged = status.changes.filter((c) => !c.conflicted && !c.untracked && c.index !== '.')

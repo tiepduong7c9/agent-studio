@@ -1338,6 +1338,55 @@ body {
   min-height: 0;
 }
 
+.right-panel-header .icon-button.active {
+  color: var(--vscode-foreground);
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.panel-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  margin: 0 12px 6px;
+  padding: 0 6px;
+  height: 26px;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  border: 1px solid var(--vscode-input-border, transparent);
+  border-radius: 4px;
+}
+
+.panel-search:focus-within {
+  border-color: var(--vscode-focusBorder);
+}
+
+.panel-search-icon {
+  font-size: 14px;
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+.panel-search-input {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  outline: none;
+  font-family: inherit;
+  font-size: 13px;
+  color: inherit;
+}
+
+.panel-search-input::placeholder {
+  color: var(--vscode-input-placeholderForeground);
+}
+
+.panel-search-clear {
+  flex-shrink: 0;
+  font-size: 14px;
+}
+
 /* ── VS Code widget hosts (real vs/base tree/list) ──── */
 
 .widget-tree {

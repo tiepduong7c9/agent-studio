@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
 // VS Code's real tree widget, reused from monaco-editor's esm distribution.
 // The compressible variant folds single-child folder chains into one row
 // ("@esbuild / linux-x64"), like the agent window's Files view.
@@ -9,11 +9,14 @@ import type { Selection, SelectHandler } from '../selection'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { ConfirmDialog, ErrorDialog, PromptDialog } from './Dialogs'
 import { fileIconStyle } from './FileIcon'
+import type { PanelHandle } from './RightPanel'
 
 interface Props {
   project: ProjectInfo
   selection: Selection | null
   onSelect: SelectHandler
+  /** Case-insensitive substring; hides non-matching (loaded) entries. */
+  filter?: string
 }
 
 type RootInput = { root: true }
@@ -26,13 +29,18 @@ type Dialog =
   | { kind: 'confirm'; message: string; detail?: string; confirmLabel?: string; onConfirm: () => void }
   | { kind: 'error'; message: string }
 
-export function FileTree({ project, onSelect }: Props) {
+export const FileTree = forwardRef<PanelHandle, Props>(function FileTree(
+  { project, onSelect, filter = '' },
+  ref
+) {
   const containerRef = useRef<HTMLDivElement>(null)
   const treeRef = useRef<any>(null)
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null)
   const [dialog, setDialog] = useState<Dialog | null>(null)
   const onSelectRef = useRef(onSelect)
   onSelectRef.current = onSelect
+  // The tree's filter callback reads the live (lowercased) query from here.
+  const filterRef = useRef('')
 
   const refresh = useCallback(() => {
     const tree = treeRef.current
@@ -236,6 +244,16 @@ export function FileTree({ project, onSelect }: Props) {
       accessibilityProvider: {
         getAriaLabel: (el: TreeNode) => (isProject(el) ? el.name : el.name),
         getWidgetAriaLabel: () => 'Files'
+      },
+      // Files match on name; the project root and folders recurse so they show
+      // only when a descendant matches. (0=hide, 1=show, 2=recurse)
+      filter: {
+        filter(el: TreeNode) {
+          const q = filterRef.current
+          if (!q) return 1
+          if (isProject(el) || el.kind === 'dir') return 2
+          return el.name.toLowerCase().includes(q) ? 1 : 0
+        }
       }
     })
     treeRef.current = tree
@@ -288,6 +306,25 @@ export function FileTree({ project, onSelect }: Props) {
     }
   }, [project])
 
+  // Re-run the filter whenever the query changes. The AsyncDataTree proxies
+  // refilter to its inner ObjectTree (`.tree`), so call it there.
+  useEffect(() => {
+    filterRef.current = filter.trim().toLowerCase()
+    const inner = (treeRef.current as any)?.tree
+    inner?.refilter?.()
+  }, [filter])
+
+  useImperativeHandle(ref, () => ({
+    collapseAll() {
+      const tree = treeRef.current
+      if (!tree) return
+      // Collapse everything under the project, then re-open the project so its
+      // top-level entries stay visible (matches VS Code's Collapse All).
+      tree.collapse(project, true)
+      tree.expand(project).catch(() => {})
+    }
+  }))
+
   return (
     <>
       <div ref={containerRef} className="widget-tree" />
@@ -316,7 +353,7 @@ export function FileTree({ project, onSelect }: Props) {
       )}
     </>
   )
-}
+})
 
 function sortEntries(entries: FileEntry[]): FileEntry[] {
   return entries.filter((e) => e.name !== '.git').sort((a, b) => {
