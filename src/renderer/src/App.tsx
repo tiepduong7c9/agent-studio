@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AcpConversation, ProjectConversations, SessionMeta } from '../../shared/acp'
-import type { ProjectInfo } from '../../shared/types'
+import type { ProjectInfo, ProjectKind } from '../../shared/types'
+import { workspaceId } from '../../shared/types'
 import { useAcpStore } from './acp/store'
 import { useSessionsStore } from './acp/sessions-store'
 import { useUsageStore } from './acp/usage-store'
 import { useUsageWarnings } from './acp/usage-warnings'
 import { useDrafts } from './acp/drafts-store'
+import { CommandPalette } from './components/CommandPalette'
 import { EditorArea } from './components/EditorArea'
 import { QuickOpen } from './components/QuickOpen'
 import { RemoteFolderPicker } from './components/RemoteFolderPicker'
@@ -48,6 +50,7 @@ export function App() {
   // null when not picking.
   const [folderPickerHost, setFolderPickerHost] = useState<string | null>(null)
   const [quickOpen, setQuickOpen] = useState(false)
+  const [paletteOpen, setPaletteOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [leftWidth, setLeftWidth] = useState(300)
   const [rightWidth, setRightWidth] = useState(340)
@@ -307,6 +310,32 @@ export function App() {
     [workspaces, openTab]
   )
 
+  // Start a session at an arbitrary folder/host chosen from the command palette.
+  // Reuse an already-open workspace when the folder matches one; otherwise build
+  // a provider descriptor for it and let newSession root it. Pin the session
+  // when the sidebar is in Focus mode, so it surfaces there straight away.
+  const newSessionAt = useCallback(
+    (rootPath: string, host: string | null) => {
+      const kind: ProjectKind = host ? 'ssh' : 'local'
+      const id = workspaceId({ kind, host: host ?? undefined, rootPath })
+      const ws =
+        [...workspaces, ...sessionWorkspaces].find((w) => w.id === id) ??
+        ({ id, kind, name: baseName(rootPath), rootPath, host: host ?? undefined } as ProjectInfo)
+      void newSession(ws, { pin: useViewPrefsStore.getState().focusMode })
+    },
+    [workspaces, sessionWorkspaces, newSession]
+  )
+
+  // Command-palette "Browse folder… (Local)": native folder picker, then a session.
+  const browseLocalForSession = useCallback(async () => {
+    const result = await window.studio.openLocalProject()
+    if (!result.ok) return setError(result.error)
+    if (result.data) {
+      addWorkspace(result.data)
+      void newSession(result.data, { pin: useViewPrefsStore.getState().focusMode })
+    }
+  }, [addWorkspace, newSession])
+
   // Open a past conversation from the history: spin up a live session in the
   // project's folder and resume that conversation into it. If the project is an
   // open workspace the chat tab is tagged with it (so the right panel follows).
@@ -357,13 +386,15 @@ export function App() {
     [openTab]
   )
 
-  // Ctrl/Cmd+P toggles quick-open. Capture-phase so it wins over Monaco and any
-  // focused input; guarded against the other modifier combos.
+  // Ctrl/Cmd+P toggles quick-open; adding Shift toggles the command palette.
+  // Capture-phase so it wins over Monaco and any focused input; guarded against
+  // the Alt combo.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && (e.key === 'p' || e.key === 'P')) {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'p' || e.key === 'P')) {
         e.preventDefault()
-        setQuickOpen((v) => !v)
+        if (e.shiftKey) setPaletteOpen((v) => !v)
+        else setQuickOpen((v) => !v)
       }
     }
     window.addEventListener('keydown', onKey, { capture: true })
@@ -506,6 +537,17 @@ export function App() {
           workspaces={activeWorkspace ? [activeWorkspace] : []}
           onSelect={onSelect}
           onClose={() => setQuickOpen(false)}
+        />
+      )}
+      {paletteOpen && (
+        <CommandPalette
+          workspaces={workspaces}
+          projects={projects}
+          sessions={sessions}
+          remoteHosts={remoteHosts}
+          onCreateSession={newSessionAt}
+          onBrowseLocal={browseLocalForSession}
+          onClose={() => setPaletteOpen(false)}
         />
       )}
       {folderPickerHost !== null && (

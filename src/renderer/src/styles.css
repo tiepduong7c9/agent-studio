@@ -1574,6 +1574,20 @@ body {
   overflow: hidden;
 }
 
+.quick-open-crumb {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 8px 8px 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--vscode-descriptionForeground);
+}
+
+.quick-open-crumb .codicon {
+  font-size: 13px;
+}
+
 .quick-open-input {
   margin: 8px;
   padding: 5px 8px;
