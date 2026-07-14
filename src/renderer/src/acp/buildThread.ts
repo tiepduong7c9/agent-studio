@@ -15,7 +15,7 @@ export type ThreadItem =
   | { kind: 'tool'; id: string; toolCallId: string; title: string; status: string; toolKind?: string; content: AcpToolContent[] }
   | { kind: 'plan'; id: string; entries: AcpPlanEntry[] }
   | { kind: 'permission'; id: string; requestId: string; request: AcpPermissionRequest; resolved?: string }
-  | { kind: 'notice'; id: string; text: string }
+  | { kind: 'notice'; id: string; text: string; notice?: string }
   | { kind: 'interrupted'; id: string }
   | { kind: 'error'; id: string; message: string }
 
@@ -90,7 +90,7 @@ export function buildThread(events: AcpEvent[]): ThreadItem[] {
     } else if (e.type === 'acp_stop') {
       if (e.stopReason && /cancel/i.test(e.stopReason)) items.push({ kind: 'interrupted', id: `stop${i}` })
     } else if (e.type === 'acp_notice') {
-      items.push({ kind: 'notice', id: `notice${i}`, text: e.text })
+      items.push({ kind: 'notice', id: `notice${i}`, text: e.text, notice: e.notice })
     } else if (e.type === 'acp_error') {
       items.push({ kind: 'error', id: `err${i}`, message: e.message })
     }

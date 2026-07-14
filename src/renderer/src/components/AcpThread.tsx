@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
   AlertTriangle, BrainCircuit, Check, ChevronDown, ChevronRight, CircleSlash,
-  Clock, Copy, Cpu, FileText, FolderTree, Globe, ListTodo, Loader2, Pencil, Search,
+  Clock, Copy, Cpu, FileText, FolderTree, Gauge, Globe, ListTodo, Loader2, Pencil, Search,
   ShieldQuestion, SquarePen, Square, Terminal, Trash2, Wrench, X, ArrowUp, Zap
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -11,7 +11,7 @@ import type { AcpConversation } from '../../../shared/acp'
 import { useAcpStore } from '../acp/store'
 import { useSessionsStore } from '../acp/sessions-store'
 import { buildThread, modelLabel, recapOf, textOf, type ThreadItem } from '../acp/buildThread'
-import type { AcpCommand, AcpModeState, AcpModelState, AcpToolContent } from '../acp/protocol'
+import type { AcpCommand, AcpEffortState, AcpModeState, AcpModelState, AcpToolContent } from '../acp/protocol'
 import { useCommandHistory } from '../acp/command-history'
 import { useDrafts } from '../acp/drafts-store'
 import './AcpThread.css'
@@ -354,7 +354,7 @@ const MessageList = memo(function MessageList({
               </div>
             ); break
           case 'notice':
-            content = <div className="acp-notice"><Cpu size={12} /><span>{item.text}</span></div>; break
+            content = <div className="acp-notice">{item.notice === 'effort' ? <Gauge size={12} /> : <Cpu size={12} />}<span>{item.text}</span></div>; break
           case 'interrupted':
             content = <div className="acp-interrupted"><CircleSlash size={11} /><span>Interrupted by user</span></div>; break
           case 'error':
@@ -431,6 +431,7 @@ export function AcpThread({ sid, visible = true }: { sid: string; visible?: bool
   const resolvePermissionLocal = useAcpStore((s) => s.resolvePermissionLocal)
   const setModeLocal = useAcpStore((s) => s.setModeLocal)
   const setModelLocal = useAcpStore((s) => s.setModelLocal)
+  const setEffortLocal = useAcpStore((s) => s.setEffortLocal)
   // Transport health for this session's host only — other hosts may be fine.
   const host = useSessionsStore((s) => s.sessions.find((x) => x.id === sid)?.host ?? null)
   // Claude-generated session title shown in the thread header (the tab reads a
@@ -469,6 +470,8 @@ export function AcpThread({ sid, visible = true }: { sid: string; visible?: bool
   const modeState = thread?.modeState ?? null
   const modelState = thread?.modelState ?? null
   const model = modelLabel(thread?.model)
+  // Effort levels are only offered for models that support them; null hides the picker.
+  const effortState = thread?.effortState ?? null
   // Context-window occupancy from the latest usage_update (see acp store).
   const usage = thread?.usage ?? null
   const contextPct =
@@ -595,6 +598,7 @@ export function AcpThread({ sid, visible = true }: { sid: string; visible?: bool
 
   const selectMode = (id: string) => { acp().setMode(sid, id); setModeLocal(sid, id) }
   const selectModel = (id: string) => { acp().setModel(sid, id); setModelLocal(sid, id) }
+  const selectEffort = (id: string) => { acp().setEffort(sid, id); setEffortLocal(sid, id) }
 
   return (
     <div className="acp-thread" style={visible ? undefined : { visibility: 'hidden', pointerEvents: 'none' }}>
@@ -687,6 +691,11 @@ export function AcpThread({ sid, visible = true }: { sid: string; visible?: bool
                   {(close) => <ModelMenu modelState={modelState} onSelect={(id) => { selectModel(id); close() }} />}
                 </Dropdown>
               ) : (model && <span className="acp-pill"><Cpu size={12} /> {model}</span>)}
+              {effortState && effortState.availableEfforts.length > 0 && (
+                <Dropdown label={effortState.availableEfforts.find((e) => e.id === effortState.currentEffortId)?.name ?? 'Effort'} icon={<Gauge size={12} />}>
+                  {(close) => <EffortMenu effortState={effortState} onSelect={(id) => { selectEffort(id); close() }} />}
+                </Dropdown>
+              )}
               {contextPct != null && (
                 <span
                   className={`acp-context${contextPct >= 90 ? ' danger' : contextPct >= 75 ? ' warn' : ''}`}
@@ -731,6 +740,20 @@ function ModelMenu({ modelState, onSelect }: { modelState: AcpModelState; onSele
         <button key={m.id} className={`acp-menu-item ${m.id === modelState.currentModelId ? 'active' : ''}`} onClick={() => onSelect(m.id)}>
           {m.name}{m.id === modelState.currentModelId && <Check size={12} style={{ marginLeft: 6 }} />}
           {m.description && <div className="acp-menu-desc">{m.description}</div>}
+        </button>
+      ))}
+    </>
+  )
+}
+
+function EffortMenu({ effortState, onSelect }: { effortState: AcpEffortState; onSelect: (id: string) => void }) {
+  return (
+    <>
+      <div className="acp-menu-label">Thinking effort</div>
+      {effortState.availableEfforts.map((e) => (
+        <button key={e.id} className={`acp-menu-item ${e.id === effortState.currentEffortId ? 'active' : ''}`} onClick={() => onSelect(e.id)}>
+          {e.name}{e.id === effortState.currentEffortId && <Check size={12} style={{ marginLeft: 6 }} />}
+          {e.description && <div className="acp-menu-desc">{e.description}</div>}
         </button>
       ))}
     </>

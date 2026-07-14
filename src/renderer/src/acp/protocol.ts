@@ -29,6 +29,9 @@ export interface AcpModeState { currentModeId: string; availableModes: AcpSessio
 export interface AcpModelInfo { id: string; name: string; description?: string | null }
 export interface AcpModelState { currentModelId: string; availableModels: AcpModelInfo[] }
 
+export interface AcpEffortInfo { id: string; name: string; description?: string | null }
+export interface AcpEffortState { currentEffortId: string; availableEfforts: AcpEffortInfo[] }
+
 /** Context-window occupancy for a session, from the adapter's usage_update. */
 export interface AcpUsage { used: number; size: number; cost?: { amount: number; currency: string } | null }
 
@@ -52,6 +55,7 @@ export type AcpEvent = (
   | { type: 'acp_reset'; acpSessionId: string | null }
   | { type: 'acp_commands'; commands: AcpCommand[] }
   | { type: 'acp_model'; model: string | null; modelState?: AcpModelState | null }
+  | { type: 'acp_effort'; effortState: AcpEffortState | null }
   | { type: 'acp_usage'; usage: AcpUsage | null }
   | { type: 'acp_notice'; notice: string; text: string }
 ) & { seq?: number; rxAt?: number }

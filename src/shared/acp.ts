@@ -73,6 +73,7 @@ export interface AcpSnapshot {
   availableCommands?: any[]
   model?: string | null
   modelState?: any
+  effortState?: any
   usage?: AcpUsage | null
   loading?: boolean
 }
@@ -117,6 +118,7 @@ export interface ISessionManagerClient {
   permissionResponse(sid: string, requestId: string, optionId: string | null): Promise<void>
   setMode(sid: string, modeId: string): Promise<void>
   setModel(sid: string, modelId: string): Promise<void>
+  setEffort(sid: string, effortId: string): Promise<void>
   listConversations(sid: string): Promise<AcpConversation[]>
   newConversation(sid: string): Promise<void>
   resumeConversation(sid: string, sessionId: string): Promise<void>

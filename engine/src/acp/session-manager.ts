@@ -167,6 +167,7 @@ export class SessionManager {
   // a daemon restart) reaches a started adapter instead of being silently dropped.
   setMode(id: string, modeId: string): void { this._ensureRunning(id)?.acp.setMode(modeId); }
   setModel(id: string, modelId: string): void { this._ensureRunning(id)?.acp.setModel(modelId); }
+  setEffort(id: string, effortId: string): void { this._ensureRunning(id)?.acp.setEffort(effortId); }
   listConversations(id: string): Promise<AcpConversation[]> {
     const rec = this._sessions.get(id);
     return rec ? rec.acp.listConversations() : Promise.resolve([]);

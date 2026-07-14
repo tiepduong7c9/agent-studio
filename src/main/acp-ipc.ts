@@ -243,6 +243,7 @@ export function registerAcpIpc(getWindow: () => BrowserWindow | null): AcpHub {
   })
   ipcMain.handle('acp:setMode', async (_e, arg: { sid: string; modeId: string }) => { await (await smForSid(arg.sid)).setMode(arg.sid, arg.modeId) })
   ipcMain.handle('acp:setModel', async (_e, arg: { sid: string; modelId: string }) => { await (await smForSid(arg.sid)).setModel(arg.sid, arg.modelId) })
+  ipcMain.handle('acp:setEffort', async (_e, arg: { sid: string; effortId: string }) => { await (await smForSid(arg.sid)).setEffort(arg.sid, arg.effortId) })
   ipcMain.handle('acp:listConversations', async (_e, sid: string) => (await smForSid(sid)).listConversations(sid))
   ipcMain.handle('acp:newConversation', async (_e, sid: string) => { await (await smForSid(sid)).newConversation(sid) })
   ipcMain.handle('acp:resumeConversation', async (_e, arg: { sid: string; sessionId: string }) => {

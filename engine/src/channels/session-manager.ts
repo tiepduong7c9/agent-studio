@@ -25,6 +25,7 @@ export class SessionManagerChannel implements IServerChannel {
       case 'permissionResponse': this.manager.resolvePermission(arg.sid, arg.requestId, arg.optionId); return;
       case 'setMode': this.manager.setMode(arg.sid, arg.modeId); return;
       case 'setModel': this.manager.setModel(arg.sid, arg.modelId); return;
+      case 'setEffort': this.manager.setEffort(arg.sid, arg.effortId); return;
       case 'listConversations': return this.manager.listConversations(arg as string);
       case 'newConversation': this.manager.newConversation(arg as string); return;
       case 'resumeConversation': this.manager.resumeConversation(arg.sid, arg.sessionId); return;
@@ -56,6 +57,7 @@ export interface ISessionManagerClient {
   permissionResponse(sid: string, requestId: string, optionId: string | null): Promise<void>;
   setMode(sid: string, modeId: string): Promise<void>;
   setModel(sid: string, modelId: string): Promise<void>;
+  setEffort(sid: string, effortId: string): Promise<void>;
   listConversations(sid: string): Promise<AcpConversation[]>;
   newConversation(sid: string): Promise<void>;
   resumeConversation(sid: string, sessionId: string): Promise<void>;
@@ -77,6 +79,7 @@ export function createSessionManagerClient(channel: IChannel): ISessionManagerCl
     permissionResponse: (sid, requestId, optionId) => channel.call('permissionResponse', { sid, requestId, optionId }),
     setMode: (sid, modeId) => channel.call('setMode', { sid, modeId }),
     setModel: (sid, modelId) => channel.call('setModel', { sid, modelId }),
+    setEffort: (sid, effortId) => channel.call('setEffort', { sid, effortId }),
     listConversations: (sid) => channel.call('listConversations', sid),
     newConversation: (sid) => channel.call('newConversation', sid),
     resumeConversation: (sid, sessionId) => channel.call('resumeConversation', { sid, sessionId }),

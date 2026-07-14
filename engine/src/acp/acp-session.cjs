@@ -52,6 +52,7 @@ class AcpSession {
     this.availableCommands = [];     // [{ name, description, input? }] — slash commands
     this.model = null;               // current model id (from configOptions, transcript fallback)
     this.modelState = null;          // { currentModelId, availableModels:[{id,name,description}] }
+    this.effortState = null;         // { currentEffortId, availableEfforts:[{id,name,description}] } — null when the model has no effort levels
     this.usage = null;               // { used, size, cost? } — latest context-window occupancy
     this._lastTitle = null;          // last ai-title emitted, to dedupe acp_title events
     this._titleWatcher = null;       // fs.watch on the project dir → picks up ai-title whenever Claude writes it
@@ -143,6 +144,7 @@ class AcpSession {
     }
     this._emitMode();
     this._emitModel();
+    this._emitEffort();
     this._refreshModel();
     this._refreshTitle();
     this._watchTitle();
@@ -181,27 +183,40 @@ class AcpSession {
     this._emit({ type: 'acp_model', model: this.model, modelState: this.modelState });
   }
 
+  _emitEffort() {
+    this._emit({ type: 'acp_effort', effortState: this.effortState });
+  }
+
   _emitUsage() {
     this._emit({ type: 'acp_usage', usage: this.usage });
   }
 
-  // Pull the model selector out of the adapter's configOptions (the authoritative
-  // source for the current model and the list of selectable ones). Options may be
-  // a flat array or grouped (`{ group, options }`); flatten either shape.
+  // Pull the model + effort selectors out of the adapter's configOptions (the
+  // authoritative source for the current values and the selectable ones).
+  // Options may be a flat array or grouped (`{ group, options }`); flatten either
+  // shape. The effort option only exists for models that support effort levels,
+  // so it's cleared to null when absent (the UI hides its selector then).
   _applyConfigOptions(configOptions) {
     if (!Array.isArray(configOptions)) return;
-    const opt = configOptions.find(o => o && o.type === 'select' && (o.id === 'model' || o.category === 'model'));
-    if (!opt) return;
-    const flat = [];
-    for (const o of (opt.options || [])) {
-      if (o && Array.isArray(o.options)) flat.push(...o.options);
-      else if (o) flat.push(o);
-    }
-    this.modelState = {
-      currentModelId: opt.currentValue,
-      availableModels: flat.map(o => ({ id: o.value, name: o.name, description: o.description == null ? null : o.description })),
+    const flatten = (opt) => {
+      const flat = [];
+      for (const o of (opt.options || [])) {
+        if (o && Array.isArray(o.options)) flat.push(...o.options);
+        else if (o) flat.push(o);
+      }
+      return flat.map(o => ({ id: o.value, name: o.name, description: o.description == null ? null : o.description }));
     };
-    if (opt.currentValue) this.model = opt.currentValue;
+
+    const modelOpt = configOptions.find(o => o && o.type === 'select' && (o.id === 'model' || o.category === 'model'));
+    if (modelOpt) {
+      this.modelState = { currentModelId: modelOpt.currentValue, availableModels: flatten(modelOpt) };
+      if (modelOpt.currentValue) this.model = modelOpt.currentValue;
+    }
+
+    const effortOpt = configOptions.find(o => o && o.type === 'select' && (o.id === 'effort' || o.category === 'thought_level'));
+    this.effortState = effortOpt
+      ? { currentEffortId: effortOpt.currentValue, availableEfforts: flatten(effortOpt) }
+      : null;
   }
 
   _onUpdate(params) {
@@ -218,6 +233,7 @@ class AcpSession {
     if (update && update.sessionUpdate === 'config_option_update') {
       this._applyConfigOptions(update.configOptions);
       this._emitModel();
+      this._emitEffort();
       return;
     }
     // Slash-command catalog — metadata, surfaced as acp_commands (not a thread entry).
@@ -268,6 +284,8 @@ class AcpSession {
       if (res && res.configOptions) this._applyConfigOptions(res.configOptions);
       else { if (this.modelState) this.modelState.currentModelId = modelId; this.model = modelId; }
       this._emitModel();
+      // The available effort levels depend on the model, so surface any change.
+      this._emitEffort();
       // Mark the switch inline in the thread so it shows where it happened and
       // survives re-attach — only when the model actually changed.
       if (this.model && this.model !== before) {
@@ -277,6 +295,32 @@ class AcpSession {
       }
     } catch (err) {
       this._emit({ type: 'acp_error', message: `Failed to set model: ${err && err.message ? err.message : err}` });
+    }
+  }
+
+  // Friendly display name for an effort id, from the catalog (falls back to the id).
+  _effortName(id) {
+    const e = this.effortState && this.effortState.availableEfforts.find(x => x.id === id);
+    return (e && e.name) || id;
+  }
+
+  async setEffort(effortId) {
+    await this.ready();
+    if (!this._conn || !this.acpSessionId) return;
+    const before = this.effortState && this.effortState.currentEffortId;
+    try {
+      const res = await this._conn.setSessionConfigOption({ sessionId: this.acpSessionId, configId: 'effort', value: effortId });
+      if (res && res.configOptions) this._applyConfigOptions(res.configOptions);
+      else if (this.effortState) this.effortState.currentEffortId = effortId;
+      this._emitEffort();
+      const now = this.effortState && this.effortState.currentEffortId;
+      if (now && now !== before) {
+        const notice = { type: 'acp_notice', notice: 'effort', text: `Effort set to ${this._effortName(now)}` };
+        this._pushHistory(notice);
+        this._emit(notice);
+      }
+    } catch (err) {
+      this._emit({ type: 'acp_error', message: `Failed to set effort: ${err && err.message ? err.message : err}` });
     }
   }
 
@@ -594,6 +638,7 @@ class AcpSession {
       availableCommands: this.availableCommands,
       model: this.model,
       modelState: this.modelState,
+      effortState: this.effortState,
       usage: this.usage,
       // True while a resume is still replaying history; the snapshot is empty
       // now and the conversation will stream in via subsequent acp_event frames.

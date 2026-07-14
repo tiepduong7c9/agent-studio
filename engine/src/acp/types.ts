@@ -69,6 +69,7 @@ export interface AcpSnapshot {
   availableCommands?: any[];
   model?: string | null;
   modelState?: any;
+  effortState?: any;
   usage?: AcpUsage | null;
   loading?: boolean;
 }

@@ -96,6 +96,8 @@ const api = {
       ipcRenderer.invoke('acp:setMode', { sid, modeId }),
     setModel: (sid: string, modelId: string): Promise<void> =>
       ipcRenderer.invoke('acp:setModel', { sid, modelId }),
+    setEffort: (sid: string, effortId: string): Promise<void> =>
+      ipcRenderer.invoke('acp:setEffort', { sid, effortId }),
     listConversations: (sid: string): Promise<AcpConversation[]> =>
       ipcRenderer.invoke('acp:listConversations', sid),
     newConversation: (sid: string): Promise<void> => ipcRenderer.invoke('acp:newConversation', sid),

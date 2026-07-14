@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { AcpSnapshot } from '../../../shared/acp'
-import type { AcpCommand, AcpEvent, AcpModeState, AcpModelState, AcpUsage } from './protocol'
+import type { AcpCommand, AcpEvent, AcpEffortState, AcpModeState, AcpModelState, AcpUsage } from './protocol'
 
 // Per-session thread state. Keyed by session id (sid). Ported from ccremote's
 // acp-store; the only change is setHistory taking the engine's snapshot object.
@@ -14,6 +14,8 @@ export interface AcpThreadState {
   model?: string | null
   modelState?: AcpModelState | null
   pendingModelId?: string | null
+  effortState?: AcpEffortState | null
+  pendingEffortId?: string | null
   usage?: AcpUsage | null
   lastSeq: number
   historyLoaded?: boolean
@@ -32,6 +34,8 @@ interface AcpStore {
   setModeLocal: (sid: string, modeId: string) => void
   setModelLocal: (sid: string, modelId: string) => void
   clearPendingModel: (sid: string) => void
+  setEffortLocal: (sid: string, effortId: string) => void
+  clearPendingEffort: (sid: string) => void
   clear: (sid: string) => void
 }
 
@@ -50,6 +54,8 @@ function reduceEvent(prev: AcpThreadState, event: AcpEvent): AcpThreadState {
     case 'acp_commands': return { ...prev, availableCommands: event.commands }
     case 'acp_model':
       return { ...prev, model: event.model, modelState: event.modelState ?? prev.modelState ?? null, pendingModelId: null }
+    case 'acp_effort':
+      return { ...prev, effortState: event.effortState, pendingEffortId: null }
     case 'acp_usage': return { ...prev, usage: event.usage }
     case 'acp_reset':
       return { ...prev, events: [], lastSeq: -1, claudeStatus: undefined, acpSessionId: event.acpSessionId, model: null, usage: null }
@@ -89,6 +95,7 @@ export const useAcpStore = create<AcpStore>((set) => ({
       availableCommands: snap.availableCommands ?? [],
       model: snap.model ?? null,
       modelState: snap.modelState ?? null,
+      effortState: snap.effortState ?? null,
       usage: snap.usage ?? null,
       lastSeq,
       historyLoaded: true,
@@ -149,6 +156,22 @@ export const useAcpStore = create<AcpStore>((set) => ({
     const prev = threads.get(sid)
     if (!prev || prev.pendingModelId == null) return {}
     threads.set(sid, { ...prev, pendingModelId: null })
+    return { threads }
+  }),
+
+  setEffortLocal: (sid, effortId) => set((s) => {
+    const threads = new Map(s.threads)
+    const prev = threads.get(sid)
+    if (!prev) return {}
+    threads.set(sid, { ...prev, pendingEffortId: effortId })
+    return { threads }
+  }),
+
+  clearPendingEffort: (sid) => set((s) => {
+    const threads = new Map(s.threads)
+    const prev = threads.get(sid)
+    if (!prev || prev.pendingEffortId == null) return {}
+    threads.set(sid, { ...prev, pendingEffortId: null })
     return { threads }
   }),
 
