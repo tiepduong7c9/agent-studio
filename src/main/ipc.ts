@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { BrowserWindow, dialog, ipcMain, Notification, shell } from 'electron'
 import type { Result, SshConnectOptions } from '../shared/types'
 import { engineHostKey, workspaceId } from '../shared/types'
 import { clearSshEngine, LOCAL_HOST_KEY, registerEngineTarget, sshTargetFor } from './engine'
@@ -36,6 +36,18 @@ const sshHosts = new Map<string, SshSession>()
 function endSshHosts(): void {
   for (const session of sshHosts.values()) session.client.end()
   sshHosts.clear()
+}
+
+// Outstanding OS notifications (session done / waiting), cleared together when
+// the user returns to the app. See the app:notify handler for why per-click
+// close() alone is unreliable on Linux.
+const activeNotifications = new Set<Notification>()
+
+/** Close every on-screen session notification. Called on notification click and
+ *  on window focus. */
+export function dismissAllNotifications(): void {
+  for (const notification of activeNotifications) notification.close()
+  activeNotifications.clear()
 }
 
 function addProvider(provider: ProjectProvider): ProjectProvider {
@@ -268,6 +280,34 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, hub: 
 
   handle('app:reveal', async (entryPath: string) => {
     shell.showItemInFolder(entryPath)
+  })
+
+  // Native OS notification for a background session state change (turn finished
+  // / waiting for input). Clicking it brings the window forward and tells the
+  // renderer which session to surface.
+  //
+  // Dismissal is deliberately not left to the single notification's click event:
+  // on Linux/GNOME that event is flaky and close() can race the notification
+  // daemon, so a click sometimes leaves the banner on screen. Instead every
+  // outstanding notification is tracked and cleared together on any click and,
+  // more reliably, whenever the window regains focus (dismissAllNotifications,
+  // wired to the window's 'focus' event) — returning to the app is the real
+  // signal that these are no longer needed.
+  handle('app:notify', async (opts: { sid: string; title: string; body: string }) => {
+    if (!Notification.isSupported()) return
+    const notification = new Notification({ title: opts.title, body: opts.body })
+    activeNotifications.add(notification)
+    notification.on('close', () => activeNotifications.delete(notification))
+    notification.on('click', () => {
+      dismissAllNotifications()
+      const win = getWindow()
+      if (!win) return
+      if (win.isMinimized()) win.restore()
+      win.show()
+      win.focus()
+      win.webContents.send('app:notification-activate', opts.sid)
+    })
+    notification.show()
   })
 
   handle('window:control', async (action: 'minimize' | 'maximize' | 'close') => {

@@ -19,6 +19,7 @@ import { StatusBar } from './components/StatusBar'
 import { TitleBar } from './components/TitleBar'
 import { Toasts } from './components/Toasts'
 import { baseName } from './components/editors'
+import { notifySession } from './notify'
 import type { Selection } from './selection'
 import { chatTabId, diffTabId, fileTabId, newChatTabId, useTabsStore } from './tabs-store'
 import { useViewPrefsStore } from './view-prefs-store'
@@ -102,14 +103,26 @@ export function App() {
   useEffect(() => {
     const prev = prevClaudeStatus.current
     const { markDone, clearDone } = useSessionsStore.getState()
+    // OS notifications are only useful when the app isn't in front of the user;
+    // if the window is focused we never send one (regardless of which session's
+    // tab is active). The "done" marker is separate — it's per-session, so it
+    // still uses `watching` (this session's tab active *and* window focused).
+    const focused = document.hasFocus()
     for (const s of sessions) {
       const before = prev.get(s.id)
       const now = s.claudeStatus
+      const watching = useTabsStore.getState().activeSid === s.id && focused
       if (before === 'working' && now === 'idle') {
-        const watching = useTabsStore.getState().activeSid === s.id && document.hasFocus()
         if (!watching) markDone(s.id)
+        if (!focused) notifySession(s.id, s.name, 'done')
       } else if (now === 'working') {
         clearDone(s.id)
+      }
+      // A turn that pauses for input (permission prompt) flips to "waiting".
+      // Guard on a known prior status so sessions already waiting when the app
+      // starts don't fire a notification on first observation.
+      if (before !== undefined && before !== 'waiting' && now === 'waiting' && !focused) {
+        notifySession(s.id, s.name, 'waiting')
       }
       prev.set(s.id, now)
     }
@@ -285,6 +298,12 @@ export function App() {
     },
     [sessions, workspaces, openTab]
   )
+
+  // Clicking an OS notification focuses the window (done in main) and asks us to
+  // surface the session it was about.
+  useEffect(() => {
+    return window.studio.onNotificationActivate((sid) => openChat(sid))
+  }, [openChat])
 
   const newSession = useCallback(
     async (ws: ProjectInfo, opts?: { pin?: boolean }) => {

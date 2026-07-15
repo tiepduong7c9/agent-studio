@@ -69,6 +69,16 @@ const api = {
     ipcRenderer.invoke('fs:delete', wsId, entryPath),
   revealInFileManager: (entryPath: string): Promise<Result<void>> =>
     ipcRenderer.invoke('app:reveal', entryPath),
+  /** Fire a native OS notification for a background session state change. */
+  notify: (opts: { sid: string; title: string; body: string }): Promise<Result<void>> =>
+    ipcRenderer.invoke('app:notify', opts),
+  /** A notification was clicked; carries the session id to surface. Returns an
+   *  unsubscribe fn. */
+  onNotificationActivate: (cb: (sid: string) => void): (() => void) => {
+    const h = (_e: unknown, sid: string) => cb(sid)
+    ipcRenderer.on('app:notification-activate', h)
+    return () => ipcRenderer.removeListener('app:notification-activate', h)
+  },
   windowControl: (action: 'minimize' | 'maximize' | 'close'): Promise<Result<boolean>> =>
     ipcRenderer.invoke('window:control', action),
 

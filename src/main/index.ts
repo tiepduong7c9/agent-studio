@@ -1,7 +1,7 @@
 import { app, BrowserWindow, clipboard, Menu, shell } from 'electron'
 import * as path from 'path'
 import { registerAcpIpc } from './acp-ipc'
-import { disposeProvider, registerIpcHandlers } from './ipc'
+import { disposeProvider, dismissAllNotifications, registerIpcHandlers } from './ipc'
 import { registerMediaProtocol, registerMediaScheme } from './media-protocol'
 import { registerTerminalIpc } from './terminal-ipc'
 
@@ -45,6 +45,11 @@ function createWindow(): void {
   mainWindow.on('closed', () => {
     mainWindow = null
   })
+
+  // Returning to the app clears any pending session notifications — a more
+  // reliable dismissal than the individual notification click on Linux, and it
+  // covers coming back to the app by any means (alt-tab, dock, etc.).
+  mainWindow.on('focus', () => dismissAllNotifications())
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url)
