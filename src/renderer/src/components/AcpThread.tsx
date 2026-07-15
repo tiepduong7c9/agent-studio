@@ -591,6 +591,14 @@ export function AcpThread({ sid, visible = true }: { sid: string; visible?: bool
     }
   }
 
+  // Tab completes the command text without submitting, so the user can add
+  // arguments and send it themselves. A trailing space is left for typing.
+  const completeCommand = (c: AcpCommand) => {
+    setCmdOpen(false)
+    setDraft(`/${c.name} `)
+    requestAnimationFrame(() => taRef.current?.focus())
+  }
+
   const answerPermission = useCallback((requestId: string, optionId: string | null) => {
     acp().permissionResponse(sid, requestId, optionId)
     resolvePermissionLocal(sid, requestId, optionId)
@@ -673,7 +681,8 @@ export function AcpThread({ sid, visible = true }: { sid: string; visible?: bool
                 if (showCmd) {
                   if (e.key === 'ArrowDown') { e.preventDefault(); setCmdHighlight((h) => (h + 1) % cmdSuggestions.length); return }
                   if (e.key === 'ArrowUp') { e.preventDefault(); setCmdHighlight((h) => (h - 1 + cmdSuggestions.length) % cmdSuggestions.length); return }
-                  if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); applyCommand(cmdSuggestions[Math.min(cmdHighlight, cmdSuggestions.length - 1)]); return }
+                  if (e.key === 'Enter') { e.preventDefault(); applyCommand(cmdSuggestions[Math.min(cmdHighlight, cmdSuggestions.length - 1)]); return }
+                  if (e.key === 'Tab') { e.preventDefault(); completeCommand(cmdSuggestions[Math.min(cmdHighlight, cmdSuggestions.length - 1)]); return }
                   if (e.key === 'Escape') { e.preventDefault(); setCmdOpen(false); return }
                 }
                 if (e.key === 'Escape' && working) { e.preventDefault(); acp().cancel(sid); return }
