@@ -39,10 +39,15 @@ const api = {
     ipcRenderer.invoke('ssh:openRemote', host, dirPath),
   sshDisconnect: (host: string): Promise<Result<void>> =>
     ipcRenderer.invoke('ssh:disconnect', host),
-  /** Reconnect all remembered SSH hosts; resolves with the host keys that came
-   *  back up. Called once on startup. */
-  reconnectSavedHosts: (): Promise<Result<string[]>> =>
+  /** Reconnect all remembered SSH hosts; resolves with every remembered host and
+   *  whether it came back up (unreachable ones are still reported so the sidebar
+   *  can surface them as disconnected). Called once on startup. */
+  reconnectSavedHosts: (): Promise<Result<{ host: string; connected: boolean }[]>> =>
     ipcRenderer.invoke('ssh:reconnectSaved'),
+  /** Reconnect a single remembered host (the sidebar's Reconnect action on a
+   *  disconnected host); resolves with the host key on success. */
+  reconnectSsh: (host: string): Promise<Result<string>> =>
+    ipcRenderer.invoke('ssh:reconnect', host),
   // File/git calls carry the workspace id so the main process routes them to the
   // right provider (a local folder and several ssh remotes can be open at once).
   closeProject: (wsId: string): Promise<Result<void>> => ipcRenderer.invoke('project:close', wsId),

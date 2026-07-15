@@ -74,6 +74,7 @@ export function App() {
   const setProjects = useSessionsStore((s) => s.setProjects)
   const engineStatus = useSessionsStore((s) => s.engineStatus)
   const setHostStatus = useSessionsStore((s) => s.setHostStatus)
+  const pinnedSessions = useViewPrefsStore((s) => s.pinnedSessions)
 
   const tabs = useTabsStore((s) => s.tabs)
   const activeId = useTabsStore((s) => s.activeId)
@@ -170,18 +171,23 @@ export function App() {
   }, [addWorkspace])
 
   // Reconnect remembered SSH hosts on startup so their projects/sessions
-  // resurface without re-entering credentials.
+  // resurface without re-entering credentials. Every remembered host is added to
+  // the sidebar — including ones that failed to come back up, which are marked
+  // 'lost' so they show as disconnected (with a Reconnect action) rather than
+  // silently vanishing. Connected hosts get their 'connected' status from the
+  // engine-status event fired during the reconnect.
   useEffect(() => {
     window.studio
       .reconnectSavedHosts()
       .then((res) => {
         if (res.ok && res.data.length) {
-          setRemoteHosts((hs) => Array.from(new Set([...hs, ...res.data])))
+          setRemoteHosts((hs) => Array.from(new Set([...hs, ...res.data.map((h) => h.host)])))
+          for (const h of res.data) if (!h.connected) setHostStatus(`ssh:${h.host}`, 'lost')
         }
       })
       .catch(() => {})
       .finally(() => setSavedHostsResolved(true))
-  }, [])
+  }, [setHostStatus])
 
   // Poll each connected host's subscription usage for the status bar and the
   // 50%/75% warnings: once now, then every 5 minutes. Local (null) is always
@@ -268,6 +274,18 @@ export function App() {
     useViewPrefsStore.getState().pruneSessions(live)
     useDrafts.getState().prune(live)
   }, [sessions, pruneChats, remoteHosts, engineStatus, savedHostsResolved])
+
+  // Keep a cached snapshot of each pinned session's metadata (name/cwd/host)
+  // fresh from the live list. When the session's host later goes offline (a lost
+  // connection, or a saved host that didn't reconnect after restart) it stops
+  // pushing that session, so this cache is what lets the sidebar still render the
+  // pinned row — dimmed and reconnectable — instead of dropping it.
+  useEffect(() => {
+    const metas = sessions
+      .filter((s) => pinnedSessions[s.id])
+      .map((s) => ({ id: s.id, name: s.name, cwd: s.cwd, host: s.host ?? null }))
+    if (metas.length) useViewPrefsStore.getState().rememberPinned(metas)
+  }, [sessions, pinnedSessions])
 
   // When a chat is active and no open folder contains its session, root a
   // provider at the session's own cwd so the right panel reflects its directory.
@@ -468,6 +486,20 @@ export function App() {
     refreshProjects()
   }, [refreshProjects])
 
+  // Re-establish a disconnected host from its saved credentials (the sidebar's
+  // Reconnect action). Mark it reconnecting for immediate feedback; a success
+  // flips it to 'connected' via the engine-status event (and re-scans projects),
+  // a failure drops it back to 'lost'.
+  const reconnectRemote = useCallback(async (host: string) => {
+    setHostStatus(`ssh:${host}`, 'reconnecting')
+    setRemoteHosts((hs) => (hs.includes(host) ? hs : [...hs, host]))
+    const res = await window.studio.reconnectSsh(host)
+    if (!res.ok) {
+      setHostStatus(`ssh:${host}`, 'lost')
+      setError(res.error)
+    }
+  }, [setHostStatus])
+
   return (
     <div className="app">
       <TitleBar
@@ -503,6 +535,7 @@ export function App() {
                 onOpenSsh={() => setSshDialogOpen(true)}
                 onOpenRemoteFolder={(host) => setFolderPickerHost(host)}
                 onDisconnectRemote={disconnectRemote}
+                onReconnectRemote={reconnectRemote}
               />
             </aside>
             <Sash

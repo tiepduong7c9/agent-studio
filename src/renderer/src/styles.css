@@ -599,6 +599,15 @@ body {
 .sessions-host-status.lost {
   color: var(--vscode-errorForeground, #f14c4c);
 }
+/* A disconnected (lost) host reads as inactive: muted name/icon, but its
+   Reconnect/Forget actions stay visible (not hover-gated) so it's actionable. */
+.sessions-host-section.disconnected .sessions-host-name,
+.sessions-host-section.disconnected .sessions-host-icon {
+  opacity: 0.6;
+}
+.sessions-host-section.disconnected .sessions-host-header .icon-button {
+  opacity: 0.85;
+}
 .sessions-host-header .icon-button {
   opacity: 0;
   font-size: 14px;
@@ -641,6 +650,15 @@ body {
 .acp-status-working { background: var(--vscode-charts-yellow, #cca700); }
 .acp-status-waiting { background: var(--vscode-charts-orange, #d18616); }
 .acp-status-done { background: var(--vscode-charts-blue, #3794ff); }
+/* A pinned session whose host is offline: hollow, muted dot + dimmed row. */
+.acp-status-offline {
+  background: transparent;
+  border: 1.5px solid var(--vscode-descriptionForeground);
+  opacity: 0.7;
+}
+.acp-session-row.offline { opacity: 0.6; font-style: italic; }
+.acp-session-row.offline:hover { opacity: 0.85; }
+.acp-session-row.offline .acp-session-sub { color: var(--vscode-errorForeground, #f14c4c); }
 
 /* "Done" (unread-completion) rows draw the eye: an accent-tinted background with
    a left bar, a bolder name, an accent label, and a pulsing/glowing dot. */

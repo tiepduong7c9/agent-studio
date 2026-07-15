@@ -207,18 +207,28 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, hub: 
   })
 
   // Reconnect every remembered host (called on startup). Each is attempted
-  // independently; hosts that fail (server down, auth changed) are skipped so
-  // one bad host doesn't block the rest. Returns the keys that came back up.
+  // independently; one bad host (server down, auth changed) doesn't block the
+  // rest. Returns every remembered host with whether it came back up, so the
+  // sidebar can still surface a host that's currently unreachable (with a
+  // disconnected indicator + Reconnect action) rather than hiding it.
   handle('ssh:reconnectSaved', async () => {
-    const results = await Promise.all(
-      loadSavedHosts().map((opts) =>
-        connectSshHost(opts).then(
-          (host) => host,
-          () => null
+    return Promise.all(
+      loadSavedHosts().map((opts) => {
+        const host = `${opts.username}@${opts.host}`
+        return connectSshHost(opts).then(
+          () => ({ host, connected: true }),
+          () => ({ host, connected: false })
         )
-      )
+      })
     )
-    return results.filter((h): h is string => h !== null)
+  })
+
+  // Reconnect a single remembered host on demand — the "Reconnect" action on a
+  // disconnected host in the sidebar. Its credentials come from the saved set.
+  handle('ssh:reconnect', async (hostKey: string) => {
+    const opts = loadSavedHosts().find((o) => `${o.username}@${o.host}` === hostKey)
+    if (!opts) throw new Error(`No saved credentials for ${hostKey}`)
+    return connectSshHost(opts)
   })
 
   handle('project:close', async (wsId: string) => {

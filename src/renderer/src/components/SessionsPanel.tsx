@@ -37,6 +37,8 @@ interface Props {
   onOpenRemoteFolder: (host: string) => void
   /** Disconnect a connected SSH host. */
   onDisconnectRemote: (host: string) => void
+  /** Reconnect a disconnected (saved) SSH host from its stored credentials. */
+  onReconnectRemote: (host: string) => void
 }
 
 function relTime(ms: number): string {
@@ -179,6 +181,28 @@ function ConvRow({ conv, onOpen }: { conv: AcpConversation; onOpen: () => void }
   )
 }
 
+// A pinned session whose host is offline: no live data to attach to, so it's
+// rendered from cached metadata as a dimmed, non-active row that reconnects the
+// host on click (its session resurfaces once the host is back up).
+function OfflineRow({ name, onReconnect }: { name: string; onReconnect: () => void }) {
+  return (
+    <div className="acp-session-row-wrap offline">
+      <button
+        className="acp-session-row offline"
+        onClick={onReconnect}
+        title="Host disconnected — click to reconnect"
+      >
+        <span className="acp-status-dot acp-status-offline" />
+        <span className="acp-session-main">
+          <span className="acp-session-name">{name}</span>
+          <span className="acp-session-sub">disconnected · reconnect</span>
+        </span>
+      </button>
+      <span className="acp-session-pin codicon codicon-pinned" title="Pinned" />
+    </div>
+  )
+}
+
 export function SessionsPanel({
   workspaces,
   sessions,
@@ -194,10 +218,12 @@ export function SessionsPanel({
   onOpenLocal,
   onOpenSsh,
   onOpenRemoteFolder,
-  onDisconnectRemote
+  onDisconnectRemote,
+  onReconnectRemote
 }: Props) {
   const doneSessions = useSessionsStore((s) => s.doneSessions)
   const pinnedSessions = useViewPrefsStore((s) => s.pinnedSessions)
+  const pinnedMeta = useViewPrefsStore((s) => s.pinnedMeta)
   const hiddenSessions = useViewPrefsStore((s) => s.hiddenSessions)
   const hiddenProjects = useViewPrefsStore((s) => s.hiddenProjects)
   const focusMode = useViewPrefsStore((s) => s.focusMode)
@@ -270,6 +296,25 @@ export function SessionsPanel({
     const otherHosts = [...otherByHost.keys()]
     return { groups: [...groups.values()], otherByHost, otherHosts }
   }, [workspaces, projects, sessions])
+
+  // Pinned sessions whose remote host isn't currently connected, drawn from the
+  // cached metadata. These are the pins that survive a restart/lost connection —
+  // the host pushes no live list, so without this they'd disappear. Skipped once
+  // the host is connected (a still-pinned id that's then absent from the live
+  // list is a genuinely-deleted session, handled by the prune pass). Local pins
+  // aren't included (the local engine is always up). Only known (remembered)
+  // hosts qualify, so a forgotten host's stale pins don't linger.
+  const offlinePinned = useMemo(() => {
+    const liveIds = new Set(sessions.map((s) => s.id))
+    const knownHosts = new Set(remoteHosts)
+    const out: { id: string; name: string; cwd: string; host: string }[] = []
+    for (const [id, meta] of Object.entries(pinnedMeta)) {
+      if (!pinnedSessions[id] || liveIds.has(id) || !meta.host) continue
+      if (!knownHosts.has(meta.host) || engineStatus[`ssh:${meta.host}`] === 'connected') continue
+      out.push({ id, name: meta.name, cwd: meta.cwd, host: meta.host })
+    }
+    return out
+  }, [sessions, pinnedMeta, pinnedSessions, engineStatus, remoteHosts])
 
   // Pinned sessions sort ahead of the rest; ties break on recency.
   const byPinThenActivity = (a: SessionMeta, b: SessionMeta): number => {
@@ -459,24 +504,40 @@ export function SessionsPanel({
   // a matching project group when one exists, else the folder's basename.
   const focusGroups = useMemo(() => {
     const nameByKey = new Map(groups.map((g) => [g.key, g.name]))
-    const map = new Map<string, { key: string; name: string; host: string | null; cwd: string; list: SessionMeta[] }>()
-    for (const s of focusList) {
-      const key = groupKey(s.host ?? null, s.cwd)
+    type FG = {
+      key: string
+      name: string
+      host: string | null
+      cwd: string
+      list: SessionMeta[]
+      offline: { id: string; name: string }[]
+    }
+    const map = new Map<string, FG>()
+    const ensure = (host: string | null, cwd: string): FG => {
+      const key = groupKey(host, cwd)
       let entry = map.get(key)
       if (!entry) {
         entry = {
           key,
-          name: nameByKey.get(key) ?? normRoot(s.cwd).split('/').pop() ?? s.cwd,
-          host: s.host ?? null,
-          cwd: s.cwd,
-          list: []
+          name: nameByKey.get(key) ?? normRoot(cwd).split('/').pop() ?? cwd,
+          host,
+          cwd,
+          list: [],
+          offline: []
         }
         map.set(key, entry)
       }
-      entry.list.push(s)
+      return entry
+    }
+    for (const s of focusList) ensure(s.host ?? null, s.cwd).list.push(s)
+    // Pinned sessions on offline hosts still belong in Focus mode — append them
+    // as reconnectable rows under their project (honouring the search filter).
+    for (const o of offlinePinned) {
+      if (searching && !matches(o.name)) continue
+      ensure(o.host, o.cwd).offline.push({ id: o.id, name: o.name })
     }
     return [...map.values()]
-  }, [focusList, groups])
+  }, [focusList, groups, offlinePinned, searching, q])
 
   // The project a Focus-mode group starts new sessions in: the matching known
   // group (so an open workspace keeps its controls/ordering), else one
@@ -805,7 +866,7 @@ export function SessionsPanel({
           </div>
         ) : focusMode ? (
           // Focus mode — pinned sessions grouped under their host/project heading.
-          focusList.length > 0 ? (
+          focusGroups.length > 0 ? (
             focusGroups.map((fg) => (
               <div key={fg.key} className="sessions-group sessions-focus-group">
                 <div
@@ -820,14 +881,31 @@ export function SessionsPanel({
                     <span className="sessions-group-host">{fg.host.slice(fg.host.lastIndexOf('@') + 1)}</span>
                   )}
                   <span className="topbar-spacer" />
-                  <button
-                    className="icon-button codicon codicon-add"
-                    title="New pinned session"
-                    onClick={() => onNewSession(focusGroupProject(fg), { pin: true })}
-                  />
+                  {/* A group with only offline pins sits on a disconnected host —
+                      creating a session there would fail, so offer Reconnect. */}
+                  {fg.list.length === 0 && fg.offline.length > 0 && fg.host ? (
+                    <button
+                      className="icon-button codicon codicon-debug-restart"
+                      title="Reconnect host"
+                      onClick={() => onReconnectRemote(fg.host!)}
+                    />
+                  ) : (
+                    <button
+                      className="icon-button codicon codicon-add"
+                      title="New pinned session"
+                      onClick={() => onNewSession(focusGroupProject(fg), { pin: true })}
+                    />
+                  )}
                 </div>
                 {fg.list.map((s) => (
                   <LiveRow key={s.id} {...liveRowProps(s)} />
+                ))}
+                {fg.offline.map((o) => (
+                  <OfflineRow
+                    key={o.id}
+                    name={o.name}
+                    onReconnect={() => fg.host && onReconnectRemote(fg.host)}
+                  />
                 ))}
               </div>
             ))
@@ -886,12 +964,23 @@ export function SessionsPanel({
             {remoteSectionHosts.map((host) => {
               const hostGroups = shownGroups.filter(({ g }) => g.host === host)
               const hostOthers = shownOthers.filter((o) => o.host === host)
+              const hostOffline = offlinePinned.filter(
+                (o) => o.host === host && (!searching || matches(o.name))
+              )
               // While searching, hide a host with no matches so results stay tight.
-              if (searching && hostGroups.length === 0 && hostOthers.length === 0) return null
+              if (searching && hostGroups.length === 0 && hostOthers.length === 0 && hostOffline.length === 0)
+                return null
               const status = statusFor(host)
+              // 'lost' = reconnection was given up (failed restart reconnect, or a
+              // dead SSH connection): offer a manual Reconnect. 'reconnecting' is
+              // still auto-retrying, so it just shows the badge.
+              const disconnected = status === 'lost'
               const collapsedSection = isSectionCollapsed(`host:${host}`)
               return (
-                <div key={`host:${host}`} className="sessions-host-section">
+                <div
+                  key={`host:${host}`}
+                  className={`sessions-host-section ${disconnected ? 'disconnected' : ''}`}
+                >
                   <div
                     className="sessions-host-header"
                     onClick={() => toggle(`host:${host}`)}
@@ -901,37 +990,67 @@ export function SessionsPanel({
                     <span
                       className={`codicon ${collapsedSection ? 'codicon-chevron-right' : 'codicon-chevron-down'} sessions-group-twistie`}
                     />
-                    <span className="codicon codicon-server sessions-host-icon" />
+                    <span
+                      className={`codicon ${disconnected ? 'codicon-vm-outline' : 'codicon-server'} sessions-host-icon`}
+                    />
                     <span className="sessions-host-name" title={host}>
                       {host.slice(host.lastIndexOf('@') + 1)}
                     </span>
                     {status && <span className={`sessions-host-status ${status}`}>{status}</span>}
                     <span className="topbar-spacer" />
-                    <button
-                      className="icon-button codicon codicon-new-folder"
-                      title="Open Remote Folder"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onOpenRemoteFolder(host)
-                      }}
-                    />
-                    <button
-                      className="icon-button codicon codicon-debug-disconnect"
-                      title="Disconnect"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onDisconnectRemote(host)
-                      }}
-                    />
+                    {disconnected ? (
+                      <>
+                        <button
+                          className="icon-button codicon codicon-debug-restart"
+                          title="Reconnect"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            onReconnectRemote(host)
+                          }}
+                        />
+                        <button
+                          className="icon-button codicon codicon-trash"
+                          title="Forget host"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            onDisconnectRemote(host)
+                          }}
+                        />
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          className="icon-button codicon codicon-new-folder"
+                          title="Open Remote Folder"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            onOpenRemoteFolder(host)
+                          }}
+                        />
+                        <button
+                          className="icon-button codicon codicon-debug-disconnect"
+                          title="Disconnect"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            onDisconnectRemote(host)
+                          }}
+                        />
+                      </>
+                    )}
                   </div>
                   {!collapsedSection &&
-                    (hostGroups.length > 0 || hostOthers.length > 0 ? (
+                    (hostGroups.length > 0 || hostOthers.length > 0 || hostOffline.length > 0 ? (
                       <>
                         {hostGroups.map(renderGroup)}
                         {hostOthers.map(renderOther)}
+                        {hostOffline.map((o) => (
+                          <OfflineRow key={o.id} name={o.name} onReconnect={() => onReconnectRemote(host)} />
+                        ))}
                       </>
                     ) : (
-                      <div className="sessions-empty">No projects yet</div>
+                      <div className="sessions-empty">
+                        {disconnected ? 'Disconnected' : 'No projects yet'}
+                      </div>
                     ))}
                 </div>
               )
