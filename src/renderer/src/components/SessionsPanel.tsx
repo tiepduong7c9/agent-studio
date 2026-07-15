@@ -106,14 +106,17 @@ interface LiveRowProps {
   done: boolean
   /** When that turn finished (ms epoch); shown as the row time on a done row. */
   doneAt?: number
+  /** User-flagged unread (follow up later) — a persistent manual marker. */
+  unread: boolean
   onSelect: () => void
   onTogglePin: () => void
+  onToggleUnread: () => void
   onHide: () => void
   onUnhide: () => void
   onDelete: () => void
 }
 
-function LiveRow({ s, active, pinned, hidden, done, doneAt, onSelect, onTogglePin, onHide, onUnhide, onDelete }: LiveRowProps) {
+function LiveRow({ s, active, pinned, hidden, done, doneAt, unread, onSelect, onTogglePin, onToggleUnread, onHide, onUnhide, onDelete }: LiveRowProps) {
   // "done" only stands in when Claude is otherwise idle — a live working/waiting
   // status always wins (a new turn clears the marker anyway).
   const displayStatus = done && (!s.claudeStatus || s.claudeStatus === 'idle') ? 'done' : s.claudeStatus
@@ -129,6 +132,7 @@ function LiveRow({ s, active, pinned, hidden, done, doneAt, onSelect, onTogglePi
   }
 
   const items: MenuItem[] = [
+    { label: unread ? 'Mark as read' : 'Mark as unread', run: onToggleUnread },
     { label: pinned ? 'Unpin' : 'Pin', run: onTogglePin },
     { label: hidden ? 'Unhide' : 'Hide', run: hidden ? onUnhide : onHide },
     { separator: true },
@@ -138,7 +142,7 @@ function LiveRow({ s, active, pinned, hidden, done, doneAt, onSelect, onTogglePi
   return (
     <div className={`acp-session-row-wrap ${hidden ? 'hidden' : ''}`}>
       <button
-        className={`acp-session-row ${active ? 'active' : ''} ${displayStatus === 'done' ? 'done' : ''}`}
+        className={`acp-session-row ${active ? 'active' : ''} ${displayStatus === 'done' ? 'done' : ''} ${unread ? 'unread' : ''}`}
         onClick={onSelect}
         onContextMenu={openMenu}
       >
@@ -228,7 +232,9 @@ export function SessionsPanel({
   const hiddenProjects = useViewPrefsStore((s) => s.hiddenProjects)
   const focusMode = useViewPrefsStore((s) => s.focusMode)
   const showHidden = useViewPrefsStore((s) => s.showHidden)
+  const unreadSessions = useViewPrefsStore((s) => s.unreadSessions)
   const togglePin = useViewPrefsStore((s) => s.togglePin)
+  const toggleUnread = useViewPrefsStore((s) => s.toggleUnread)
   const hideSession = useViewPrefsStore((s) => s.hideSession)
   const unhideSession = useViewPrefsStore((s) => s.unhideSession)
   const hideProject = useViewPrefsStore((s) => s.hideProject)
@@ -484,8 +490,10 @@ export function SessionsPanel({
     hidden: !!hiddenSessions[s.id],
     done: !!doneSessions[s.id],
     doneAt: doneSessions[s.id],
+    unread: !!unreadSessions[s.id],
     onSelect: () => onSelectSession(s.id),
     onTogglePin: () => togglePin(s.id),
+    onToggleUnread: () => toggleUnread(s.id),
     onHide: () => hideSession(s.id),
     onUnhide: () => unhideSession(s.id),
     onDelete: () => onDeleteSession(s.id)

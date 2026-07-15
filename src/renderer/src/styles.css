@@ -684,6 +684,16 @@ body {
   100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--vscode-charts-blue, #3794ff) 0%, transparent); }
 }
 
+/* Manually flagged "unread / follow up later" rows: a persistent accent marker
+   (distinct purple hue from the blue "done" completion state) with a left bar
+   and a bolder name. Both can coexist; the transient "done" background wins. */
+.acp-session-row.unread:not(.done) {
+  box-shadow: inset 2px 0 0 var(--vscode-charts-purple, #b180d7);
+}
+.acp-session-row.unread .acp-session-name { font-weight: 600; }
+/* Recolour the single status dot instead of adding a second dot before the name. */
+.acp-session-row.unread:not(.done) .acp-status-dot { background: var(--vscode-charts-purple, #b180d7); }
+
 /* Live session row: actions live in a right-click context menu so the session
    summary text isn't crowded. Only a pinned marker sits inline, on the right. */
 .acp-session-row-wrap { position: relative; }

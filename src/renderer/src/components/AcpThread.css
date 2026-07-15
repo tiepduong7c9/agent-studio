@@ -485,6 +485,7 @@
 
 .acp-input-row { display: flex; align-items: center; gap: 6px; padding: 4px 6px 6px; }
 .acp-input-spacer { flex: 1 1 auto; }
+.acp-input-sep { width: 1px; align-self: stretch; margin: 2px 2px 2px 7px; background: var(--vscode-widget-border, rgba(128, 128, 128, 0.35)); }
 .acp-waiting { font-size: 11px; color: var(--vscode-inputValidation-warningBorder, #cca700); margin-bottom: 6px; display: flex; gap: 4px; align-items: center; }
 
 /* small controls */
@@ -506,6 +507,10 @@
   border: none; cursor: pointer;
 }
 .acp-send:disabled { opacity: 0.4; cursor: default; }
+/* Composer "mark unread / follow up later" toggle. */
+.acp-unread-toggle { padding: 4px; border-radius: 6px; }
+.acp-unread-toggle.active { color: var(--vscode-charts-purple, #b180d7); }
+.acp-unread-toggle.active:hover { color: var(--vscode-charts-purple, #b180d7); }
 .acp-pill { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; }
 .acp-context {
   font-size: 11px;

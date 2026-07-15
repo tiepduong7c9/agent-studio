@@ -3,13 +3,14 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
   AlertTriangle, BrainCircuit, Check, ChevronDown, ChevronRight, CircleSlash,
-  Clock, Copy, Cpu, FileText, FolderTree, Gauge, Globe, ListTodo, Loader2, Pencil, Search,
+  Clock, Copy, Cpu, FileText, FolderTree, Gauge, Globe, ListTodo, Loader2, Mail, MailOpen, Pencil, Search,
   ShieldQuestion, SquarePen, Square, Terminal, Trash2, Wrench, X, ArrowUp, Zap
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { AcpConversation } from '../../../shared/acp'
 import { useAcpStore } from '../acp/store'
 import { useSessionsStore } from '../acp/sessions-store'
+import { useViewPrefsStore } from '../view-prefs-store'
 import { buildThread, modelLabel, recapOf, textOf, type ThreadItem } from '../acp/buildThread'
 import type { AcpCommand, AcpEffortState, AcpModeState, AcpModelState, AcpToolContent } from '../acp/protocol'
 import { useCommandHistory } from '../acp/command-history'
@@ -438,6 +439,9 @@ export function AcpThread({ sid, visible = true }: { sid: string; visible?: bool
   // fixed "Claude Code" label instead).
   const sessionName = useSessionsStore((s) => s.sessions.find((x) => x.id === sid)?.name ?? null)
   const engineStatus = useSessionsStore((s) => s.engineStatus[host ? `ssh:${host}` : 'local']) ?? 'connected'
+  // Manual "follow up later" flag, mirrored from the sidebar's context menu.
+  const unread = useViewPrefsStore((s) => !!s.unreadSessions[sid])
+  const toggleUnread = useViewPrefsStore((s) => s.toggleUnread)
   // Draft lives in a per-session store, not local state: the composer remounts on
   // every session switch (its tab key changes), so keeping it here would drop
   // whatever was typed. Reading from the store restores it when switching back.
@@ -571,6 +575,8 @@ export function AcpThread({ sid, visible = true }: { sid: string; visible?: bool
       ...(text ? [{ type: 'text', text }] : [])
     ]
     acp().prompt(sid, blocks)
+    // Sending a prompt means you've followed up — drop any "unread" flag.
+    if (unread) toggleUnread(sid)
     setDraft('')
     setAttachments([])
     setCmdOpen(false)
@@ -713,6 +719,14 @@ export function AcpThread({ sid, visible = true }: { sid: string; visible?: bool
                   {contextPct}% context
                 </span>
               )}
+              <span className="acp-input-sep" />
+              <button
+                className={`acp-btn acp-unread-toggle ${unread ? 'active' : ''}`}
+                title={unread ? 'Marked unread — click to mark read' : 'Mark as unread to follow up later'}
+                onClick={() => toggleUnread(sid)}
+              >
+                {unread ? <Mail size={14} /> : <MailOpen size={14} />}
+              </button>
               <span className="acp-input-spacer" />
               {working ? (
                 <button className="acp-send" title="Stop" onClick={() => acp().cancel(sid)}><Square size={14} /></button>
