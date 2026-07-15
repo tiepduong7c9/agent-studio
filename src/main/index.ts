@@ -4,6 +4,7 @@ import { registerAcpIpc } from './acp-ipc'
 import { disposeProvider, dismissAllNotifications, registerIpcHandlers } from './ipc'
 import { registerMediaProtocol, registerMediaScheme } from './media-protocol'
 import { registerTerminalIpc } from './terminal-ipc'
+import icon from '../../resources/icon.png?asset'
 
 // The studio-media:// streaming scheme must be declared before app `ready`.
 registerMediaScheme()
@@ -31,6 +32,7 @@ function createWindow(): void {
     minHeight: 500,
     backgroundColor: '#f8f8f8',
     title: 'Agent Studio',
+    icon,
     frame: false,
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
@@ -41,6 +43,14 @@ function createWindow(): void {
       sandbox: true
     }
   })
+
+  // Belt-and-suspenders for the window icon on X11 sessions, where the
+  // constructor `icon` option alone is unreliable. Note: on a GNOME/Wayland
+  // session (this app runs via XWayland) neither sets the taskbar/dock icon —
+  // GNOME takes that from a .desktop file matched to WM_CLASS ("agent-studio")
+  // via StartupWMClass. The packaged AppImage ships one (build/icon.png); for a
+  // dev run, install ~/.local/share/applications/agent-studio.desktop.
+  mainWindow.setIcon(icon)
 
   mainWindow.on('closed', () => {
     mainWindow = null

@@ -20,7 +20,8 @@
     "appId": "co.uk.wolflogic.agentstudio",
     "productName": "Agent Studio",
     "files": [
-      "out/**"
+      "out/**",
+      "resources/**"
     ],
     "asarUnpack": [
       "**/node_modules/node-pty/**"
