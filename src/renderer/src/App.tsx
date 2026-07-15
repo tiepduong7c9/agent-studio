@@ -515,7 +515,6 @@ export function App() {
       <StatusBar
         activeHost={activeWorkspace?.host ?? null}
         activeWorkspace={activeWorkspace}
-        activeSid={activeSid}
         leftWidth={leftWidth}
         rightWidth={rightWidth}
         leftVisible={leftVisible}

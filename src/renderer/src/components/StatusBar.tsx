@@ -2,15 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 import type { AcpUsageWindow } from '../../../shared/acp'
 import type { ProjectInfo } from '../../../shared/types'
 import { hostKey, peakUtil, useUsageStore } from '../acp/usage-store'
-import { gitGraphTabId, useTabsStore } from '../tabs-store'
+import { gitGraphTabId, terminalTabId, useTabsStore } from '../tabs-store'
 
 interface Props {
   /** Host whose account usage to show: null = local engine, else "user@host". */
   activeHost: string | null
   /** Workspace of the active tab — drives the branch indicator + graph button. */
   activeWorkspace: ProjectInfo | null
-  /** Session that owns a graph tab opened from here. */
-  activeSid: string | null
   // Panel geometry, so the branch/graph items line up under the editor column.
   leftWidth: number
   rightWidth: number
@@ -57,7 +55,7 @@ function UsageBar({ label, win }: { label: string; win?: AcpUsageWindow | null }
 /** Bottom status bar: current branch + git-graph launcher (aligned under the
  *  editor column) on the left, subscription usage on the right. */
 export function StatusBar({
-  activeHost, activeWorkspace, activeSid,
+  activeHost, activeWorkspace,
   leftWidth, rightWidth, leftVisible, rightVisible, maximized
 }: Props) {
   const detail = useUsageStore((s) => s.byHost.get(hostKey(activeHost)))
@@ -99,12 +97,39 @@ export function StatusBar({
 
   const openGraph = () => {
     if (!activeWorkspace) return
+    // Own the tab by the persistent session context (the store's activeSid), not
+    // the prop — the prop is null whenever a non-chat tab is active, and the tab
+    // strip filters by the store's value, so using the prop would hide the tab.
+    const ownerSid = useTabsStore.getState().activeSid
     useTabsStore.getState().open({
-      id: gitGraphTabId(activeSid, activeWorkspace.id),
+      id: gitGraphTabId(ownerSid, activeWorkspace.id),
       kind: 'git-graph',
       title: 'Git Graph',
       wsId: activeWorkspace.id,
-      ownerSid: activeSid
+      ownerSid
+    })
+  }
+
+  const openTerminal = () => {
+    if (!activeWorkspace) return
+    // Same as openGraph: own by the store's session context so the tab is visible
+    // even when the click happens while another terminal/file tab is active.
+    const ownerSid = useTabsStore.getState().activeSid
+    // Each click opens a new terminal; number them per session (Terminal,
+    // Terminal 2, …) so several can be open side by side.
+    const count = useTabsStore
+      .getState()
+      .tabs.filter(
+        (t) => t.kind === 'terminal' && t.ownerSid === ownerSid && t.wsId === activeWorkspace.id
+      ).length
+    useTabsStore.getState().open({
+      id: terminalTabId(ownerSid, activeWorkspace.id, crypto.randomUUID()),
+      kind: 'terminal',
+      title: count === 0 ? 'Terminal' : `Terminal ${count + 1}`,
+      wsId: activeWorkspace.id,
+      ownerSid,
+      cwd: activeWorkspace.rootPath,
+      host: activeWorkspace.host ?? null
     })
   }
 
@@ -157,6 +182,17 @@ export function StatusBar({
           >
             <span className="codicon codicon-git-commit" />
             Graph
+          </button>
+        )}
+        {activeWorkspace && (
+          <button
+            type="button"
+            className="status-item status-graph-btn"
+            title="Open Terminal"
+            onClick={openTerminal}
+          >
+            <span className="codicon codicon-terminal" />
+            Terminal
           </button>
         )}
       </div>

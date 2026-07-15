@@ -4,6 +4,7 @@ import { useTabsStore, visibleTabs, type EditorTab } from '../tabs-store'
 import { AcpThread } from './AcpThread'
 import { ChatCard } from './ChatCard'
 import { GitGraphView } from './GitGraphView'
+import { TerminalView } from './TerminalView'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { ErrorBoundary } from './ErrorBoundary'
 import { Breadcrumbs, DiffView, FileView, relativeToRoot } from './editors'
@@ -27,6 +28,8 @@ function tabIcon(tab: EditorTab): string {
       return 'codicon-git-compare'
     case 'git-graph':
       return 'codicon-git-commit'
+    case 'terminal':
+      return 'codicon-terminal'
     case 'new-chat':
       return 'codicon-add'
     default:
@@ -112,19 +115,35 @@ export function EditorArea({ workspaces, sessionWorkspaces, onCreateSession, onP
         </div>
       )}
       <div className="editor-body">
-        <ErrorBoundary inline resetKeys={[active?.id]}>
-          <TabContent
-            tab={active}
-            workspace={
-              active
-                ? ([...workspaces, ...sessionWorkspaces].find((w) => w.id === active.wsId) ?? null)
-                : null
-            }
-            onCreateSession={onCreateSession}
-            onPickFolder={onPickFolder}
-            onCloseNewChat={() => active && close(active.id)}
-          />
-        </ErrorBoundary>
+        {/* Terminals persist while their tab is open: kept mounted (so the PTY
+            keeps running) even when another tab is showing, and revealed when
+            active. Everything else renders through TabContent for the active tab. */}
+        {allTabs
+          .filter((t): t is Extract<EditorTab, { kind: 'terminal' }> => t.kind === 'terminal')
+          .map((t) => (
+            <div
+              key={t.id}
+              className="editor-terminal-layer"
+              style={{ display: t.id === activeId ? 'flex' : 'none' }}
+            >
+              <TerminalView wsId={t.wsId} cwd={t.cwd} host={t.host} active={t.id === activeId} />
+            </div>
+          ))}
+        {active?.kind !== 'terminal' && (
+          <ErrorBoundary inline resetKeys={[active?.id]}>
+            <TabContent
+              tab={active}
+              workspace={
+                active
+                  ? ([...workspaces, ...sessionWorkspaces].find((w) => w.id === active.wsId) ?? null)
+                  : null
+              }
+              onCreateSession={onCreateSession}
+              onPickFolder={onPickFolder}
+              onCloseNewChat={() => active && close(active.id)}
+            />
+          </ErrorBoundary>
+        )}
       </div>
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
     </div>

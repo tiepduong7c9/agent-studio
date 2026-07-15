@@ -3,6 +3,7 @@ import * as path from 'path'
 import { registerAcpIpc } from './acp-ipc'
 import { disposeProvider, registerIpcHandlers } from './ipc'
 import { registerMediaProtocol, registerMediaScheme } from './media-protocol'
+import { registerTerminalIpc } from './terminal-ipc'
 
 // The studio-media:// streaming scheme must be declared before app `ready`.
 registerMediaScheme()
@@ -20,6 +21,7 @@ if (!process.env.ELECTRON_OZONE_PLATFORM_HINT) {
 
 let mainWindow: BrowserWindow | null = null
 let disposeAcp: (() => void) | null = null
+let disposeTerminals: (() => void) | null = null
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -135,6 +137,7 @@ app.whenReady().then(() => {
   const acpHub = registerAcpIpc(() => mainWindow)
   registerIpcHandlers(() => mainWindow, acpHub)
   registerMediaProtocol()
+  disposeTerminals = registerTerminalIpc(() => mainWindow)
   disposeAcp = () => acpHub.dispose()
   createWindow()
 
@@ -146,6 +149,7 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   // Dispose the ACP hub first so its drop handlers don't schedule reconnects
   // while the providers' ssh clients (which back the engine tunnels) are ending.
+  disposeTerminals?.()
   disposeAcp?.()
   disposeProvider()
   if (process.platform !== 'darwin') app.quit()

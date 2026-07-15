@@ -958,6 +958,14 @@ body {
   flex-direction: column;
 }
 
+/* A persistent terminal pane; toggled between flex (active) and none (hidden)
+   inline, so the xterm/PTY stay mounted underneath the active tab. */
+.editor-terminal-layer {
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+}
+
 /* ── Editor tabs (modeled on vs/workbench parts/editor tabs) ─────────── */
 
 .tab-strip {

@@ -72,6 +72,34 @@ const api = {
   windowControl: (action: 'minimize' | 'maximize' | 'close'): Promise<Result<boolean>> =>
     ipcRenderer.invoke('window:control', action),
 
+  // Integrated terminal: a PTY per tab, living in the main process. create()
+  // spawns it (local child or ssh channel); input/resize/kill drive it; output
+  // and exit are pushed back on the terminal:data / terminal:exit channels.
+  terminal: {
+    create: (opts: {
+      cwd: string
+      host: string | null
+      cols: number
+      rows: number
+    }): Promise<Result<{ id: string }>> => ipcRenderer.invoke('terminal:create', opts),
+    input: (id: string, data: string): void => ipcRenderer.send('terminal:input', id, data),
+    resize: (id: string, cols: number, rows: number): void =>
+      ipcRenderer.send('terminal:resize', id, cols, rows),
+    kill: (id: string): void => ipcRenderer.send('terminal:kill', id),
+    /** Subscribe to a terminal's output; returns an unsubscribe fn. */
+    onData: (cb: (payload: { id: string; data: string }) => void): (() => void) => {
+      const h = (_e: unknown, payload: { id: string; data: string }) => cb(payload)
+      ipcRenderer.on('terminal:data', h)
+      return () => ipcRenderer.removeListener('terminal:data', h)
+    },
+    /** Subscribe to terminal exits; returns an unsubscribe fn. */
+    onExit: (cb: (payload: { id: string; exitCode: number }) => void): (() => void) => {
+      const h = (_e: unknown, payload: { id: string; exitCode: number }) => cb(payload)
+      ipcRenderer.on('terminal:exit', h)
+      return () => ipcRenderer.removeListener('terminal:exit', h)
+    }
+  },
+
   // ACP agent sessions, driven by the engine daemon. Unlike the file/git calls
   // above these reject on error (no Result envelope) to keep the ported ACP
   // store close to its original.

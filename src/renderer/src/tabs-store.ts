@@ -22,6 +22,15 @@ export type EditorTab =
   | { id: string; kind: 'file'; title: string; path: string; name: string; wsId: string; ownerSid: string | null; preview?: boolean }
   | { id: string; kind: 'diff'; title: string; change: GitFileChange; wsId: string; ownerSid: string | null; preview?: boolean }
   | { id: string; kind: 'git-graph'; title: string; wsId: string; ownerSid: string | null }
+  | {
+      id: string
+      kind: 'terminal'
+      title: string
+      wsId: string
+      ownerSid: string | null
+      cwd: string
+      host: string | null
+    }
 
 /** Agent tabs (the new-session card and live chats) stay left of file/diff tabs. */
 export function isAgentTab(tab: EditorTab): boolean {
@@ -68,6 +77,12 @@ export function diffTabId(ownerSid: string | null, wsId: string, change: GitFile
 /** One git-graph tab per (session, workspace). */
 export function gitGraphTabId(ownerSid: string | null, wsId: string): string {
   return `gitgraph:${ownerSid ?? ''}:${wsId}`
+}
+
+// Terminals are multi-instance per session: each launch gets a unique id (the
+// `seq`), so a session can hold several open at once.
+export function terminalTabId(ownerSid: string | null, wsId: string, seq: string): string {
+  return `terminal:${ownerSid ?? ''}:${wsId}:${seq}`
 }
 
 interface TabsStore {
