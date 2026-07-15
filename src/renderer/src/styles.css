@@ -1420,6 +1420,13 @@ body {
   min-height: 0;
 }
 
+/* OS drag-drop upload target highlight. */
+.widget-tree.drag-over {
+  outline: 1px solid var(--vscode-focusBorder, #007fd4);
+  outline-offset: -1px;
+  background: var(--vscode-list-dropBackground, rgba(0, 127, 212, 0.12));
+}
+
 .monaco-list {
   font-size: 13px;
 }
@@ -2041,9 +2048,19 @@ body {
   padding-left: 8px;
 }
 .status-bar-right {
-  position: relative;
+  display: flex;
+  align-items: center;
   flex-shrink: 0;
-  padding-right: 8px;
+  min-width: 0;
+  padding: 0 8px;
+  margin-left: auto;
+}
+/* Subscription usage, right-aligned within the center segment (the popover
+   anchors to its bottom-right). */
+.status-usage {
+  position: relative;
+  display: flex;
+  align-items: center;
   margin-left: auto;
 }
 .status-branch {
@@ -2068,6 +2085,24 @@ body {
   display: flex;
   align-items: center;
   gap: 5px;
+  white-space: nowrap;
+}
+
+/* Live upload/download progress indicator, right-aligned within the right
+   segment (which spans the right panel column). */
+.status-transfer {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: auto;
+}
+.status-transfer-icon {
+  font-size: 14px;
+  flex: none;
+}
+.status-transfer-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .status-muted {

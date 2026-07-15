@@ -22,6 +22,7 @@ import { baseName } from './components/editors'
 import { notifySession } from './notify'
 import type { Selection } from './selection'
 import { chatTabId, diffTabId, fileTabId, newChatTabId, useTabsStore } from './tabs-store'
+import { useTransferStore } from './transfer-store'
 import { useViewPrefsStore } from './view-prefs-store'
 import { workspaceForSession } from './workspace'
 
@@ -322,6 +323,12 @@ export function App() {
   useEffect(() => {
     return window.studio.onNotificationActivate((sid) => openChat(sid))
   }, [openChat])
+
+  // Mirror file upload/download progress into the transfer store, which the
+  // status bar renders. Subscribed once for the app's lifetime.
+  useEffect(() => {
+    return window.studio.onTransferProgress((p) => useTransferStore.getState().apply(p))
+  }, [])
 
   const newSession = useCallback(
     async (ws: ProjectInfo, opts?: { pin?: boolean }) => {

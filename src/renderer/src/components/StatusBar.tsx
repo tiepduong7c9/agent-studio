@@ -3,6 +3,7 @@ import type { AcpUsageWindow } from '../../../shared/acp'
 import type { ProjectInfo } from '../../../shared/types'
 import { hostKey, peakUtil, useUsageStore } from '../acp/usage-store'
 import { gitGraphTabId, terminalTabId, useTabsStore } from '../tabs-store'
+import { useTransferStore, type Transfer } from '../transfer-store'
 
 interface Props {
   /** Host whose account usage to show: null = local engine, else "user@host". */
@@ -35,6 +36,41 @@ function fmtResets(iso?: string): string {
 const planLabel = (t?: string): string | null =>
   t ? `Claude ${t.charAt(0).toUpperCase()}${t.slice(1)}` : null
 
+function fmtBytes(n: number): string {
+  if (n < 1024) return `${n} B`
+  const units = ['KB', 'MB', 'GB', 'TB']
+  let v = n / 1024
+  let i = 0
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024
+    i++
+  }
+  return `${v.toFixed(v >= 10 || i === 0 ? 0 : 1)} ${units[i]}`
+}
+
+/** Live upload/download indicator: the most recent transfer, its percent (or
+ *  bytes moved when the total is unknown), and a "+N" count for any others. */
+function TransferIndicator({ transfers }: { transfers: Transfer[] }) {
+  const t = transfers[transfers.length - 1]
+  if (!t) return null
+  const verb = t.kind === 'upload' ? 'Uploading' : 'Downloading'
+  const icon = t.kind === 'upload' ? 'cloud-upload' : 'cloud-download'
+  const detail =
+    t.total > 0
+      ? `${Math.min(100, Math.round((t.transferred / t.total) * 100))}%`
+      : fmtBytes(t.transferred)
+  const extra = transfers.length - 1
+  return (
+    <span className="status-item status-transfer" title={`${verb} ${t.name}`}>
+      <span className={`codicon codicon-${icon} status-transfer-icon`} />
+      <span className="status-transfer-label">
+        {t.name} {detail}
+        {extra > 0 ? ` (+${extra})` : ''}
+      </span>
+    </span>
+  )
+}
+
 function UsageBar({ label, win }: { label: string; win?: AcpUsageWindow | null }) {
   if (!win) return null
   const pct = Math.max(0, Math.min(100, Math.round(win.utilization)))
@@ -60,6 +96,7 @@ export function StatusBar({
 }: Props) {
   const detail = useUsageStore((s) => s.byHost.get(hostKey(activeHost)))
   const refresh = useUsageStore((s) => s.refresh)
+  const transfers = useTransferStore((s) => s.transfers)
   const [open, setOpen] = useState(false)
   const [branch, setBranch] = useState<string | null>(null)
   const ref = useRef<HTMLDivElement>(null)
@@ -136,6 +173,9 @@ export function StatusBar({
   // Left segment spans the sidebar (+1px border) so the center segment — and
   // thus the branch/graph items — begins at the editor column's left edge.
   const leftSegW = leftVisible && !maximized ? leftWidth + 1 : 0
+  // Right segment spans the right panel column so the transfer indicator lines up
+  // under it (auto width — content only — when the panel is hidden/maximized).
+  const rightSegW = rightVisible && !maximized ? rightWidth + 1 : undefined
 
   // Dismiss the popover on an outside click.
   useEffect(() => {
@@ -195,55 +235,58 @@ export function StatusBar({
             Terminal
           </button>
         )}
-      </div>
-      <div className="status-bar-right" ref={ref}>
-        {open && (
-          <div className="usage-popover" role="dialog">
-            <div className="usage-popover-head">
-              <span>Subscription usage</span>
-              {account?.email && <span className="usage-popover-email">{account.email}</span>}
+        <div className="status-usage" ref={ref}>
+          {open && (
+            <div className="usage-popover" role="dialog">
+              <div className="usage-popover-head">
+                <span>Subscription usage</span>
+                {account?.email && <span className="usage-popover-email">{account.email}</span>}
+              </div>
+              {usage ? (
+                <>
+                  <UsageBar label="Session (5h)" win={usage.five_hour} />
+                  <UsageBar label="Weekly (7d)" win={usage.seven_day} />
+                  <UsageBar label="Weekly Opus" win={usage.seven_day_opus} />
+                  <UsageBar label="Weekly Sonnet" win={usage.seven_day_sonnet} />
+                  {usage.extra_usage && usage.extra_usage.used_credits > 0 && (
+                    <div className="usage-row-extra">
+                      <span>Extra usage</span>
+                      <span>
+                        {usage.extra_usage.used_credits} {usage.extra_usage.currency}
+                      </span>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="usage-empty">Usage data unavailable.</div>
+              )}
             </div>
+          )}
+          <button
+            type="button"
+            className={`status-item status-usage-btn${open ? ' active' : ''}`}
+            onClick={toggle}
+            title="Subscription usage"
+          >
             {usage ? (
               <>
-                <UsageBar label="Session (5h)" win={usage.five_hour} />
-                <UsageBar label="Weekly (7d)" win={usage.seven_day} />
-                <UsageBar label="Weekly Opus" win={usage.seven_day_opus} />
-                <UsageBar label="Weekly Sonnet" win={usage.seven_day_sonnet} />
-                {usage.extra_usage && usage.extra_usage.used_credits > 0 && (
-                  <div className="usage-row-extra">
-                    <span>Extra usage</span>
-                    <span>
-                      {usage.extra_usage.used_credits} {usage.extra_usage.currency}
-                    </span>
-                  </div>
-                )}
+                <span className={`usage-dot${level(peak)}`} />
+                <span className="usage-summary">
+                  5h <span className="usage-num">{five ?? 0}%</span>
+                  <span className="usage-sep"> · </span>7d{' '}
+                  <span className="usage-num">{seven ?? 0}%</span>
+                </span>
               </>
             ) : (
-              <div className="usage-empty">Usage data unavailable.</div>
-            )}
-          </div>
-        )}
-        <button
-          type="button"
-          className={`status-item status-usage-btn${open ? ' active' : ''}`}
-          onClick={toggle}
-          title="Subscription usage"
-        >
-          {usage ? (
-            <>
-              <span className={`usage-dot${level(peak)}`} />
-              <span className="usage-summary">
-                5h <span className="usage-num">{five ?? 0}%</span>
-                <span className="usage-sep"> · </span>7d{' '}
-                <span className="usage-num">{seven ?? 0}%</span>
+              <span className="status-muted">
+                {detail === null ? 'Usage…' : 'Usage —'}
               </span>
-            </>
-          ) : (
-            <span className="status-muted">
-              {detail === null ? 'Usage…' : 'Usage —'}
-            </span>
-          )}
-        </button>
+            )}
+          </button>
+        </div>
+      </div>
+      <div className="status-bar-right" style={{ width: rightSegW }}>
+        {transfers.length > 0 && <TransferIndicator transfers={transfers} />}
       </div>
     </footer>
   )

@@ -1,5 +1,5 @@
 import { execFile } from 'child_process'
-import { createReadStream, promises as fs } from 'fs'
+import { createReadStream, createWriteStream, promises as fs } from 'fs'
 import * as path from 'path'
 import type { Readable } from 'stream'
 import { promisify } from 'util'
@@ -10,7 +10,7 @@ import { LOG_FORMAT, parseGitLog } from '../git/parseLog'
 import { ensureText, MAX_TEXT_FILE_SIZE } from '../textFile'
 import { MAX_IMAGE_FILE_SIZE } from '../../shared/imageTypes'
 import { capFiles, walkFiles } from '../fileList'
-import type { ProjectProvider } from './types'
+import type { ProgressFn, ProjectProvider } from './types'
 
 const execFileAsync = promisify(execFile)
 
@@ -188,7 +188,53 @@ export class LocalProjectProvider implements ProjectProvider {
     await fs.rm(this.confine(entryPath), { recursive: true, force: true })
   }
 
+  async uploadFile(localSourcePath: string, destPath: string, onProgress?: ProgressFn): Promise<void> {
+    await copyLocal(localSourcePath, this.confine(destPath), onProgress)
+  }
+
+  async uploadDir(localSourceDir: string, destPath: string, onProgress?: ProgressFn): Promise<void> {
+    await copyLocalDir(localSourceDir, this.confine(destPath), onProgress)
+  }
+
+  async downloadFile(srcPath: string, localDestPath: string, onProgress?: ProgressFn): Promise<void> {
+    await copyLocal(this.confine(srcPath), localDestPath, onProgress)
+  }
+
+  async downloadDir(srcPath: string, localDestDir: string, onProgress?: ProgressFn): Promise<void> {
+    await copyLocalDir(this.confine(srcPath), localDestDir, onProgress)
+  }
+
   dispose(): void {}
+}
+
+// Stream-copy a single file, reporting bytes read as they flow so a large copy
+// shows live progress (fs.copyFile is atomic but opaque).
+function copyLocal(from: string, to: string, onProgress?: ProgressFn): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const read = createReadStream(from)
+    const write = createWriteStream(to)
+    read.on('data', (chunk) => onProgress?.(chunk.length))
+    read.on('error', reject)
+    write.on('error', reject)
+    write.on('finish', () => resolve())
+    read.pipe(write)
+  })
+}
+
+// Recursively copy a directory, streaming each file through copyLocal so
+// progress accrues across the whole tree.
+async function copyLocalDir(from: string, to: string, onProgress?: ProgressFn): Promise<void> {
+  await fs.mkdir(to, { recursive: true })
+  const entries = await fs.readdir(from, { withFileTypes: true })
+  for (const entry of entries) {
+    const src = path.join(from, entry.name)
+    const dest = path.join(to, entry.name)
+    if (entry.isDirectory()) {
+      await copyLocalDir(src, dest, onProgress)
+    } else if (entry.isFile()) {
+      await copyLocal(src, dest, onProgress)
+    }
+  }
 }
 
 // A HEAD path must stay inside the repo: no absolute paths, no `..` escape.

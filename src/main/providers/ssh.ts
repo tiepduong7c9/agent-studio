@@ -18,7 +18,7 @@ import { ensureText, MAX_TEXT_FILE_SIZE } from '../textFile'
 import { MAX_IMAGE_FILE_SIZE } from '../../shared/imageTypes'
 import { capFiles, IGNORED_DIRS } from '../fileList'
 import { assertRepoRelative, isMissingInHead } from './local'
-import type { ProjectProvider } from './types'
+import type { ProgressFn, ProjectProvider } from './types'
 
 // Cap for `git status` output (mirrors the local provider's 16MB maxBuffer) so
 // a huge status can't stream unbounded into memory over SSH.
@@ -342,6 +342,77 @@ export class SshProjectProvider implements ProjectProvider {
     if (code !== 0) throw new Error(stderr.trim() || `rm exited with code ${code}`)
   }
 
+  async uploadFile(localSourcePath: string, destPath: string, onProgress?: ProgressFn): Promise<void> {
+    const dest = this.confine(destPath)
+    await new Promise<void>((resolve, reject) => {
+      this.sftp.fastPut(localSourcePath, dest, stepOption(onProgress), (err) =>
+        err ? reject(err) : resolve()
+      )
+    })
+  }
+
+  async uploadDir(localSourceDir: string, destPath: string, onProgress?: ProgressFn): Promise<void> {
+    const dest = this.confine(destPath)
+    // Create the target dir only if absent — mkdir on an existing folder errors,
+    // and we want to merge into it.
+    const exists = await new Promise<boolean>((resolve) => {
+      this.sftp.stat(dest, (err) => resolve(!err))
+    })
+    if (!exists) {
+      await new Promise<void>((resolve, reject) => {
+        this.sftp.mkdir(dest, (err) => (err ? reject(err) : resolve()))
+      })
+    }
+    const entries = await fs.readdir(localSourceDir, { withFileTypes: true })
+    for (const entry of entries) {
+      const src = path.join(localSourceDir, entry.name)
+      const to = joinPosix(dest, entry.name)
+      if (entry.isDirectory()) {
+        await this.uploadDir(src, to, onProgress)
+      } else if (entry.isFile()) {
+        await this.uploadFile(src, to, onProgress)
+      }
+    }
+  }
+
+  async downloadFile(srcPath: string, localDestPath: string, onProgress?: ProgressFn): Promise<void> {
+    const src = this.confine(srcPath)
+    await new Promise<void>((resolve, reject) => {
+      this.sftp.fastGet(src, localDestPath, stepOption(onProgress), (err) =>
+        err ? reject(err) : resolve()
+      )
+    })
+  }
+
+  async downloadDir(srcPath: string, localDestDir: string, onProgress?: ProgressFn): Promise<void> {
+    const dir = this.confine(srcPath)
+    await fs.mkdir(localDestDir, { recursive: true })
+    type SftpEntry = { filename: string; attrs: import('ssh2').Stats }
+    const list = await new Promise<SftpEntry[]>((resolve, reject) => {
+      this.sftp.readdir(dir, (err, l) => (err ? reject(err) : resolve(l)))
+    })
+    for (const item of list) {
+      const from = joinPosix(dir, item.filename)
+      const to = path.join(localDestDir, item.filename)
+      let isDir = item.attrs.isDirectory()
+      if (item.attrs.isSymbolicLink()) {
+        try {
+          const st = await new Promise<import('ssh2').Stats>((res, rej) => {
+            this.sftp.stat(from, (e, s) => (e ? rej(e) : res(s)))
+          })
+          isDir = st.isDirectory()
+        } catch {
+          continue // skip broken links rather than failing the whole download
+        }
+      }
+      if (isDir) {
+        await this.downloadDir(from, to, onProgress)
+      } else {
+        await this.downloadFile(from, to, onProgress)
+      }
+    }
+  }
+
   // Collects stdout as raw bytes (concatenated once) rather than decoding each
   // chunk to a string: chunk boundaries can split multi-byte UTF-8 sequences,
   // and callers like gitShowHead need the original bytes to decode correctly.
@@ -411,4 +482,19 @@ function joinPosix(dir: string, name: string): string {
 
 function shellQuote(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`
+}
+
+// Builds a fastPut/fastGet options object whose `step` callback (which reports
+// cumulative bytes for the file) is converted to per-call deltas for onProgress.
+function stepOption(onProgress?: ProgressFn): { step?: (total: number, chunk: number, size: number) => void } {
+  if (!onProgress) return {}
+  let last = 0
+  return {
+    step: (total) => {
+      if (total > last) {
+        onProgress(total - last)
+        last = total
+      }
+    }
+  }
 }

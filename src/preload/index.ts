@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type {
   AcpConversation,
   AcpEventPayload,
@@ -15,7 +15,8 @@ import type {
   RemoteDirListing,
   Result,
   SshConnection,
-  SshConnectOptions
+  SshConnectOptions,
+  TransferProgress
 } from '../shared/types'
 
 const api = {
@@ -74,6 +75,32 @@ const api = {
     ipcRenderer.invoke('fs:delete', wsId, entryPath),
   revealInFileManager: (entryPath: string): Promise<Result<void>> =>
     ipcRenderer.invoke('app:reveal', entryPath),
+  /** Upload files/folders into `destDir` on the project host. With `sourcePaths`
+   *  (from a drag-drop) it uploads those directly; otherwise a native picker
+   *  collects them. Resolves with how many top-level items were uploaded. */
+  uploadFiles: (
+    wsId: string,
+    destDir: string,
+    sourcePaths?: string[]
+  ): Promise<Result<{ uploaded: number }>> =>
+    ipcRenderer.invoke('fs:upload', wsId, destDir, sourcePaths),
+  /** Download a project file/folder to a local path chosen via a native dialog.
+   *  Resolves with the saved path, or saved:false on cancel. */
+  downloadPath: (
+    wsId: string,
+    srcPath: string,
+    kind: 'file' | 'dir'
+  ): Promise<Result<{ saved: boolean; path?: string }>> =>
+    ipcRenderer.invoke('fs:download', wsId, srcPath, kind),
+  /** Resolve the absolute filesystem path of a dropped File (Electron's
+   *  File.path replacement), for uploading OS drag-drops. '' if not path-backed. */
+  getPathForFile: (file: File): string => webUtils.getPathForFile(file),
+  /** Subscribe to upload/download progress. Returns an unsubscribe fn. */
+  onTransferProgress: (cb: (p: TransferProgress) => void): (() => void) => {
+    const h = (_e: unknown, p: TransferProgress) => cb(p)
+    ipcRenderer.on('fs:progress', h)
+    return () => ipcRenderer.removeListener('fs:progress', h)
+  },
   /** Fire a native OS notification for a background session state change. */
   notify: (opts: { sid: string; title: string; body: string }): Promise<Result<void>> =>
     ipcRenderer.invoke('app:notify', opts),

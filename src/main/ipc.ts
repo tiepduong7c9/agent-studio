@@ -1,3 +1,5 @@
+import { promises as fsp } from 'fs'
+import * as path from 'path'
 import { BrowserWindow, dialog, ipcMain, Notification, shell } from 'electron'
 import type { Result, SshConnectOptions } from '../shared/types'
 import { engineHostKey, workspaceId } from '../shared/types'
@@ -292,6 +294,93 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, hub: 
     shell.showItemInFolder(entryPath)
   })
 
+  // Upload local files/folders into `destDir` on the project host. `sourcePaths`
+  // comes from a drag-drop (paths already chosen); when absent, a native open
+  // dialog collects them. Existing files with the same name are overwritten.
+  // Progress streams on the fs:progress channel; the return value reports the
+  // count so the renderer can toast (0 on cancel).
+  handle('fs:upload', async (wsId: string, destDir: string, sourcePaths?: string[]) => {
+    const provider = requireProvider(wsId)
+    let sources = sourcePaths
+    if (!sources || sources.length === 0) {
+      const win = getWindow()
+      if (!win) throw new Error('No window')
+      const result = await dialog.showOpenDialog(win, {
+        title: 'Upload',
+        buttonLabel: 'Upload',
+        properties: ['openFile', 'multiSelections']
+      })
+      if (result.canceled || result.filePaths.length === 0) return { uploaded: 0 }
+      sources = result.filePaths
+    }
+
+    // Pre-scan for a byte total so the indicator can show a percentage. Sources
+    // are always local (dragged/picked on this machine), so the walk is cheap.
+    let total = 0
+    const stats = await Promise.all(sources.map((s) => fsp.stat(s)))
+    for (let i = 0; i < sources.length; i++) {
+      total += stats[i].isDirectory() ? await localTreeSize(sources[i]) : stats[i].size
+    }
+
+    const transfer = beginTransfer(getWindow(), 'upload', uploadLabel(sources), total)
+    try {
+      for (let i = 0; i < sources.length; i++) {
+        const dest = joinRemote(destDir, path.basename(sources[i]))
+        if (stats[i].isDirectory()) {
+          await provider.uploadDir(sources[i], dest, transfer.advance)
+        } else {
+          await provider.uploadFile(sources[i], dest, transfer.advance)
+        }
+      }
+    } finally {
+      transfer.end()
+    }
+    return { uploaded: sources.length }
+  })
+
+  // Download a project file/folder to the local machine (chosen via a native save
+  // dialog for files, or a directory picker for folders). Progress streams on the
+  // fs:progress channel. Returns the saved local path, or saved: false on cancel.
+  handle('fs:download', async (wsId: string, srcPath: string, kind: 'file' | 'dir') => {
+    const win = getWindow()
+    if (!win) throw new Error('No window')
+    const provider = requireProvider(wsId)
+    const name = srcPath.split('/').pop() || srcPath
+
+    let dest: string
+    let total = 0
+    if (kind === 'dir') {
+      const result = await dialog.showOpenDialog(win, {
+        title: 'Download Folder',
+        buttonLabel: 'Download Here',
+        properties: ['openDirectory', 'createDirectory']
+      })
+      if (result.canceled || result.filePaths.length === 0) return { saved: false }
+      dest = path.join(result.filePaths[0], name)
+    } else {
+      const result = await dialog.showSaveDialog(win, {
+        title: 'Download File',
+        buttonLabel: 'Download',
+        defaultPath: name
+      })
+      if (result.canceled || !result.filePath) return { saved: false }
+      dest = result.filePath
+      total = await provider.mediaFileSize(srcPath).catch(() => 0)
+    }
+
+    const transfer = beginTransfer(getWindow(), 'download', name, total)
+    try {
+      if (kind === 'dir') {
+        await provider.downloadDir(srcPath, dest, transfer.advance)
+      } else {
+        await provider.downloadFile(srcPath, dest, transfer.advance)
+      }
+    } finally {
+      transfer.end()
+    }
+    return { saved: true, path: dest }
+  })
+
   // Native OS notification for a background session state change (turn finished
   // / waiting for input). Clicking it brings the window forward and tells the
   // renderer which session to surface.
@@ -336,6 +425,62 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, hub: 
   // Local engine host is always available; ensure it's wired at startup so
   // local sessions appear even before a folder is opened.
   hub.ensureHost(LOCAL_HOST_KEY)
+}
+
+// Join a project-host directory and a name with a POSIX separator. Project paths
+// use '/' for both local (the app runs on Linux) and SSH providers, and each
+// provider confines the result to its root before touching the filesystem.
+function joinRemote(dir: string, name: string): string {
+  return `${dir.replace(/\/+$/, '')}/${name}`
+}
+
+// A live transfer, pushed to the renderer's status-bar indicator over the
+// fs:progress channel: one 'start', throttled cumulative 'progress' updates, and
+// one 'end' (in the caller's finally, so cancels/errors always clear the UI).
+let transferSeq = 0
+function beginTransfer(
+  win: BrowserWindow | null,
+  kind: 'upload' | 'download',
+  name: string,
+  total: number
+): { advance: (delta: number) => void; end: () => void } {
+  const id = `xfer-${++transferSeq}`
+  const send = (payload: object) => win?.webContents.send('fs:progress', payload)
+  send({ id, phase: 'start', kind, name, total })
+  let transferred = 0
+  let lastSent = 0
+  return {
+    advance(delta: number) {
+      transferred += delta
+      const now = Date.now()
+      // Throttle to ~12/s: fastPut/stream steps fire far more often than the UI
+      // needs, and each is an IPC hop.
+      if (now - lastSent >= 80) {
+        lastSent = now
+        send({ id, phase: 'progress', transferred })
+      }
+    },
+    end() {
+      send({ id, phase: 'end' })
+    }
+  }
+}
+
+// Total byte size of a local file/dir tree, for the upload progress total.
+async function localTreeSize(p: string): Promise<number> {
+  const stat = await fsp.stat(p)
+  if (!stat.isDirectory()) return stat.size
+  const entries = await fsp.readdir(p, { withFileTypes: true })
+  let sum = 0
+  for (const e of entries) {
+    if (e.isDirectory() || e.isFile()) sum += await localTreeSize(path.join(p, e.name))
+  }
+  return sum
+}
+
+// Label for an upload transfer: the single item's name, or "N items".
+function uploadLabel(sources: string[]): string {
+  return sources.length === 1 ? path.basename(sources[0]) : `${sources.length} items`
 }
 
 export function disposeProvider(): void {

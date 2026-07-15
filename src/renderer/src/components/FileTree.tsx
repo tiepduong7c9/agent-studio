@@ -6,6 +6,7 @@ import { CompressibleAsyncDataTree } from 'monaco-editor/esm/vs/base/browser/ui/
 import * as defaultStyles from 'monaco-editor/esm/vs/platform/theme/browser/defaultStyles.js'
 import type { FileEntry, ProjectInfo, Result } from '../../../shared/types'
 import type { Selection, SelectHandler } from '../selection'
+import { useToastStore } from '../toast-store'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { ConfirmDialog, ErrorDialog, PromptDialog } from './Dialogs'
 import { fileIconStyle } from './FileIcon'
@@ -39,6 +40,7 @@ export const FileTree = forwardRef<PanelHandle, Props>(function FileTree(
   const [dialog, setDialog] = useState<Dialog | null>(null)
   const onSelectRef = useRef(onSelect)
   onSelectRef.current = onSelect
+  const pushToast = useToastStore((s) => s.push)
   // The tree's filter callback reads the live (lowercased) query from here.
   const filterRef = useRef('')
 
@@ -57,6 +59,25 @@ export const FileTree = forwardRef<PanelHandle, Props>(function FileTree(
       refresh()
     },
     [refresh]
+  )
+
+  // Upload into `destDir`. `sourcePaths` given → a drag-drop (upload those);
+  // omitted → open the native picker in the main process. Progress shows in the
+  // status bar; on completion we toast and refresh the tree.
+  const runUpload = useCallback(
+    async (destDir: string, sourcePaths?: string[]) => {
+      const res = await window.studio.uploadFiles(project.id, destDir, sourcePaths)
+      if (!res.ok) {
+        setDialog({ kind: 'error', message: res.error })
+        return
+      }
+      const n = res.data.uploaded
+      if (n > 0) {
+        pushToast('info', `Uploaded ${n} item${n === 1 ? '' : 's'}`)
+        refresh()
+      }
+    },
+    [project, refresh, pushToast]
   )
 
   const buildMenuItems = useCallback(
@@ -104,6 +125,25 @@ export const FileTree = forwardRef<PanelHandle, Props>(function FileTree(
             }
           })
       })
+      if (isDir) {
+        items.push({
+          label: 'Upload…',
+          run: () => runUpload(newEntryDir)
+        })
+      }
+      if (!isRoot) {
+        items.push({
+          label: 'Download…',
+          run: async () => {
+            const res = await window.studio.downloadPath(project.id, targetPath, isDir ? 'dir' : 'file')
+            if (!res.ok) {
+              setDialog({ kind: 'error', message: res.error })
+              return
+            }
+            if (res.data.saved) pushToast('info', `Downloaded to ${res.data.path}`)
+          }
+        })
+      }
       items.push({ separator: true })
       items.push({
         label: 'Copy Path',
@@ -160,7 +200,7 @@ export const FileTree = forwardRef<PanelHandle, Props>(function FileTree(
 
       return items
     },
-    [project, refresh, runOp]
+    [project, refresh, runOp, runUpload, pushToast]
   )
   const buildMenuItemsRef = useRef(buildMenuItems)
   buildMenuItemsRef.current = buildMenuItems
@@ -214,7 +254,11 @@ export const FileTree = forwardRef<PanelHandle, Props>(function FileTree(
         }
         t.decoration.style.display = !isProject(el) && el.symlink ? '' : 'none'
         t.name.textContent = el.name
-        t.name.parentElement!.title = isProject(el) ? el.rootPath : el.path
+        const row = t.name.parentElement as HTMLElement
+        row.title = isProject(el) ? el.rootPath : el.path
+        // Drop-target metadata read by the drag-drop upload handler.
+        row.dataset.entryPath = isProject(el) ? el.rootPath : el.path
+        row.dataset.entryDir = isProject(el) || el.kind === 'dir' ? '1' : ''
       },
       renderCompressedElements(node: any, _index: number, t: { icon: HTMLSpanElement; name: HTMLSpanElement; decoration: HTMLSpanElement }) {
         const chain: TreeNode[] = node.element.elements
@@ -222,7 +266,11 @@ export const FileTree = forwardRef<PanelHandle, Props>(function FileTree(
         t.decoration.style.display = 'none'
         t.name.textContent = chain.map((e) => e.name).join(' / ')
         const last = chain[chain.length - 1]
-        t.name.parentElement!.title = isProject(last) ? last.rootPath : (last as FileEntry).path
+        const row = t.name.parentElement as HTMLElement
+        row.title = isProject(last) ? last.rootPath : (last as FileEntry).path
+        // Compressed chains are folder runs, so the row is always a directory.
+        row.dataset.entryPath = isProject(last) ? last.rootPath : (last as FileEntry).path
+        row.dataset.entryDir = '1'
       },
       disposeTemplate() {}
     }
@@ -305,6 +353,62 @@ export const FileTree = forwardRef<PanelHandle, Props>(function FileTree(
       container.textContent = ''
     }
   }, [project])
+
+  // OS drag-drop upload: drop files/folders from the desktop onto the tree.
+  // Dropping onto a folder row targets that folder, a file row its parent, and
+  // empty space the project root — matching VS Code's explorer.
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+    let depth = 0
+    const hasFiles = (e: DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes('Files')
+    const onOver = (e: DragEvent) => {
+      if (!hasFiles(e)) return
+      e.preventDefault()
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+    }
+    const onEnter = (e: DragEvent) => {
+      if (!hasFiles(e)) return
+      e.preventDefault()
+      depth++
+      container.classList.add('drag-over')
+    }
+    const onLeave = (e: DragEvent) => {
+      if (!hasFiles(e)) return
+      depth = Math.max(0, depth - 1)
+      if (depth === 0) container.classList.remove('drag-over')
+    }
+    const onDrop = (e: DragEvent) => {
+      if (!hasFiles(e)) return
+      e.preventDefault()
+      depth = 0
+      container.classList.remove('drag-over')
+      const paths = Array.from(e.dataTransfer?.files ?? [])
+        .map((f) => window.studio.getPathForFile(f))
+        .filter(Boolean)
+      if (paths.length === 0) return
+      const row = (e.target as HTMLElement | null)?.closest?.('.entry-label') as HTMLElement | null
+      const rowPath = row?.dataset.entryPath
+      const destDir = rowPath
+        ? row!.dataset.entryDir
+          ? rowPath
+          : parentOf(rowPath)
+        : project.rootPath
+      runUpload(destDir, paths)
+    }
+    // Capture phase so these fire even though monaco's list owns the subtree.
+    const opts = { capture: true }
+    container.addEventListener('dragover', onOver, opts)
+    container.addEventListener('dragenter', onEnter, opts)
+    container.addEventListener('dragleave', onLeave, opts)
+    container.addEventListener('drop', onDrop, opts)
+    return () => {
+      container.removeEventListener('dragover', onOver, opts)
+      container.removeEventListener('dragenter', onEnter, opts)
+      container.removeEventListener('dragleave', onLeave, opts)
+      container.removeEventListener('drop', onDrop, opts)
+    }
+  }, [project, runUpload])
 
   // Re-run the filter whenever the query changes. The AsyncDataTree proxies
   // refilter to its inner ObjectTree (`.tree`), so call it there.

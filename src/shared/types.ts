@@ -115,3 +115,11 @@ export interface RemoteDirListing {
 }
 
 export type Result<T> = { ok: true; data: T } | { ok: false; error: string }
+
+/** A live file-transfer update pushed on the fs:progress channel, driving the
+ *  status-bar upload/download indicator. One 'start', throttled 'progress'
+ *  updates, then one 'end'. */
+export type TransferProgress =
+  | { id: string; phase: 'start'; kind: 'upload' | 'download'; name: string; total: number }
+  | { id: string; phase: 'progress'; transferred: number }
+  | { id: string; phase: 'end' }

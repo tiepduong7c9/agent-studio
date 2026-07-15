@@ -1,6 +1,10 @@
 import type { Readable } from 'stream'
 import type { FileEntry, GitLog, GitStatus, ProjectInfo } from '../../shared/types'
 
+/** Reports incremental transfer progress: `bytesDelta` bytes moved since the
+ *  previous call. Used by the Files panel's upload/download progress indicator. */
+export type ProgressFn = (bytesDelta: number) => void
+
 /**
  * Abstracts a project folder so the rest of the app doesn't care whether it
  * lives on the local disk or on an SSH remote.
@@ -42,5 +46,26 @@ export interface ProjectProvider {
   rename(oldPath: string, newPath: string): Promise<void>
   /** Permanently deletes a file or directory (recursively). */
   deleteEntry(entryPath: string): Promise<void>
+  /**
+   * Copies a file from the local machine (running the app) into the project at
+   * `destPath` (absolute on the project host), overwriting an existing file.
+   * Backs the Files panel's "Upload…" action.
+   */
+  uploadFile(localSourcePath: string, destPath: string, onProgress?: ProgressFn): Promise<void>
+  /**
+   * Recursively copies a local directory into the project at `destPath`,
+   * creating it. Backs uploading a dropped folder.
+   */
+  uploadDir(localSourceDir: string, destPath: string, onProgress?: ProgressFn): Promise<void>
+  /**
+   * Copies a project file (`srcPath`, absolute on the project host) to
+   * `localDestPath` on the local machine. Backs "Download…" on a file.
+   */
+  downloadFile(srcPath: string, localDestPath: string, onProgress?: ProgressFn): Promise<void>
+  /**
+   * Recursively copies a project directory (`srcPath`) to `localDestDir` on the
+   * local machine, creating it. Backs "Download…" on a folder.
+   */
+  downloadDir(srcPath: string, localDestDir: string, onProgress?: ProgressFn): Promise<void>
   dispose(): void
 }
