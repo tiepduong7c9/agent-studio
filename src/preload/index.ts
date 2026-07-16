@@ -9,6 +9,7 @@ import type {
 } from '../shared/acp'
 import type {
   FileEntry,
+  GitFileChange,
   GitLog,
   GitStatus,
   ProjectInfo,
@@ -65,6 +66,10 @@ const api = {
     ipcRenderer.invoke('git:showHead', wsId, relPath),
   gitLog: (wsId: string, limit?: number, allBranches?: boolean): Promise<Result<GitLog>> =>
     ipcRenderer.invoke('git:log', wsId, limit, allBranches),
+  /** Discard local changes for the given files, reverting each to its HEAD state
+   *  (untracked/new files are deleted). Irreversible. */
+  gitDiscard: (wsId: string, changes: GitFileChange[]): Promise<Result<void>> =>
+    ipcRenderer.invoke('git:discard', wsId, changes),
   createFile: (wsId: string, filePath: string): Promise<Result<void>> =>
     ipcRenderer.invoke('fs:createFile', wsId, filePath),
   createDir: (wsId: string, dirPath: string): Promise<Result<void>> =>

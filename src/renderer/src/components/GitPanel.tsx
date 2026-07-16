@@ -5,8 +5,14 @@ import * as defaultStyles from 'monaco-editor/esm/vs/platform/theme/browser/defa
 import type { GitFileChange, GitStatus } from '../../../shared/types'
 import type { SelectHandler } from '../selection'
 import { useViewPrefsStore } from '../view-prefs-store'
+import { ContextMenu, type MenuItem } from './ContextMenu'
+import { ConfirmDialog, ErrorDialog } from './Dialogs'
 import { fileIconStyle } from './FileIcon'
 import type { PanelHandle } from './RightPanel'
+
+type Dialog =
+  | { kind: 'confirm'; message: string; detail?: string; confirmLabel?: string; onConfirm: () => void }
+  | { kind: 'error'; message: string }
 
 interface Props {
   wsId: string
@@ -48,6 +54,8 @@ export const GitPanel = forwardRef<PanelHandle, Props>(function GitPanel(
   const [status, setStatus] = useState<GitStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null)
+  const [dialog, setDialog] = useState<Dialog | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const treeRef = useRef<any>(null)
   const onSelectRef = useRef(onSelect)
@@ -78,6 +86,61 @@ export const GitPanel = forwardRef<PanelHandle, Props>(function GitPanel(
   useEffect(() => {
     refresh()
   }, [refresh])
+
+  const discard = useCallback(
+    async (changes: GitFileChange[]) => {
+      const result = await window.studio.gitDiscard(wsId, changes)
+      if (!result.ok) setDialog({ kind: 'error', message: result.error })
+      refresh()
+    },
+    [wsId, refresh]
+  )
+
+  // Ask before discarding — it throws away working-tree changes and can't be undone.
+  const confirmDiscard = useCallback(
+    (changes: GitFileChange[]) => {
+      if (changes.length === 0) return
+      setDialog({
+        kind: 'confirm',
+        message:
+          changes.length === 1
+            ? `Discard changes in ${fileName(changes[0].path)}?`
+            : `Discard all ${changes.length} changes?`,
+        detail: 'Your changes will be lost — this cannot be undone.',
+        confirmLabel: 'Discard',
+        onConfirm: () => {
+          setDialog(null)
+          discard(changes)
+        }
+      })
+    },
+    [discard]
+  )
+
+  const openContextMenu = useCallback(
+    (x: number, y: number, el: GitNode) => {
+      const items: MenuItem[] = []
+      if (el.type === 'change') {
+        const change = el.change
+        items.push({ label: 'Discard Changes', run: () => confirmDiscard([change]) })
+        items.push({ separator: true })
+        items.push({ label: 'Copy Path', run: () => navigator.clipboard.writeText(change.path) })
+      } else {
+        // Group or folder row: discard every change it covers.
+        const changes =
+          el.type === 'group'
+            ? el.changes
+            : el.group.changes.filter(
+                (c) => c.path === el.path || c.path.startsWith(el.path + '/')
+              )
+        items.push({ label: 'Discard All Changes', run: () => confirmDiscard(changes) })
+      }
+      setMenu({ x, y, items })
+    },
+    [confirmDiscard]
+  )
+  const openContextMenuRef = useRef(openContextMenu)
+  openContextMenuRef.current = openContextMenu
 
   // Create the ObjectTree once
   useEffect(() => {
@@ -203,6 +266,13 @@ export const GitPanel = forwardRef<PanelHandle, Props>(function GitPanel(
       }
     })
 
+    const contextListener = tree.onContextMenu((e: any) => {
+      e.browserEvent.preventDefault()
+      e.browserEvent.stopPropagation()
+      const el: GitNode | undefined = e.element
+      if (el) openContextMenuRef.current(e.browserEvent.clientX, e.browserEvent.clientY, el)
+    })
+
     const resize = () => tree.layout(container.clientHeight, container.clientWidth)
     const observer = new ResizeObserver(resize)
     observer.observe(container)
@@ -211,6 +281,7 @@ export const GitPanel = forwardRef<PanelHandle, Props>(function GitPanel(
     return () => {
       observer.disconnect()
       openListener.dispose()
+      contextListener.dispose()
       tree.dispose()
       treeRef.current = null
       container.textContent = ''
@@ -286,6 +357,20 @@ export const GitPanel = forwardRef<PanelHandle, Props>(function GitPanel(
         <div className="tree-message">No changes</div>
       ) : null}
       <div ref={containerRef} className="widget-tree" />
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
+      {dialog?.kind === 'confirm' && (
+        <ConfirmDialog
+          message={dialog.message}
+          detail={dialog.detail}
+          confirmLabel={dialog.confirmLabel}
+          danger
+          onConfirm={dialog.onConfirm}
+          onCancel={() => setDialog(null)}
+        />
+      )}
+      {dialog?.kind === 'error' && (
+        <ErrorDialog message={dialog.message} onClose={() => setDialog(null)} />
+      )}
     </div>
   )
 })

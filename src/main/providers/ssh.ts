@@ -5,6 +5,7 @@ import type { Readable } from 'stream'
 import { Client, type SFTPWrapper } from 'ssh2'
 import type {
   FileEntry,
+  GitFileChange,
   GitLog,
   GitStatus,
   ProjectInfo,
@@ -310,6 +311,26 @@ export class SshProjectProvider implements ProjectProvider {
       throw new Error(stderr.trim() || `git exited with code ${code}`)
     }
     return parseGitLog(stdout.toString('utf8'))
+  }
+
+  async gitDiscard(changes: GitFileChange[]): Promise<void> {
+    const root = shellQuote(this.info.rootPath)
+    for (const change of changes) {
+      // A rename touches two paths: the new name and the original one to restore.
+      const paths = change.origPath ? [change.origPath, change.path] : [change.path]
+      for (const p of paths) assertRepoRelative(p)
+      for (const p of paths) {
+        // Overwrites both the index and the working tree with the HEAD version.
+        const co = await this.exec(`git -C ${root} checkout HEAD -- ${shellQuote(p)}`)
+        if (co.code !== 0) {
+          // Not in HEAD (a newly-added or untracked file, or a rename's new
+          // path): unstage it if staged, then delete it so the path matches HEAD.
+          await this.exec(`git -C ${root} reset -q -- ${shellQuote(p)}`)
+          const abs = this.confine(joinPosix(this.info.rootPath, p))
+          await this.exec(`rm -rf -- ${shellQuote(abs)}`)
+        }
+      }
+    }
   }
 
   async createFile(filePath: string): Promise<void> {

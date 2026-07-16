@@ -1,5 +1,5 @@
 import type { Readable } from 'stream'
-import type { FileEntry, GitLog, GitStatus, ProjectInfo } from '../../shared/types'
+import type { FileEntry, GitFileChange, GitLog, GitStatus, ProjectInfo } from '../../shared/types'
 
 /** Reports incremental transfer progress: `bytesDelta` bytes moved since the
  *  previous call. Used by the Files panel's upload/download progress indicator. */
@@ -40,6 +40,12 @@ export interface ProjectProvider {
    *  `allBranches` (default true) logs every branch; false follows only the
    *  current branch (HEAD). Returns isRepo:false when the root isn't a git repo. */
   gitLog(limit?: number, allBranches?: boolean): Promise<GitLog>
+  /**
+   * Discards local changes for each of `changes`, restoring every path to its
+   * HEAD state: tracked files are reverted to the last commit, and newly-added
+   * or untracked files are removed from disk. Irreversible.
+   */
+  gitDiscard(changes: GitFileChange[]): Promise<void>
   /** Creates an empty file. Fails if it already exists. */
   createFile(filePath: string): Promise<void>
   createDir(dirPath: string): Promise<void>

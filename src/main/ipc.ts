@@ -1,7 +1,7 @@
 import { promises as fsp } from 'fs'
 import * as path from 'path'
 import { BrowserWindow, dialog, ipcMain, Notification, shell } from 'electron'
-import type { Result, SshConnectOptions } from '../shared/types'
+import type { GitFileChange, Result, SshConnectOptions } from '../shared/types'
 import { engineHostKey, workspaceId } from '../shared/types'
 import { clearSshEngine, LOCAL_HOST_KEY, registerEngineTarget, sshTargetFor } from './engine'
 import { LocalProjectProvider } from './providers/local'
@@ -267,6 +267,10 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, hub: 
 
   handle('git:log', async (wsId: string, limit?: number, allBranches?: boolean) => {
     return requireProvider(wsId).gitLog(limit, allBranches)
+  })
+
+  handle('git:discard', async (wsId: string, changes: GitFileChange[]) => {
+    await requireProvider(wsId).gitDiscard(changes)
   })
 
   handle('fs:createFile', async (wsId: string, filePath: string) => {

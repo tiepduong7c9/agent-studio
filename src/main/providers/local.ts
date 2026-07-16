@@ -3,7 +3,7 @@ import { createReadStream, createWriteStream, promises as fs } from 'fs'
 import * as path from 'path'
 import type { Readable } from 'stream'
 import { promisify } from 'util'
-import type { FileEntry, GitLog, GitStatus, ProjectInfo } from '../../shared/types'
+import type { FileEntry, GitFileChange, GitLog, GitStatus, ProjectInfo } from '../../shared/types'
 import { workspaceId } from '../../shared/types'
 import { parseGitStatus } from '../git/parseStatus'
 import { LOG_FORMAT, parseGitLog } from '../git/parseLog'
@@ -169,6 +169,30 @@ export class LocalProjectProvider implements ProjectProvider {
         if (err.stderr.includes('does not have any commits')) return { isRepo: true, commits: [] }
       }
       throw err
+    }
+  }
+
+  async gitDiscard(changes: GitFileChange[]): Promise<void> {
+    for (const change of changes) {
+      // A rename touches two paths: the new name and the original one to restore.
+      const paths = change.origPath ? [change.origPath, change.path] : [change.path]
+      for (const p of paths) assertRepoRelative(p)
+      for (const p of paths) {
+        try {
+          // Overwrites both the index and the working tree with the HEAD version.
+          await execFileAsync('git', ['-C', this.info.rootPath, 'checkout', 'HEAD', '--', p])
+        } catch {
+          // Not in HEAD (a newly-added or untracked file, or a rename's new
+          // path): unstage it if staged, then delete it so the path matches HEAD.
+          await execFileAsync('git', ['-C', this.info.rootPath, 'reset', '-q', '--', p]).catch(
+            () => {}
+          )
+          await fs.rm(this.confine(path.join(this.info.rootPath, p)), {
+            recursive: true,
+            force: true
+          })
+        }
+      }
     }
   }
 
