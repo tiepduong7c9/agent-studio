@@ -2198,11 +2198,10 @@ body {
   background: var(--vscode-errorForeground, #f14c4c);
 }
 
-/* Details popover, anchored above the summary button */
+/* Details popover, portaled to <body> and anchored above the summary button
+   via inline right/bottom (so the status bar's overflow:hidden can't clip it). */
 .usage-popover {
-  position: absolute;
-  bottom: calc(100% + 6px);
-  right: 0;
+  position: fixed;
   width: 240px;
   padding: 10px 12px;
   border-radius: 8px;

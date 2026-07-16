@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { AcpUsageWindow } from '../../../shared/acp'
 import type { ProjectInfo } from '../../../shared/types'
 import { hostKey, peakUtil, useUsageStore } from '../acp/usage-store'
@@ -99,7 +100,11 @@ export function StatusBar({
   const transfers = useTransferStore((s) => s.transfers)
   const [open, setOpen] = useState(false)
   const [branch, setBranch] = useState<string | null>(null)
+  // Anchor coords for the portaled popover (fixed, relative to the viewport).
+  const [anchor, setAnchor] = useState<{ right: number; bottom: number } | null>(null)
   const ref = useRef<HTMLDivElement>(null)
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const popRef = useRef<HTMLDivElement>(null)
 
   // Fetch the active workspace's branch. Refetched when the workspace changes,
   // and kept current with external branch switches (e.g. `git checkout` in a
@@ -177,11 +182,14 @@ export function StatusBar({
   // under it (auto width — content only — when the panel is hidden/maximized).
   const rightSegW = rightVisible && !maximized ? rightWidth + 1 : undefined
 
-  // Dismiss the popover on an outside click.
+  // Dismiss the popover on an outside click. The popover is portaled to
+  // <body> (see below), so it's outside `ref` — check it separately.
   useEffect(() => {
     if (!open) return
     const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+      const t = e.target as Node
+      if (ref.current?.contains(t) || popRef.current?.contains(t)) return
+      setOpen(false)
     }
     document.addEventListener('mousedown', onDown)
     return () => document.removeEventListener('mousedown', onDown)
@@ -197,8 +205,16 @@ export function StatusBar({
 
   const toggle = () => {
     const next = !open
+    if (next) {
+      const r = btnRef.current?.getBoundingClientRect()
+      if (r)
+        setAnchor({
+          right: window.innerWidth - r.right,
+          bottom: window.innerHeight - r.top + 6
+        })
+      refresh(activeHost) // pull fresh numbers when opening
+    }
     setOpen(next)
-    if (next) refresh(activeHost) // pull fresh numbers when opening
   }
 
   return (
@@ -236,34 +252,43 @@ export function StatusBar({
           </button>
         )}
         <div className="status-usage" ref={ref}>
-          {open && (
-            <div className="usage-popover" role="dialog">
-              <div className="usage-popover-head">
-                <span>Subscription usage</span>
-                {account?.email && <span className="usage-popover-email">{account.email}</span>}
-              </div>
-              {usage ? (
-                <>
-                  <UsageBar label="Session (5h)" win={usage.five_hour} />
-                  <UsageBar label="Weekly (7d)" win={usage.seven_day} />
-                  <UsageBar label="Weekly Opus" win={usage.seven_day_opus} />
-                  <UsageBar label="Weekly Sonnet" win={usage.seven_day_sonnet} />
-                  {usage.extra_usage && usage.extra_usage.used_credits > 0 && (
-                    <div className="usage-row-extra">
-                      <span>Extra usage</span>
-                      <span>
-                        {usage.extra_usage.used_credits} {usage.extra_usage.currency}
-                      </span>
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div className="usage-empty">Usage data unavailable.</div>
-              )}
-            </div>
-          )}
+          {open &&
+            anchor &&
+            createPortal(
+              <div
+                className="usage-popover"
+                role="dialog"
+                ref={popRef}
+                style={{ right: anchor.right, bottom: anchor.bottom }}
+              >
+                <div className="usage-popover-head">
+                  <span>Subscription usage</span>
+                  {account?.email && <span className="usage-popover-email">{account.email}</span>}
+                </div>
+                {usage ? (
+                  <>
+                    <UsageBar label="Session (5h)" win={usage.five_hour} />
+                    <UsageBar label="Weekly (7d)" win={usage.seven_day} />
+                    <UsageBar label="Weekly Opus" win={usage.seven_day_opus} />
+                    <UsageBar label="Weekly Sonnet" win={usage.seven_day_sonnet} />
+                    {usage.extra_usage && usage.extra_usage.used_credits > 0 && (
+                      <div className="usage-row-extra">
+                        <span>Extra usage</span>
+                        <span>
+                          {usage.extra_usage.used_credits} {usage.extra_usage.currency}
+                        </span>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="usage-empty">Usage data unavailable.</div>
+                )}
+              </div>,
+              document.body
+            )}
           <button
             type="button"
+            ref={btnRef}
             className={`status-item status-usage-btn${open ? ' active' : ''}`}
             onClick={toggle}
             title="Subscription usage"
