@@ -6,19 +6,15 @@ import { registerMediaProtocol, registerMediaScheme } from './media-protocol'
 import { registerTerminalIpc } from './terminal-ipc'
 import icon from '../../resources/icon.png?asset'
 
+// Note: the native-Wayland ozone platform (which avoids GNOME 48+/50's "Allow
+// Remote Interaction" RemoteDesktop prompt — see electron.vite.config.ts) is
+// selected before this file runs, so it can't be set here. It's applied at
+// launch via ELECTRON_OZONE_PLATFORM_HINT (dev/preview: electron.vite.config.ts;
+// packaged: build.linux.executableArgs in package.json). app.commandLine
+// switches run too late to influence ozone platform selection.
+
 // The studio-media:// streaming scheme must be declared before app `ready`.
 registerMediaScheme()
-
-// Render via XWayland, same as VS Code and most Electron apps. On GNOME (48+/50)
-// Chromium's *native-Wayland* input path opens a RemoteDesktop portal session on
-// window focus, which triggers GNOME's "Allow Remote Interaction" consent prompt
-// on every interaction. XWayland uses X11 input directly and avoids it entirely.
-// The desktop session stays Wayland — only this app uses the XWayland layer.
-// Set ELECTRON_OZONE_PLATFORM_HINT=wayland to opt into native Wayland (and the
-// prompt) once the upstream Electron/GNOME behavior is fixed.
-if (!process.env.ELECTRON_OZONE_PLATFORM_HINT) {
-  app.commandLine.appendSwitch('ozone-platform-hint', 'x11')
-}
 
 let mainWindow: BrowserWindow | null = null
 let disposeAcp: (() => void) | null = null

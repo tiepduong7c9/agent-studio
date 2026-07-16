@@ -31,7 +31,10 @@
     },
     "linux": {
       "target": "AppImage",
-      "category": "Development"
+      "category": "Development",
+      "executableArgs": [
+        "--ozone-platform-hint=wayland"
+      ]
     }
   },
   "dependencies": {
