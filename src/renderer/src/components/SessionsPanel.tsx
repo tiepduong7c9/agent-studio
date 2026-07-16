@@ -142,7 +142,7 @@ function LiveRow({ s, active, pinned, hidden, done, doneAt, unread, onSelect, on
   return (
     <div className={`acp-session-row-wrap ${hidden ? 'hidden' : ''}`}>
       <button
-        className={`acp-session-row ${active ? 'active' : ''} ${displayStatus === 'done' ? 'done' : ''} ${unread ? 'unread' : ''}`}
+        className={`acp-session-row ${active ? 'active' : ''} ${displayStatus === 'done' ? 'done' : ''} ${displayStatus === 'waiting' ? 'waiting' : ''} ${unread ? 'unread' : ''}`}
         onClick={onSelect}
         onContextMenu={openMenu}
       >

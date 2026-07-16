@@ -701,6 +701,22 @@ body {
   text-transform: capitalize;
 }
 
+/* "Waiting" (needs user input) rows draw the eye like "done" but with a magenta
+   accent: a tinted background, left bar, bolder name, and accent status label. */
+.acp-session-row.waiting {
+  background: color-mix(in srgb, #e30bcd 13%, transparent);
+  box-shadow: inset 2px 0 0 #e30bcd;
+}
+.acp-session-row.waiting:hover {
+  background: color-mix(in srgb, #e30bcd 20%, transparent);
+}
+.acp-session-row.waiting .acp-session-name { font-weight: 600; }
+.acp-session-row.waiting .acp-session-sub {
+  color: #e30bcd;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
 /* Manually flagged "unread / follow up later" rows: a persistent accent marker
    (distinct purple hue from the blue "done" completion state) with a left bar
    and a bolder name. Both can coexist; the transient "done" background wins. */
