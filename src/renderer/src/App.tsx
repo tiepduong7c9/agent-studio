@@ -68,6 +68,13 @@ export function App() {
   // wipe remote pins against a local-only session list. State (not a ref) so
   // flipping it re-runs the prune effect.
   const [savedHostsResolved, setSavedHostsResolved] = useState(false)
+  // Per-host background auto-reconnect state (timer handle + attempt count), for
+  // hosts that ended up 'lost' — a saved host that didn't come back on startup,
+  // or one whose in-process backoff (acp-ipc) gave up. Kept in a ref so the
+  // retry schedule survives re-renders.
+  const retryHosts = useRef<Map<string, { timer?: number; attempts: number; inFlight?: boolean }>>(
+    new Map()
+  )
 
   const sessions = useSessionsStore((s) => s.sessions)
   const setSessions = useSessionsStore((s) => s.setSessions)
@@ -189,6 +196,59 @@ export function App() {
       .catch(() => {})
       .finally(() => setSavedHostsResolved(true))
   }, [setHostStatus])
+
+  // Background auto-reconnect for 'lost' hosts, with bounded backoff. This is the
+  // slow outer layer beneath acp-ipc's fast in-process recovery: once that gives
+  // up (or a saved host never came back on startup), keep retrying quietly so a
+  // machine that later regains the network re-establishes its remote sessions
+  // without a manual click. Retries cap at ~2 min and stop on connect/forget.
+  // The Reconnect button calls the same path for an immediate attempt.
+  useEffect(() => {
+    const retry = retryHosts.current
+    const BACKOFF = [15000, 30000, 60000, 120000]
+    const known = new Set(remoteHosts)
+    // Drop hosts that recovered or were forgotten; cancel a pending timer when a
+    // reconnect (manual or ours) is already under way to avoid a double attempt.
+    for (const [host, st] of [...retry]) {
+      const status = engineStatus[`ssh:${host}`]
+      if (!known.has(host) || status === 'connected') {
+        if (st.timer) window.clearTimeout(st.timer)
+        retry.delete(host)
+      } else if (status === 'reconnecting' && st.timer && !st.inFlight) {
+        window.clearTimeout(st.timer)
+        st.timer = undefined
+      }
+    }
+    // Arm a backoff timer for each lost host that isn't already pending/in-flight.
+    for (const host of remoteHosts) {
+      if (engineStatus[`ssh:${host}`] !== 'lost') continue
+      const st = retry.get(host) ?? { attempts: 0 }
+      retry.set(host, st)
+      if (st.timer || st.inFlight) continue
+      const delay = BACKOFF[Math.min(st.attempts, BACKOFF.length - 1)]
+      st.timer = window.setTimeout(async () => {
+        st.timer = undefined
+        st.inFlight = true
+        st.attempts++
+        setHostStatus(`ssh:${host}`, 'reconnecting')
+        try {
+          const res = await window.studio.reconnectSsh(host)
+          // Success flips to 'connected' via the engine-status event; only a
+          // failure needs to drop back to 'lost', which re-arms the next retry.
+          if (!res.ok) setHostStatus(`ssh:${host}`, 'lost')
+        } catch {
+          setHostStatus(`ssh:${host}`, 'lost')
+        } finally {
+          st.inFlight = false
+        }
+      }, delay)
+    }
+  }, [remoteHosts, engineStatus, setHostStatus])
+
+  // Clear any pending auto-reconnect timers on unmount.
+  useEffect(() => () => {
+    for (const st of retryHosts.current.values()) if (st.timer) window.clearTimeout(st.timer)
+  }, [])
 
   // Poll each connected host's subscription usage for the status bar and the
   // 50%/75% warnings: once now, then every 5 minutes. Local (null) is always

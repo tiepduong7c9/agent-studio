@@ -226,10 +226,14 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, hub: 
   })
 
   // Reconnect a single remembered host on demand — the "Reconnect" action on a
-  // disconnected host in the sidebar. Its credentials come from the saved set.
+  // disconnected host in the sidebar (and the renderer's background auto-retry).
+  // Its credentials come from the saved set. A host reaches this state mainly
+  // when its ssh transport died, so tear down any stale session first and
+  // re-establish a fresh connection rather than reusing the broken one.
   handle('ssh:reconnect', async (hostKey: string) => {
     const opts = loadSavedHosts().find((o) => `${o.username}@${o.host}` === hostKey)
     if (!opts) throw new Error(`No saved credentials for ${hostKey}`)
+    if (sshHosts.has(hostKey)) disconnectHost(hostKey)
     return connectSshHost(opts)
   })
 
