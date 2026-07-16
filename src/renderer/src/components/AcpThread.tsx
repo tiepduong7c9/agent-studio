@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
-  AlertTriangle, BrainCircuit, Check, ChevronDown, ChevronRight, CircleSlash,
+  AlertTriangle, BrainCircuit, Check, ChevronDown, ChevronRight, CircleHelp, CircleSlash,
   Clock, Copy, Cpu, FileText, FolderTree, Gauge, Globe, ListTodo, Loader2, Mail, MailOpen, Pencil, Search,
   ShieldQuestion, SquarePen, Square, Terminal, Trash2, Wrench, X, ArrowUp, Zap
 } from 'lucide-react'
@@ -12,7 +12,11 @@ import { useAcpStore } from '../acp/store'
 import { useSessionsStore } from '../acp/sessions-store'
 import { useViewPrefsStore } from '../view-prefs-store'
 import { buildThread, modelLabel, recapOf, textOf, type ThreadItem } from '../acp/buildThread'
-import type { AcpCommand, AcpEffortState, AcpModeState, AcpModelState, AcpToolContent } from '../acp/protocol'
+import type {
+  AcpCommand, AcpEffortState, AcpElicitationRequest, AcpElicitationResponse, AcpElicitationValue,
+  AcpEnumOption, AcpModeState, AcpModelState, AcpToolContent
+} from '../acp/protocol'
+import { ASK_OPTION_META_KEY } from '../acp/protocol'
 import { useCommandHistory } from '../acp/command-history'
 import { useDrafts } from '../acp/drafts-store'
 import './AcpThread.css'
@@ -268,12 +272,95 @@ function Dropdown({ label, icon, children, align = 'left' }: { label: React.Reac
   )
 }
 
+// Secondary text for an AskUserQuestion option, from the adapter's _meta (which
+// carries the structured description that EnumOption itself has no slot for).
+function optionDescription(o: AcpEnumOption): string | undefined {
+  const meta = o._meta?.[ASK_OPTION_META_KEY] as { description?: string } | undefined
+  if (meta?.description) return meta.description
+  // Fallback: the flattened "label — description" title, minus the label.
+  if (o.title && o.title.startsWith(`${o.const} — `)) return o.title.slice(o.const.length + 3)
+  return undefined
+}
+
+// Renders an ACP form elicitation (AskUserQuestion / MCP elicitation) with its
+// own local answer state. Each `question_<n>` property becomes a radio group
+// (single-select `oneOf`) or checkbox group (multi-select array `anyOf`); other
+// string properties — including the per-question "Other" box — become text
+// inputs. Submit returns an `accept` with the collected content; Skip declines
+// (the model is told the user skipped, without aborting the turn).
+function ElicitationForm({ request, onSubmit, onSkip }: {
+  request: AcpElicitationRequest
+  onSubmit: (content: Record<string, AcpElicitationValue>) => void
+  onSkip: () => void
+}) {
+  const props = request.requestedSchema?.properties ?? {}
+  const keys = Object.keys(props)
+  const [values, setValues] = useState<Record<string, AcpElicitationValue>>({})
+  const set = (k: string, v: AcpElicitationValue) => setValues((p) => ({ ...p, [k]: v }))
+  // Toggle a multi-select label deriving from the latest state (not a
+  // render-captured array), so rapid toggles can't clobber each other.
+  const toggle = (k: string, label: string) => setValues((p) => {
+    const arr = Array.isArray(p[k]) ? (p[k] as string[]) : []
+    return { ...p, [k]: arr.includes(label) ? arr.filter((x) => x !== label) : [...arr, label] }
+  })
+  return (
+    <div className="acp-elicit-form">
+      {keys.map((k) => {
+        const f = props[k]
+        const single = Array.isArray(f.oneOf)
+        const multi = f.type === 'array' && Array.isArray(f.items?.anyOf)
+        const opts: AcpEnumOption[] = single ? f.oneOf! : multi ? f.items!.anyOf! : []
+        const picked = Array.isArray(values[k]) ? (values[k] as string[]) : []
+        return (
+          <div key={k} className="acp-elicit-field">
+            {f.title && <div className="acp-elicit-field-title">{f.title}</div>}
+            {f.description && <div className="acp-elicit-field-desc">{f.description}</div>}
+            {single && opts.map((o) => (
+              <label key={o.const} className="acp-elicit-opt">
+                <input type="radio" name={k} checked={values[k] === o.const} onChange={() => set(k, o.const)} />
+                <span>{o.const}{optionDescription(o) && <span className="acp-elicit-opt-desc"> — {optionDescription(o)}</span>}</span>
+              </label>
+            ))}
+            {multi && opts.map((o) => {
+              const checked = picked.includes(o.const)
+              return (
+                <label key={o.const} className="acp-elicit-opt">
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggle(k, o.const)}
+                  />
+                  <span>{o.const}{optionDescription(o) && <span className="acp-elicit-opt-desc"> — {optionDescription(o)}</span>}</span>
+                </label>
+              )
+            })}
+            {!single && !multi && (
+              <input
+                className="acp-elicit-text"
+                type="text"
+                value={(values[k] as string) ?? ''}
+                placeholder={f.title || f.description || ''}
+                onChange={(e) => set(k, e.target.value)}
+              />
+            )}
+          </div>
+        )
+      })}
+      <div className="acp-perm-actions">
+        <button className="acp-btn" style={{ border: '1px solid var(--vscode-sideBar-border)' }} onClick={() => onSubmit(values)}>Submit</button>
+        <button className="acp-btn" onClick={onSkip}>Skip</button>
+      </div>
+    </div>
+  )
+}
+
 const MessageList = memo(function MessageList({
-  items, working, onAnswerPermission,
+  items, working, onAnswerPermission, onAnswerElicitation,
 }: {
   items: ThreadItem[]
   working: boolean
   onAnswerPermission: (requestId: string, optionId: string | null) => void
+  onAnswerElicitation: (requestId: string, response: AcpElicitationResponse) => void
 }) {
   if (items.length === 0) {
     return (
@@ -354,6 +441,24 @@ const MessageList = memo(function MessageList({
                 )}
               </div>
             ); break
+          case 'elicitation':
+            content = (
+              <div className="acp-permission">
+                <div className="acp-permission-title"><CircleHelp size={15} /> Question</div>
+                {item.request.message && <div className="acp-elicit-message">{item.request.message}</div>}
+                {item.resolved ? (
+                  <div style={{ fontSize: 12, opacity: 0.7 }}>
+                    {item.resolved.action === 'accept' ? 'Answered' : item.resolved.action === 'decline' ? 'Skipped' : 'Cancelled'}
+                  </div>
+                ) : (
+                  <ElicitationForm
+                    request={item.request}
+                    onSubmit={(content) => onAnswerElicitation(item.requestId, { action: 'accept', content })}
+                    onSkip={() => onAnswerElicitation(item.requestId, { action: 'decline' })}
+                  />
+                )}
+              </div>
+            ); break
           case 'notice':
             content = <div className="acp-notice">{item.notice === 'effort' ? <Gauge size={12} /> : <Cpu size={12} />}<span>{item.text}</span></div>; break
           case 'interrupted':
@@ -430,6 +535,7 @@ export function AcpThread({ sid, visible = true }: { sid: string; visible?: bool
   const thread = useAcpStore((s) => s.threads.get(sid))
   const setHistory = useAcpStore((s) => s.setHistory)
   const resolvePermissionLocal = useAcpStore((s) => s.resolvePermissionLocal)
+  const resolveElicitationLocal = useAcpStore((s) => s.resolveElicitationLocal)
   const setModeLocal = useAcpStore((s) => s.setModeLocal)
   const setModelLocal = useAcpStore((s) => s.setModelLocal)
   const setEffortLocal = useAcpStore((s) => s.setEffortLocal)
@@ -609,6 +715,10 @@ export function AcpThread({ sid, visible = true }: { sid: string; visible?: bool
     acp().permissionResponse(sid, requestId, optionId)
     resolvePermissionLocal(sid, requestId, optionId)
   }, [sid, resolvePermissionLocal])
+  const answerElicitation = useCallback((requestId: string, response: AcpElicitationResponse) => {
+    acp().elicitationResponse(sid, requestId, response)
+    resolveElicitationLocal(sid, requestId, response)
+  }, [sid, resolveElicitationLocal])
 
   const selectMode = (id: string) => { acp().setMode(sid, id); setModeLocal(sid, id) }
   const selectModel = (id: string) => { acp().setModel(sid, id); setModelLocal(sid, id) }
@@ -626,7 +736,7 @@ export function AcpThread({ sid, visible = true }: { sid: string; visible?: bool
 
       <div className="acp-body">
         <div ref={scrollRef} className="acp-scroll" onScroll={onScroll}>
-          <MessageList items={items} working={working} onAnswerPermission={answerPermission} />
+          <MessageList items={items} working={working} onAnswerPermission={answerPermission} onAnswerElicitation={answerElicitation} />
         </div>
         {resuming && (
           <div className="acp-overlay">

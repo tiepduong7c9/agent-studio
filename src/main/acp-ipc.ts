@@ -241,6 +241,9 @@ export function registerAcpIpc(getWindow: () => BrowserWindow | null): AcpHub {
   ipcMain.handle('acp:permissionResponse', async (_e, arg: { sid: string; requestId: string; optionId: string | null }) => {
     await (await smForSid(arg.sid)).permissionResponse(arg.sid, arg.requestId, arg.optionId)
   })
+  ipcMain.handle('acp:elicitationResponse', async (_e, arg: { sid: string; requestId: string; response: unknown }) => {
+    await (await smForSid(arg.sid)).elicitationResponse(arg.sid, arg.requestId, arg.response)
+  })
   ipcMain.handle('acp:setMode', async (_e, arg: { sid: string; modeId: string }) => { await (await smForSid(arg.sid)).setMode(arg.sid, arg.modeId) })
   ipcMain.handle('acp:setModel', async (_e, arg: { sid: string; modelId: string }) => { await (await smForSid(arg.sid)).setModel(arg.sid, arg.modelId) })
   ipcMain.handle('acp:setEffort', async (_e, arg: { sid: string; effortId: string }) => { await (await smForSid(arg.sid)).setEffort(arg.sid, arg.effortId) })

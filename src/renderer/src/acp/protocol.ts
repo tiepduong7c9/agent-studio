@@ -44,10 +44,39 @@ export interface AcpPermissionRequest {
   [k: string]: unknown
 }
 
+// ── Elicitation (AskUserQuestion / MCP form) — adapter >= 0.46 ────────────────
+// A titled enum option; the clean label is `const`, `title` may be a flattened
+// "label — description". AskUserQuestion also carries structured description/
+// preview under _meta['_claude/askUserQuestionOption'].
+export interface AcpEnumOption { const: string; title?: string; _meta?: Record<string, unknown> }
+export interface AcpElicitPropertySchema {
+  type?: string // 'string' | 'array' | 'number' | 'integer' | 'boolean'
+  title?: string | null
+  description?: string | null
+  oneOf?: AcpEnumOption[] // single-select enum (string)
+  items?: { anyOf?: AcpEnumOption[] } // multi-select enum (array)
+  [k: string]: unknown
+}
+export interface AcpElicitationRequest {
+  mode?: string // 'form' | 'url'
+  message: string
+  toolCallId?: string
+  requestedSchema?: { type?: string; properties?: Record<string, AcpElicitPropertySchema> }
+  [k: string]: unknown
+}
+export type AcpElicitationValue = string | number | boolean | string[]
+export interface AcpElicitationResponse {
+  action: 'accept' | 'decline' | 'cancel'
+  content?: Record<string, AcpElicitationValue>
+}
+/** Structured option meta key the adapter uses for AskUserQuestion options. */
+export const ASK_OPTION_META_KEY = '_claude/askUserQuestionOption'
+
 export type AcpEvent = (
   | { type: 'acp_user'; blocks: AcpContentBlock[] }
   | { type: 'acp_update'; update: AcpUpdate }
   | { type: 'acp_permission'; requestId: string; request: AcpPermissionRequest; resolved?: string }
+  | { type: 'acp_elicitation'; requestId: string; request: AcpElicitationRequest; resolved?: AcpElicitationResponse }
   | { type: 'acp_stop'; stopReason: string }
   | { type: 'acp_error'; message: string }
   | { type: 'acp_status'; claudeStatus?: 'working' | 'waiting' | 'idle' }

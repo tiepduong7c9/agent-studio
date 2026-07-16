@@ -65,7 +65,8 @@ class AcpSession {
     this._child = null;
     this._ready = null;              // resolves once initialize + new/loadSession done
     this._loadSupported = false;
-    this._pending = new Map();       // requestId -> resolve(outcome)
+    this._pending = new Map();       // requestId -> resolve(outcome) — permission prompts
+    this._pendingElicit = new Map(); // requestId -> resolve(response) — elicitation forms
     this._seq = 0;                   // monotonic id per stored event (browser dedupes on it)
   }
 
@@ -104,6 +105,9 @@ class AcpSession {
       // Reject any in-flight permission prompts so the adapter side unblocks.
       for (const [, fn] of this._pending) fn({ outcome: { outcome: 'cancelled' } });
       this._pending.clear();
+      // Same for any open elicitation form (AskUserQuestion / MCP elicitation).
+      for (const [, fn] of this._pendingElicit) fn({ action: 'cancel' });
+      this._pendingElicit.clear();
     });
 
     const stream = ndJsonStream(
@@ -114,6 +118,13 @@ class AcpSession {
     const client = {
       sessionUpdate: async (params) => { this._onUpdate(params); },
       requestPermission: async (params) => this._onPermission(params),
+      // AskUserQuestion (and MCP server elicitations) surface here as a form the
+      // user fills in. Advertised via clientCapabilities.elicitation.form below;
+      // without that capability the adapter disables AskUserQuestion entirely.
+      unstable_createElicitation: async (params) => this._onElicitation(params),
+      // Only fires for url-mode elicitations, which we don't advertise — kept as
+      // a no-op so the adapter never invokes an undefined client method.
+      unstable_completeElicitation: async () => {},
       // fs/* and terminal/* intentionally omitted — we do not advertise those
       // capabilities, so the Claude SDK runs file edits and bash internally and
       // reports them to us as tool_call updates.
@@ -126,6 +137,9 @@ class AcpSession {
       clientCapabilities: {
         fs: { readTextFile: false, writeTextFile: false },
         terminal: false,
+        // Enable AskUserQuestion / form elicitations (adapter >= 0.46). An empty
+        // object means "supported"; we handle it in unstable_createElicitation.
+        elicitation: { form: {} },
       },
       clientInfo: { name: 'agent-studio', version: require('../../package.json').version },
     });
@@ -351,6 +365,37 @@ class AcpSession {
     else fn({ outcome: { outcome: 'cancelled' } });
     // Back to working; the turn continues. If the turn was actually finished the
     // next prompt result will flip us to idle.
+    this._setStatus('working');
+  }
+
+  // The agent is asking the user to fill in a form — AskUserQuestion, or an MCP
+  // server elicitation. params is an ACP CreateElicitationRequest (form mode):
+  // { mode:'form', message, requestedSchema, toolCallId?, ... }. Surface it like
+  // a permission prompt and resolve once the browser answers, returning a
+  // CreateElicitationResponse ({ action:'accept', content } | 'decline' | 'cancel').
+  _onElicitation(params) {
+    const requestId = nanoid(8);
+    const item = { type: 'acp_elicitation', requestId, request: params };
+    this._pushHistory(item);
+    this._setStatus('waiting');
+    this._emit(item);
+    return new Promise((resolve) => {
+      this._pendingElicit.set(requestId, resolve);
+    });
+  }
+
+  // Called when the browser submits/skips the form. response is a
+  // CreateElicitationResponse; a missing/invalid one is treated as a cancel.
+  resolveElicitation(requestId, response) {
+    const fn = this._pendingElicit.get(requestId);
+    if (!fn) return;
+    this._pendingElicit.delete(requestId);
+    const res = response && response.action ? response : { action: 'cancel' };
+    // Record the resolution so a re-attach renders the answered state, not a live form.
+    for (const h of this.history) {
+      if (h.type === 'acp_elicitation' && h.requestId === requestId) h.resolved = res;
+    }
+    fn(res);
     this._setStatus('working');
   }
 

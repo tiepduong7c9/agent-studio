@@ -162,6 +162,9 @@ export class SessionManager {
   resolvePermission(id: string, requestId: string, optionId: string | null): void {
     this._sessions.get(id)?.acp.resolvePermission(requestId, optionId);
   }
+  resolveElicitation(id: string, requestId: string, response: unknown): void {
+    this._sessions.get(id)?.acp.resolveElicitation(requestId, response);
+  }
   // State-changing ops resume a suspended session first, so selecting a mode/model
   // or starting/switching a conversation before the first prompt (e.g. right after
   // a daemon restart) reaches a started adapter instead of being silently dropped.

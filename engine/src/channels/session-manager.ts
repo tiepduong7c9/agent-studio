@@ -23,6 +23,7 @@ export class SessionManagerChannel implements IServerChannel {
       case 'prompt': this.manager.prompt(arg.sid, arg.blocks); return;
       case 'cancel': this.manager.cancel(arg as string); return;
       case 'permissionResponse': this.manager.resolvePermission(arg.sid, arg.requestId, arg.optionId); return;
+      case 'elicitationResponse': this.manager.resolveElicitation(arg.sid, arg.requestId, arg.response); return;
       case 'setMode': this.manager.setMode(arg.sid, arg.modeId); return;
       case 'setModel': this.manager.setModel(arg.sid, arg.modelId); return;
       case 'setEffort': this.manager.setEffort(arg.sid, arg.effortId); return;
@@ -55,6 +56,7 @@ export interface ISessionManagerClient {
   prompt(sid: string, blocks: any[]): Promise<void>;
   cancel(sid: string): Promise<void>;
   permissionResponse(sid: string, requestId: string, optionId: string | null): Promise<void>;
+  elicitationResponse(sid: string, requestId: string, response: unknown): Promise<void>;
   setMode(sid: string, modeId: string): Promise<void>;
   setModel(sid: string, modelId: string): Promise<void>;
   setEffort(sid: string, effortId: string): Promise<void>;
@@ -77,6 +79,7 @@ export function createSessionManagerClient(channel: IChannel): ISessionManagerCl
     prompt: (sid, blocks) => channel.call('prompt', { sid, blocks }),
     cancel: (sid) => channel.call('cancel', sid),
     permissionResponse: (sid, requestId, optionId) => channel.call('permissionResponse', { sid, requestId, optionId }),
+    elicitationResponse: (sid, requestId, response) => channel.call('elicitationResponse', { sid, requestId, response }),
     setMode: (sid, modeId) => channel.call('setMode', { sid, modeId }),
     setModel: (sid, modelId) => channel.call('setModel', { sid, modelId }),
     setEffort: (sid, effortId) => channel.call('setEffort', { sid, effortId }),

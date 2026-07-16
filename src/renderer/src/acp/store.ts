@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { AcpSnapshot } from '../../../shared/acp'
-import type { AcpCommand, AcpEvent, AcpEffortState, AcpModeState, AcpModelState, AcpUsage } from './protocol'
+import type { AcpCommand, AcpElicitationResponse, AcpEvent, AcpEffortState, AcpModeState, AcpModelState, AcpUsage } from './protocol'
 
 // Per-session thread state. Keyed by session id (sid). Ported from ccremote's
 // acp-store; the only change is setHistory taking the engine's snapshot object.
@@ -31,6 +31,7 @@ interface AcpStore {
    *  history replay into one render instead of one per event. */
   appendEvents: (sid: string, events: AcpEvent[]) => void
   resolvePermissionLocal: (sid: string, requestId: string, optionId: string | null) => void
+  resolveElicitationLocal: (sid: string, requestId: string, response: AcpElicitationResponse) => void
   setModeLocal: (sid: string, modeId: string) => void
   setModelLocal: (sid: string, modelId: string) => void
   clearPendingModel: (sid: string) => void
@@ -130,6 +131,19 @@ export const useAcpStore = create<AcpStore>((set) => ({
     if (!prev) return {}
     const events = prev.events.map((e) =>
       e.type === 'acp_permission' && e.requestId === requestId ? { ...e, resolved: optionId ?? '__cancelled__' } : e
+    )
+    threads.set(sid, { ...prev, events })
+    return { threads }
+  }),
+
+  // Mirror resolvePermissionLocal: stamp the answer optimistically so the form
+  // renders its resolved state immediately, without waiting for an engine echo.
+  resolveElicitationLocal: (sid, requestId, response) => set((s) => {
+    const threads = new Map(s.threads)
+    const prev = threads.get(sid)
+    if (!prev) return {}
+    const events = prev.events.map((e) =>
+      e.type === 'acp_elicitation' && e.requestId === requestId ? { ...e, resolved: response } : e
     )
     threads.set(sid, { ...prev, events })
     return { threads }

@@ -3,7 +3,7 @@
 // item of the same kind, tool_call_update patches the matching tool card, and a
 // single plan card updates in place.
 
-import type { AcpContentBlock, AcpEvent, AcpPlanEntry, AcpPermissionRequest, AcpToolContent } from './protocol'
+import type { AcpContentBlock, AcpEvent, AcpElicitationRequest, AcpElicitationResponse, AcpPlanEntry, AcpPermissionRequest, AcpToolContent } from './protocol'
 
 /** An inline image on a user message (base64 ACP image content block). */
 export type ThreadImage = { mimeType: string; data: string }
@@ -15,6 +15,7 @@ export type ThreadItem =
   | { kind: 'tool'; id: string; toolCallId: string; title: string; status: string; toolKind?: string; content: AcpToolContent[] }
   | { kind: 'plan'; id: string; entries: AcpPlanEntry[] }
   | { kind: 'permission'; id: string; requestId: string; request: AcpPermissionRequest; resolved?: string }
+  | { kind: 'elicitation'; id: string; requestId: string; request: AcpElicitationRequest; resolved?: AcpElicitationResponse }
   | { kind: 'notice'; id: string; text: string; notice?: string }
   | { kind: 'interrupted'; id: string }
   | { kind: 'error'; id: string; message: string }
@@ -87,6 +88,8 @@ export function buildThread(events: AcpEvent[]): ThreadItem[] {
       }
     } else if (e.type === 'acp_permission') {
       items.push({ kind: 'permission', id: `perm${i}`, requestId: e.requestId, request: e.request, resolved: e.resolved })
+    } else if (e.type === 'acp_elicitation') {
+      items.push({ kind: 'elicitation', id: `elicit${i}`, requestId: e.requestId, request: e.request, resolved: e.resolved })
     } else if (e.type === 'acp_stop') {
       if (e.stopReason && /cancel/i.test(e.stopReason)) items.push({ kind: 'interrupted', id: `stop${i}` })
     } else if (e.type === 'acp_notice') {

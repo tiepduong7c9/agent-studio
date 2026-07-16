@@ -162,6 +162,8 @@ const api = {
     cancel: (sid: string): Promise<void> => ipcRenderer.invoke('acp:cancel', sid),
     permissionResponse: (sid: string, requestId: string, optionId: string | null): Promise<void> =>
       ipcRenderer.invoke('acp:permissionResponse', { sid, requestId, optionId }),
+    elicitationResponse: (sid: string, requestId: string, response: unknown): Promise<void> =>
+      ipcRenderer.invoke('acp:elicitationResponse', { sid, requestId, response }),
     setMode: (sid: string, modeId: string): Promise<void> =>
       ipcRenderer.invoke('acp:setMode', { sid, modeId }),
     setModel: (sid: string, modelId: string): Promise<void> =>

@@ -116,6 +116,7 @@ export interface ISessionManagerClient {
   prompt(sid: string, blocks: any[]): Promise<void>
   cancel(sid: string): Promise<void>
   permissionResponse(sid: string, requestId: string, optionId: string | null): Promise<void>
+  elicitationResponse(sid: string, requestId: string, response: unknown): Promise<void>
   setMode(sid: string, modeId: string): Promise<void>
   setModel(sid: string, modelId: string): Promise<void>
   setEffort(sid: string, effortId: string): Promise<void>
