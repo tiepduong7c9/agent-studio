@@ -527,6 +527,9 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--vscode-foreground);
 }
 .sessions-group-host {
   font-weight: 400;
@@ -637,7 +640,12 @@ body {
   color: var(--vscode-foreground);
 }
 .acp-session-row:hover { background: var(--vscode-list-hoverBackground); }
-.acp-session-row.active { background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); }
+.acp-session-row.active {
+  background: var(--vscode-list-activeSelectionBackground);
+  color: var(--vscode-list-activeSelectionForeground);
+  box-shadow: inset 3px 0 0 0 var(--vscode-focusBorder, var(--vscode-progressBar-background, #0078d4));
+}
+.acp-session-row.active .acp-session-name { font-weight: 700; }
 .acp-session-main { display: flex; flex-direction: column; min-width: 0; }
 .acp-session-name { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .acp-session-sub { font-size: 11px; color: var(--vscode-descriptionForeground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
