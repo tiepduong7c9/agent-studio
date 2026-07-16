@@ -1,13 +1,15 @@
 import { useState, type MouseEvent } from 'react'
-import type { ProjectInfo } from '../../../shared/types'
-import { useTabsStore, visibleTabs, type EditorTab } from '../tabs-store'
+import type { GitFileChange, ProjectInfo } from '../../../shared/types'
+import { fileTabId, useTabsStore, visibleTabs, type EditorTab } from '../tabs-store'
 import { AcpThread } from './AcpThread'
 import { ChatCard } from './ChatCard'
 import { GitGraphView } from './GitGraphView'
 import { TerminalView } from './TerminalView'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { ErrorBoundary } from './ErrorBoundary'
-import { Breadcrumbs, DiffView, FileView, relativeToRoot } from './editors'
+import { baseName, Breadcrumbs, DiffView, FileView, isMarkdown, relativeToRoot } from './editors'
+import { useMarkdownViewStore } from '../markdown-view-store'
+import { isSideBySide, useDiffViewStore } from '../diff-view-store'
 import letterpress from '../assets/letterpress-light.svg'
 
 interface Props {
@@ -18,6 +20,15 @@ interface Props {
   sessionWorkspaces: ProjectInfo[]
   onCreateSession: (ws: ProjectInfo, text: string) => void
   onPickFolder: () => void
+}
+
+function joinPath(root: string, rel: string): string {
+  return `${root.replace(/\/+$/, '')}/${rel}`
+}
+
+/** A diff of a deleted file has no working-tree file to open. */
+function isDeletedChange(change: GitFileChange): boolean {
+  return change.worktree === 'D' || (change.index === 'D' && change.worktree === '.')
 }
 
 function tabIcon(tab: EditorTab): string {
@@ -55,9 +66,42 @@ export function EditorArea({ workspaces, sessionWorkspaces, onCreateSession, onP
   const closeOthers = useTabsStore((s) => s.closeOthers)
   const closeAll = useTabsStore((s) => s.closeAll)
   const toggleMaximize = useTabsStore((s) => s.toggleMaximize)
+  const openTab = useTabsStore((s) => s.open)
+  const keepTab = useTabsStore((s) => s.keep)
+  const toggleMarkdownSource = useMarkdownViewStore((s) => s.toggle)
+  const toggleSideBySide = useDiffViewStore((s) => s.toggleSideBySide)
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null)
 
   const active = allTabs.find((t) => t.id === activeId) ?? null
+  const markdownTab = active?.kind === 'file' && isMarkdown(active.path) ? active : null
+  const markdownSource = useMarkdownViewStore((s) => (markdownTab ? !!s.sourceMode[markdownTab.id] : false))
+  const diffTab = active?.kind === 'diff' ? active : null
+  const diffSideBySide = useDiffViewStore((s) => (diffTab ? isSideBySide(s.sideBySide, diffTab.id) : true))
+  const diffController = useDiffViewStore((s) => (diffTab ? s.controllers[diffTab.id] : undefined))
+  const diffChangeCount = diffController?.changeCount ?? 0
+
+  // Open the working-tree file behind a diff tab as its own file tab. The diff
+  // tab is usually the session's transient preview slot, so promote it to a
+  // permanent tab first — otherwise the file would reuse that slot in place and
+  // replace the diff instead of opening alongside it.
+  const openDiffFile = (tab: Extract<EditorTab, { kind: 'diff' }>) => {
+    const ws = [...workspaces, ...sessionWorkspaces].find((w) => w.id === tab.wsId)
+    if (!ws) return
+    keepTab(tab.id)
+    const path = joinPath(ws.rootPath, tab.change.path)
+    openTab(
+      {
+        id: fileTabId(tab.ownerSid, tab.wsId, path),
+        kind: 'file',
+        title: baseName(path),
+        path,
+        name: baseName(path),
+        wsId: tab.wsId,
+        ownerSid: tab.ownerSid
+      },
+      { preview: false }
+    )
+  }
 
   const onCloseTab = (e: MouseEvent, id: string) => {
     e.stopPropagation()
@@ -106,6 +150,42 @@ export function EditorArea({ workspaces, sessionWorkspaces, onCreateSession, onP
             ))}
           </div>
           <div className="tab-actions">
+            {markdownTab && (
+              <button
+                className={`icon-button codicon ${markdownSource ? 'codicon-open-preview' : 'codicon-code'}`}
+                title={markdownSource ? 'Show preview' : 'Show source'}
+                onClick={() => toggleMarkdownSource(markdownTab.id)}
+              />
+            )}
+            {diffTab && (
+              <>
+                <button
+                  className="icon-button codicon codicon-arrow-up"
+                  title="Previous Change"
+                  disabled={diffChangeCount === 0}
+                  onClick={() => diffController?.goToDiff('previous')}
+                />
+                <button
+                  className="icon-button codicon codicon-arrow-down"
+                  title="Next Change"
+                  disabled={diffChangeCount === 0}
+                  onClick={() => diffController?.goToDiff('next')}
+                />
+                <button
+                  className={`icon-button codicon codicon-editor-layout ${diffSideBySide ? 'active' : ''}`}
+                  title={diffSideBySide ? 'Switch to Inline View' : 'Switch to Side by Side View'}
+                  onClick={() => toggleSideBySide(diffTab.id)}
+                />
+                {!isDeletedChange(diffTab.change) && (
+                  <button
+                    className="icon-button codicon codicon-go-to-file"
+                    title="Open File"
+                    onClick={() => openDiffFile(diffTab)}
+                  />
+                )}
+                <span className="tab-actions-sep" />
+              </>
+            )}
             <button
               className={`icon-button codicon ${maximized ? 'codicon-screen-normal' : 'codicon-screen-full'}`}
               title={maximized ? 'Restore panel' : 'Maximize editor'}
@@ -190,7 +270,7 @@ function TabContent({
         <div className="editor-pane">
           <Breadcrumbs relPath={relativeToRoot(workspace?.rootPath, tab.path)} />
           <div className="editor-pane-body">
-            <FileView key={tab.id} wsId={tab.wsId} path={tab.path} />
+            <FileView key={tab.id} wsId={tab.wsId} path={tab.path} tabId={tab.id} />
           </div>
         </div>
       )
@@ -199,7 +279,7 @@ function TabContent({
         <div className="editor-pane">
           <Breadcrumbs relPath={tab.change.path} />
           <div className="editor-pane-body">
-            <DiffView key={tab.id} project={workspace} change={tab.change} />
+            <DiffView key={tab.id} project={workspace} change={tab.change} tabId={tab.id} />
           </div>
         </div>
       ) : (

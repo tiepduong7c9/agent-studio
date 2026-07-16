@@ -1038,9 +1038,21 @@ body {
 .tab-actions {
   display: flex;
   align-items: center;
+  gap: 6px;
   padding: 0 6px;
   flex-shrink: 0;
   border-left: 1px solid var(--vscode-tab-border);
+}
+
+.tab-actions .icon-button.active {
+  color: var(--vscode-foreground);
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.tab-actions-sep {
+  width: 1px;
+  height: 16px;
+  background: var(--vscode-tab-border);
 }
 
 .tab {
@@ -1297,31 +1309,7 @@ body {
   image-rendering: auto;
 }
 
-/* ── Diff viewer toolbar (navigate changes / toggle layout) ──────────── */
-
-.diff-editor {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 0;
-}
-
-.diff-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  height: 30px;
-  flex-shrink: 0;
-  padding: 0 8px;
-  background: var(--vscode-editor-background);
-  border-bottom: 1px solid var(--vscode-tab-border);
-}
-
-.diff-toolbar-count {
-  font-size: 12px;
-  color: var(--vscode-descriptionForeground);
-}
-
+/* Vertical separator between toolbar button groups (image viewer). */
 .diff-toolbar-sep {
   width: 1px;
   height: 16px;
@@ -1329,15 +1317,114 @@ body {
   background: var(--vscode-tab-border);
 }
 
-.diff-toolbar .icon-button.active {
+/* ── Markdown preview (rendered view for .md files; toggle lives in tab strip) ── */
+
+.markdown-preview {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 24px;
+  font-size: 14px;
+  line-height: 1.6;
+  word-break: break-word;
   color: var(--vscode-foreground);
-  background: var(--vscode-toolbar-hoverBackground);
+  /* Override the app-wide user-select:none so preview text is selectable. */
+  user-select: text;
+  cursor: auto;
 }
 
-.diff-toolbar .icon-button:disabled {
-  opacity: 0.4;
-  cursor: default;
+.markdown-preview > :first-child { margin-top: 0; }
+.markdown-preview > :last-child { margin-bottom: 0; }
+
+.markdown-preview :where(h1, h2, h3, h4, h5, h6) { font-weight: 600; line-height: 1.3; margin: 24px 0 12px; }
+.markdown-preview h1 { font-size: 1.8em; padding-bottom: 0.3em; border-bottom: 1px solid var(--vscode-tab-border); }
+.markdown-preview h2 { font-size: 1.4em; padding-bottom: 0.3em; border-bottom: 1px solid var(--vscode-tab-border); }
+.markdown-preview h3 { font-size: 1.2em; }
+.markdown-preview h4 { font-size: 1.05em; }
+.markdown-preview :where(h5, h6) { font-size: 1em; }
+
+.markdown-preview p { margin: 0 0 12px; }
+.markdown-preview a { color: var(--vscode-textLink-foreground); cursor: pointer; }
+.markdown-preview a:hover { text-decoration: underline; }
+
+.markdown-preview ul, .markdown-preview ol { margin: 0 0 12px; padding-left: 1.8em; }
+.markdown-preview li { margin: 4px 0; }
+.markdown-preview li > ul, .markdown-preview li > ol { margin: 4px 0; }
+
+.markdown-preview blockquote {
+  margin: 0 0 12px;
+  padding: 0 1em;
+  color: var(--vscode-descriptionForeground);
+  border-left: 3px solid var(--vscode-tab-border);
 }
+
+.markdown-preview code {
+  background: var(--vscode-textPreformat-background, rgba(127, 127, 127, 0.22));
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 0.88em;
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+
+.markdown-preview pre {
+  background: var(--vscode-textCodeBlock-background, rgba(127, 127, 127, 0.1));
+  padding: 12px 14px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 0;
+  font-size: 0.9em;
+}
+.markdown-preview pre code { background: none; padding: 0; font-size: inherit; }
+
+/* Fenced code block wrapper with a hover copy button (top-right). */
+.markdown-code { position: relative; margin: 0 0 12px; }
+.markdown-code pre { margin: 0; }
+.markdown-copy {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+  border: 1px solid var(--vscode-sideBar-border);
+  color: var(--vscode-descriptionForeground);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+.markdown-code:hover .markdown-copy, .markdown-copy:focus-visible { opacity: 1; }
+.markdown-copy:hover { color: var(--vscode-foreground); background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground)); }
+.markdown-copy.codicon-check { color: var(--vscode-testing-iconPassed, #388a34); }
+
+.markdown-preview hr {
+  border: none;
+  border-top: 1px solid var(--vscode-tab-border);
+  margin: 24px 0;
+}
+
+.markdown-preview img { max-width: 100%; }
+
+.markdown-preview table {
+  border-collapse: collapse;
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 0 0 12px;
+  font-size: 0.95em;
+}
+.markdown-preview th, .markdown-preview td {
+  border: 1px solid var(--vscode-tab-border);
+  padding: 6px 12px;
+  text-align: left;
+  vertical-align: top;
+}
+.markdown-preview th { font-weight: 600; background: var(--vscode-editorWidget-background, var(--vscode-list-hoverBackground)); }
+.markdown-preview tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--vscode-foreground) 4%, transparent); }
 
 .viewer-message {
   display: flex;

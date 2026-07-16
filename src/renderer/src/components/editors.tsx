@@ -1,19 +1,52 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import type { GitFileChange, ProjectInfo } from '../../../shared/types'
 import { imageMimeType } from '../../../shared/imageTypes'
 import { videoMimeType } from '../../../shared/videoTypes'
 import { monaco } from '../monaco'
+import { useMarkdownViewStore } from '../markdown-view-store'
+import { isSideBySide, useDiffViewStore } from '../diff-view-store'
 import { fileIconStyle } from './FileIcon'
 
 // File and diff viewers backed by Monaco. The tabbed editor area mounts one
 // per open file/diff tab.
 
-/** Routes video/image files to their inline viewers; everything else to Monaco. */
-export function FileView({ wsId, path }: { wsId: string; path: string }) {
+/** Routes video/image/markdown files to their inline viewers; everything else to Monaco. */
+export function FileView({ wsId, path, tabId }: { wsId: string; path: string; tabId: string }) {
   if (videoMimeType(path)) return <VideoView wsId={wsId} path={path} />
   const mimeType = imageMimeType(path)
   if (mimeType) return <ImageView wsId={wsId} path={path} mimeType={mimeType} />
+  if (isMarkdown(path)) return <MarkdownFileView wsId={wsId} path={path} tabId={tabId} />
   return <TextFileView wsId={wsId} path={path} />
+}
+
+/** Whether a path is a markdown document (drives the preview toggle in the tab strip). */
+export function isMarkdown(path: string): boolean {
+  const ext = path.split('.').pop()?.toLowerCase() ?? ''
+  return ext === 'md' || ext === 'markdown' || ext === 'mdx' || ext === 'mkd'
+}
+
+/** Loads a text file's contents over IPC, cancelling on path change/unmount. */
+function useFileContent(wsId: string, path: string) {
+  const [content, setContent] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setContent(null)
+    setError(null)
+    window.studio.readFile(wsId, path).then((result) => {
+      if (cancelled) return
+      if (result.ok) setContent(result.data)
+      else setError(result.error)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [wsId, path])
+
+  return { content, error }
 }
 
 /** Streams a video via the studio-media:// protocol (see main/media-protocol.ts). */
@@ -27,24 +60,70 @@ function VideoView({ wsId, path }: { wsId: string; path: string }) {
 }
 
 function TextFileView({ wsId, path }: { wsId: string; path: string }) {
-  const [content, setContent] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    window.studio.readFile(wsId, path).then((result) => {
-      if (cancelled) return
-      if (result.ok) setContent(result.data)
-      else setError(result.error)
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [wsId, path])
-
+  const { content, error } = useFileContent(wsId, path)
   if (error) return <ViewerMessage message={error} />
   if (content === null) return <ViewerMessage message="Loading…" />
   return <MonacoViewer content={content} path={path} />
+}
+
+// Fenced code block in the preview, wrapped with a hover copy button.
+function MarkdownCodeBlock({ children }: React.ComponentPropsWithoutRef<'pre'>) {
+  const ref = useRef<HTMLPreElement>(null)
+  const [copied, setCopied] = useState(false)
+  const onCopy = () => {
+    const text = ref.current?.textContent ?? ''
+    if (!text) return
+    navigator.clipboard
+      ?.writeText(text)
+      .then(() => {
+        setCopied(true)
+        setTimeout(() => setCopied(false), 1200)
+      })
+      .catch(() => {})
+  }
+  return (
+    <div className="markdown-code">
+      <button
+        type="button"
+        className={`markdown-copy codicon ${copied ? 'codicon-check' : 'codicon-copy'}`}
+        title="Copy"
+        onClick={onCopy}
+      />
+      <pre ref={ref}>{children}</pre>
+    </div>
+  )
+}
+
+const MARKDOWN_COMPONENTS = {
+  // Prevent link clicks from navigating the renderer away from the app.
+  a: ({ children, href, ...props }: React.ComponentPropsWithoutRef<'a'>) => (
+    <a {...props} href={href} title={href} onClick={(e) => e.preventDefault()}>
+      {children}
+    </a>
+  ),
+  pre: MarkdownCodeBlock
+}
+
+/**
+ * Markdown files open in a rendered preview by default. The preview/source
+ * toggle lives in the tab strip (see EditorArea) so it costs no editor space;
+ * this reads the resulting mode from the shared store, keyed by tab id.
+ */
+function MarkdownFileView({ wsId, path, tabId }: { wsId: string; path: string; tabId: string }) {
+  const { content, error } = useFileContent(wsId, path)
+  const sourceMode = useMarkdownViewStore((s) => !!s.sourceMode[tabId])
+
+  if (error) return <ViewerMessage message={error} />
+  if (content === null) return <ViewerMessage message="Loading…" />
+  if (sourceMode) return <MonacoViewer content={content} path={path} />
+
+  return (
+    <div className="markdown-preview">
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
+        {content}
+      </ReactMarkdown>
+    </div>
+  )
 }
 
 const MIN_ZOOM = 0.1
@@ -188,7 +267,15 @@ function ImageView({ wsId, path, mimeType }: { wsId: string; path: string; mimeT
   )
 }
 
-export function DiffView({ project, change }: { project: ProjectInfo; change: GitFileChange }) {
+export function DiffView({
+  project,
+  change,
+  tabId
+}: {
+  project: ProjectInfo
+  change: GitFileChange
+  tabId: string
+}) {
   const [contents, setContents] = useState<{ original: string; modified: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -219,7 +306,14 @@ export function DiffView({ project, change }: { project: ProjectInfo; change: Gi
 
   if (error) return <ViewerMessage message={error} />
   if (!contents) return <ViewerMessage message="Loading…" />
-  return <MonacoDiffViewer original={contents.original} modified={contents.modified} path={change.path} />
+  return (
+    <MonacoDiffViewer
+      original={contents.original}
+      modified={contents.modified}
+      path={change.path}
+      tabId={tabId}
+    />
+  )
 }
 
 function MonacoViewer({ content, path }: { content: string; path: string }) {
@@ -247,16 +341,20 @@ function MonacoViewer({ content, path }: { content: string; path: string }) {
 function MonacoDiffViewer({
   original,
   modified,
-  path
+  path,
+  tabId
 }: {
   original: string
   modified: string
   path: string
+  tabId: string
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const editorRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null)
-  const [sideBySide, setSideBySide] = useState(true)
-  const [changeCount, setChangeCount] = useState(0)
+  // Side-by-side vs inline is owned by the tab strip (see EditorArea), which
+  // hosts the diff controls; default to side-by-side when unset.
+  const sideBySide = useDiffViewStore((s) => isSideBySide(s.sideBySide, tabId))
+  const setController = useDiffViewStore((s) => s.setController)
 
   useEffect(() => {
     const originalModel = monaco.editor.createModel(original, undefined, viewerUri('orig', path))
@@ -271,13 +369,16 @@ function MonacoDiffViewer({
     })
     editor.setModel({ original: originalModel, modified: modifiedModel })
     editorRef.current = editor
+    const goToDiff = (dir: 'previous' | 'next') => editor.goToDiff(dir)
     // getLineChanges is only populated once the diff has been computed. The
     // event can fire more than once (e.g. layout/option changes), so scroll to
     // the first hunk only on the initial computation that yields changes.
     let revealed = false
     const sub = editor.onDidUpdateDiff(() => {
       const changes = editor.getLineChanges() ?? []
-      setChangeCount(changes.length)
+      // Publish the change count to the tab strip so it can enable/disable the
+      // navigation buttons (new object identity re-renders subscribers).
+      setController(tabId, { changeCount: changes.length, goToDiff })
       if (!revealed && changes.length > 0) {
         revealed = true
         const first = changes[0]
@@ -295,42 +396,15 @@ function MonacoDiffViewer({
       editorRef.current = null
       originalModel.dispose()
       modifiedModel.dispose()
+      setController(tabId, null)
     }
-  }, [original, modified, path])
+  }, [original, modified, path, tabId, setController])
 
   useEffect(() => {
     editorRef.current?.updateOptions({ renderSideBySide: sideBySide })
   }, [sideBySide])
 
-  return (
-    <div className="diff-editor">
-      <div className="diff-toolbar">
-        <span className="diff-toolbar-count">
-          {changeCount === 0 ? 'No changes' : `${changeCount} change${changeCount === 1 ? '' : 's'}`}
-        </span>
-        <span className="topbar-spacer" />
-        <button
-          className="icon-button codicon codicon-arrow-up"
-          title="Previous Change"
-          disabled={changeCount === 0}
-          onClick={() => editorRef.current?.goToDiff('previous')}
-        />
-        <button
-          className="icon-button codicon codicon-arrow-down"
-          title="Next Change"
-          disabled={changeCount === 0}
-          onClick={() => editorRef.current?.goToDiff('next')}
-        />
-        <span className="diff-toolbar-sep" />
-        <button
-          className={`icon-button codicon codicon-editor-layout ${sideBySide ? 'active' : ''}`}
-          title={sideBySide ? 'Switch to Inline View' : 'Switch to Side by Side View'}
-          onClick={() => setSideBySide((v) => !v)}
-        />
-      </div>
-      <div ref={ref} className="monaco-host" />
-    </div>
-  )
+  return <div ref={ref} className="monaco-host" />
 }
 
 export function ViewerMessage({ message }: { message: string }) {

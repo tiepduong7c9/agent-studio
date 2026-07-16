@@ -67,6 +67,21 @@
 .codicon-git-commit:before { content: '\eafc'; }
 .codicon-git-compare:before { content: '\eafd'; }
 
+/* editor tab-action buttons (maximize/restore, diff + markdown toggles) */
+.codicon-screen-full:before { content: '\eb4c'; }
+.codicon-screen-normal:before { content: '\eb4d'; }
+.codicon-editor-layout:before { content: '\eae3'; }
+.codicon-open-preview:before { content: '\eb28'; }
+.codicon-code:before { content: '\eac4'; }
+
+/* other icons referenced across the UI (were rendering blank) */
+.codicon-copy:before { content: '\ebcc'; }
+.codicon-debug-restart:before { content: '\ead2'; }
+.codicon-new-folder:before { content: '\ea80'; }
+.codicon-vm-outline:before { content: '\eb7a'; }
+.codicon-zoom-in:before { content: '\eb81'; }
+.codicon-zoom-out:before { content: '\eb82'; }
+
 .codicon-circle-filled:before { content: '\ea71'; }
 .codicon-circle-large-filled:before { content: '\ebb4'; }
 
