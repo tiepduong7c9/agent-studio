@@ -52,17 +52,14 @@ export function SessionLinksButton({ sid, wsId }: { sid: string; wsId: string | 
   }, [open])
 
   const openInApp = (url: string): void => {
-    // Without a workspace to anchor the tab, fall back to the system browser.
-    if (!wsId) {
-      window.studio.links.openIn(url, 'default').catch(() => {})
-      return
-    }
+    // The in-app browser only needs the URL — no workspace required — so open it
+    // even for sessions with no workspace (wsId is '' there, still valid).
     openTab({
-      id: browserTabId(sid, wsId, url),
+      id: browserTabId(sid, wsId ?? '', url),
       kind: 'browser',
       title: hostOf(url),
       url,
-      wsId,
+      wsId: wsId ?? '',
       ownerSid: sid
     })
     setOpen(false)
