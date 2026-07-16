@@ -564,6 +564,6 @@
 
 .acp-status-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
 .acp-status-idle { background: var(--vscode-testing-iconPassed, #388a34); }
-.acp-status-working { background: var(--vscode-charts-yellow, #cca700); }
+.acp-status-working { background: var(--vscode-charts-yellow, #f5d90a); }
 .acp-status-waiting { background: var(--vscode-charts-orange, #d18616); }
 .acp-status-done { background: var(--vscode-charts-blue, #3794ff); }

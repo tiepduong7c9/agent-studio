@@ -655,9 +655,18 @@ body {
 .acp-session-history .acp-session-name { color: var(--vscode-descriptionForeground); }
 .acp-status-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
 .acp-status-idle { background: var(--vscode-testing-iconPassed, #388a34); }
-.acp-status-working { background: var(--vscode-charts-yellow, #cca700); }
+/* "Running" draws the eye: a brighter yellow dot with a pulsing glow. */
+.acp-status-working {
+  background: var(--vscode-charts-yellow, #f5d90a);
+  animation: acp-working-pulse 1.4s ease-out infinite;
+}
 .acp-status-waiting { background: var(--vscode-charts-orange, #d18616); }
 .acp-status-done { background: var(--vscode-charts-blue, #3794ff); }
+@keyframes acp-working-pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--vscode-charts-yellow, #f5d90a) 65%, transparent); }
+  70% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--vscode-charts-yellow, #f5d90a) 0%, transparent); }
+  100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--vscode-charts-yellow, #f5d90a) 0%, transparent); }
+}
 /* A pinned session whose host is offline: hollow, muted dot + dimmed row. */
 .acp-status-offline {
   background: transparent;
@@ -682,14 +691,6 @@ body {
   color: var(--vscode-charts-blue, #3794ff);
   font-weight: 600;
   text-transform: capitalize;
-}
-.acp-session-row.done .acp-status-done {
-  animation: acp-done-pulse 1.8s ease-out infinite;
-}
-@keyframes acp-done-pulse {
-  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--vscode-charts-blue, #3794ff) 60%, transparent); }
-  70% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--vscode-charts-blue, #3794ff) 0%, transparent); }
-  100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--vscode-charts-blue, #3794ff) 0%, transparent); }
 }
 
 /* Manually flagged "unread / follow up later" rows: a persistent accent marker
