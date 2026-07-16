@@ -19,6 +19,8 @@ import type {
 import { ASK_OPTION_META_KEY } from '../acp/protocol'
 import { useCommandHistory } from '../acp/command-history'
 import { useDrafts } from '../acp/drafts-store'
+import { useTabsStore } from '../tabs-store'
+import { SessionLinksButton } from './SessionLinksButton'
 import './AcpThread.css'
 
 const acp = () => window.studio.acp
@@ -548,6 +550,9 @@ export function AcpThread({ sid, visible = true }: { sid: string; visible?: bool
   // Manual "follow up later" flag, mirrored from the sidebar's context menu.
   const unread = useViewPrefsStore((s) => !!s.unreadSessions[sid])
   const toggleUnread = useViewPrefsStore((s) => s.toggleUnread)
+  // Workspace of this session's chat tab — used to anchor in-app browser tabs
+  // opened from the links popover.
+  const wsId = useTabsStore((s) => s.tabs.find((t) => t.kind === 'chat' && t.sid === sid)?.wsId ?? null)
   // Draft lives in a per-session store, not local state: the composer remounts on
   // every session switch (its tab key changes), so keeping it here would drop
   // whatever was typed. Reading from the store restores it when switching back.
@@ -830,6 +835,7 @@ export function AcpThread({ sid, visible = true }: { sid: string; visible?: bool
                 </span>
               )}
               <span className="acp-input-sep" />
+              <SessionLinksButton sid={sid} wsId={wsId} />
               <button
                 className={`acp-btn acp-unread-toggle ${unread ? 'active' : ''}`}
                 title={unread ? 'Marked unread — click to mark read' : 'Mark as unread to follow up later'}

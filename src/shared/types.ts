@@ -123,3 +123,10 @@ export type TransferProgress =
   | { id: string; phase: 'start'; kind: 'upload' | 'download'; name: string; total: number }
   | { id: string; phase: 'progress'; transferred: number }
   | { id: string; phase: 'end' }
+
+/** A browser the host can open a link in. `id` 'default' is the system default
+ *  (opened via shell.openExternal); others are detected browser binaries. */
+export interface BrowserChoice {
+  id: string
+  name: string
+}

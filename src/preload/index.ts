@@ -8,6 +8,7 @@ import type {
   SessionMeta
 } from '../shared/acp'
 import type {
+  BrowserChoice,
   FileEntry,
   GitFileChange,
   GitLog,
@@ -118,6 +119,15 @@ const api = {
   },
   windowControl: (action: 'minimize' | 'maximize' | 'close'): Promise<Result<boolean>> =>
     ipcRenderer.invoke('window:control', action),
+
+  // Session links: enumerate the browsers installed on the host, and open a URL
+  // in a chosen one (or the system default). Opening in-app is handled entirely
+  // in the renderer via a <webview> tab; these only cover the external browsers.
+  links: {
+    listBrowsers: (): Promise<Result<BrowserChoice[]>> => ipcRenderer.invoke('links:listBrowsers'),
+    openIn: (url: string, browserId: string): Promise<Result<void>> =>
+      ipcRenderer.invoke('links:openIn', url, browserId)
+  },
 
   // Integrated terminal: a PTY per tab, living in the main process. create()
   // spawns it (local child or ssh channel); input/resize/kill drive it; output

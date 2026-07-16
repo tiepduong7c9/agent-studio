@@ -2,6 +2,7 @@ import { useState, type MouseEvent } from 'react'
 import type { GitFileChange, ProjectInfo } from '../../../shared/types'
 import { fileTabId, useTabsStore, visibleTabs, type EditorTab } from '../tabs-store'
 import { AcpThread } from './AcpThread'
+import { BrowserPane } from './BrowserPane'
 import { ChatCard } from './ChatCard'
 import { GitGraphView } from './GitGraphView'
 import { TerminalView } from './TerminalView'
@@ -39,6 +40,8 @@ function tabIcon(tab: EditorTab): string {
       return 'codicon-git-compare'
     case 'git-graph':
       return 'codicon-git-commit'
+    case 'browser':
+      return 'codicon-globe'
     case 'terminal':
       return 'codicon-terminal'
     case 'new-chat':
@@ -265,6 +268,8 @@ function TabContent({
       return <AcpThread key={tab.id} sid={tab.sid} />
     case 'git-graph':
       return <GitGraphView key={tab.id} wsId={tab.wsId} />
+    case 'browser':
+      return <BrowserPane key={tab.id} url={tab.url} />
     case 'file':
       return (
         <div className="editor-pane">

@@ -22,6 +22,8 @@ export type EditorTab =
   | { id: string; kind: 'file'; title: string; path: string; name: string; wsId: string; ownerSid: string | null; preview?: boolean }
   | { id: string; kind: 'diff'; title: string; change: GitFileChange; wsId: string; ownerSid: string | null; preview?: boolean }
   | { id: string; kind: 'git-graph'; title: string; wsId: string; ownerSid: string | null }
+  // An in-app browser showing `url`, opened from a session's links popover.
+  | { id: string; kind: 'browser'; title: string; url: string; wsId: string; ownerSid: string | null }
   | {
       id: string
       kind: 'terminal'
@@ -77,6 +79,11 @@ export function diffTabId(ownerSid: string | null, wsId: string, change: GitFile
 /** One git-graph tab per (session, workspace). */
 export function gitGraphTabId(ownerSid: string | null, wsId: string): string {
   return `gitgraph:${ownerSid ?? ''}:${wsId}`
+}
+
+/** One in-app browser tab per (session, url). */
+export function browserTabId(ownerSid: string | null, wsId: string, url: string): string {
+  return `browser:${ownerSid ?? ''}:${wsId}:${url}`
 }
 
 // Terminals are multi-instance per session: each launch gets a unique id (the

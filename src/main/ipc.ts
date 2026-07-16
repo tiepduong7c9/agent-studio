@@ -2,6 +2,7 @@ import { promises as fsp } from 'fs'
 import * as path from 'path'
 import { BrowserWindow, dialog, ipcMain, Notification, shell } from 'electron'
 import type { GitFileChange, Result, SshConnectOptions } from '../shared/types'
+import { listBrowsers, openInBrowser } from './browsers'
 import { engineHostKey, workspaceId } from '../shared/types'
 import { clearSshEngine, LOCAL_HOST_KEY, registerEngineTarget, sshTargetFor } from './engine'
 import { LocalProjectProvider } from './providers/local'
@@ -415,6 +416,12 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, hub: 
       win.webContents.send('app:notification-activate', opts.sid)
     })
     notification.show()
+  })
+
+  // Session links: list installed browsers, and open a link in a chosen one.
+  handle('links:listBrowsers', async () => listBrowsers())
+  handle('links:openIn', async (url: string, browserId: string) => {
+    await openInBrowser(url, browserId)
   })
 
   handle('window:control', async (action: 'minimize' | 'maximize' | 'close') => {

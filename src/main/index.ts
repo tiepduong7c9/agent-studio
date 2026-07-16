@@ -36,7 +36,10 @@ function createWindow(): void {
       nodeIntegration: false,
       // The preload only uses contextBridge + ipcRenderer (available in
       // sandboxed preloads), so keep the renderer sandboxed.
-      sandbox: true
+      sandbox: true,
+      // Enable <webview> for the in-app browser tab (opened from a session's
+      // links list). The guest page runs in its own isolated process.
+      webviewTag: true
     }
   })
 
