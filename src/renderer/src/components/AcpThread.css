@@ -159,7 +159,7 @@
   word-break: break-word;
 }
 .acp-user-images { display: flex; flex-wrap: wrap; gap: 6px; }
-.acp-user-text { margin-top: 6px; }
+.acp-user-text:not(:first-child) { margin-top: 6px; }
 .acp-user-images:only-child { margin: 0; }
 .acp-user-image {
   max-width: 220px;

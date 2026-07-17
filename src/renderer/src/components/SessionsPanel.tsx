@@ -357,6 +357,7 @@ export function SessionsPanel({
   // Collapsed groups, keyed by group key ('other:<host>' for the fallback
   // buckets). Groups are expanded by default; a key present here is collapsed.
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  const [customizationsCollapsed, setCustomizationsCollapsed] = useState(false)
   const toggle = (key: string) =>
     setCollapsed((prev) => {
       const next = new Set(prev)
@@ -1067,13 +1068,24 @@ export function SessionsPanel({
         )}
       </div>
       <div className="customizations">
-        <div className="customizations-label">Customizations</div>
-        {CUSTOMIZATIONS.map((c) => (
-          <div key={c.label} className="customization-row">
-            <span className={`codicon codicon-${c.icon}`} />
-            <span className="customization-name">{c.label}</span>
-          </div>
-        ))}
+        <div
+          className="customizations-label"
+          onClick={() => setCustomizationsCollapsed((v) => !v)}
+          role="button"
+          aria-expanded={!customizationsCollapsed}
+        >
+          <span
+            className={`codicon ${customizationsCollapsed ? 'codicon-chevron-right' : 'codicon-chevron-down'} customizations-twistie`}
+          />
+          <span>Customizations</span>
+        </div>
+        {!customizationsCollapsed &&
+          CUSTOMIZATIONS.map((c) => (
+            <div key={c.label} className="customization-row">
+              <span className={`codicon codicon-${c.icon}`} />
+              <span className="customization-name">{c.label}</span>
+            </div>
+          ))}
       </div>
     </div>
   )
