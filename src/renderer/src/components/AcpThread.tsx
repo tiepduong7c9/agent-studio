@@ -568,6 +568,12 @@ export function AcpThread({ sid, visible = true }: { sid: string; visible?: bool
   const taRef = useRef<HTMLTextAreaElement>(null)
   const stickRef = useRef(true)
   const attachSeq = useRef(0)
+  // Prompt-history navigation (up/down arrows). navPos counts steps back from the
+  // live draft: 0 = the draft the user is typing, 1 = the most recent sent prompt,
+  // etc. draftStash preserves the in-progress draft so arrowing back down past the
+  // newest entry restores it.
+  const navPos = useRef(0)
+  const draftStash = useRef('')
   const recentCommands = useCommandHistory((s) => s.recent)
   const recordCommand = useCommandHistory((s) => s.record)
 
@@ -580,6 +586,18 @@ export function AcpThread({ sid, visible = true }: { sid: string; visible?: bool
 
   const items = useMemo(() => buildThread(thread?.events ?? []), [thread?.events])
   const recap = useMemo(() => recapOf(thread?.events ?? []), [thread?.events])
+  // Sent prompts this session, oldest first — the source for up/down history
+  // navigation. Skips system-injected messages (angle-bracket prefixed) so only
+  // things the user actually typed can be recalled.
+  const promptHistory = useMemo(() => {
+    const out: string[] = []
+    for (const it of items) {
+      if (it.kind !== 'user') continue
+      const t = it.text.trim()
+      if (t && !t.startsWith('<')) out.push(t)
+    }
+    return out
+  }, [items])
   const working = thread?.claudeStatus === 'working'
   const waiting = thread?.claudeStatus === 'waiting'
   const modeState = thread?.modeState ?? null
@@ -647,6 +665,42 @@ export function AcpThread({ sid, visible = true }: { sid: string; visible?: bool
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`
   }
 
+  // A collapsed caret sitting on the first/last visual line — the boundary at
+  // which an arrow key steps into prompt history instead of moving within the
+  // textarea, so multi-line drafts stay navigable.
+  const caretOnFirstLine = (el: HTMLTextAreaElement) =>
+    el.selectionStart === el.selectionEnd && !el.value.slice(0, el.selectionStart).includes('\n')
+  const caretOnLastLine = (el: HTMLTextAreaElement) =>
+    el.selectionStart === el.selectionEnd && !el.value.slice(el.selectionEnd).includes('\n')
+
+  // Step through sent prompts: dir 1 = older, dir -1 = newer. Returns true when
+  // the key was consumed (so the caller preventDefaults); false lets the arrow
+  // fall through to normal caret movement. On the way up, the live draft is
+  // stashed and restored when you arrow back down past the newest entry.
+  const recallHistory = (dir: 1 | -1): boolean => {
+    const hist = promptHistory
+    if (hist.length === 0) return false
+    let pos = navPos.current
+    if (dir === 1) {
+      if (pos >= hist.length) return true // already at the oldest — swallow the key
+      if (pos === 0) draftStash.current = draft
+      pos += 1
+    } else {
+      if (pos === 0) return false // already live — let the caret move down
+      pos -= 1
+    }
+    navPos.current = pos
+    const text = pos === 0 ? draftStash.current : hist[hist.length - pos]
+    setDraft(text)
+    requestAnimationFrame(() => {
+      const el = taRef.current
+      if (!el) return
+      autoGrow(el)
+      el.setSelectionRange(el.value.length, el.value.length)
+    })
+    return true
+  }
+
   // Pasted images become inline attachments (base64 ACP image blocks), sent
   // alongside the text on the next prompt. Non-image clipboard content pastes
   // as usual (the default text paste is left untouched).
@@ -691,6 +745,8 @@ export function AcpThread({ sid, visible = true }: { sid: string; visible?: bool
     setDraft('')
     setAttachments([])
     setCmdOpen(false)
+    navPos.current = 0
+    draftStash.current = ''
     stickRef.current = true
     requestAnimationFrame(() => { if (taRef.current) taRef.current.style.height = 'auto' })
   }
@@ -797,7 +853,7 @@ export function AcpThread({ sid, visible = true }: { sid: string; visible?: bool
               onFocus={() => setFocused(true)}
               onBlur={() => { setFocused(false); setCmdOpen(false) }}
               onPaste={onPaste}
-              onChange={(e) => { setDraft(e.target.value); autoGrow(e.target); setCmdOpen(true); setCmdHighlight(0) }}
+              onChange={(e) => { navPos.current = 0; setDraft(e.target.value); autoGrow(e.target); setCmdOpen(true); setCmdHighlight(0) }}
               onKeyDown={(e) => {
                 if (showCmd) {
                   if (e.key === 'ArrowDown') { e.preventDefault(); setCmdHighlight((h) => (h + 1) % cmdSuggestions.length); return }
@@ -806,6 +862,10 @@ export function AcpThread({ sid, visible = true }: { sid: string; visible?: bool
                   if (e.key === 'Tab') { e.preventDefault(); completeCommand(cmdSuggestions[Math.min(cmdHighlight, cmdSuggestions.length - 1)]); return }
                   if (e.key === 'Escape') { e.preventDefault(); setCmdOpen(false); return }
                 }
+                // Arrow up/down recall previously sent prompts to edit and resend,
+                // but only from the first/last line so multi-line editing still works.
+                if (e.key === 'ArrowUp' && caretOnFirstLine(e.currentTarget) && recallHistory(1)) { e.preventDefault(); return }
+                if (e.key === 'ArrowDown' && caretOnLastLine(e.currentTarget) && recallHistory(-1)) { e.preventDefault(); return }
                 if (e.key === 'Escape' && working) { e.preventDefault(); acp().cancel(sid); return }
                 if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
               }}
