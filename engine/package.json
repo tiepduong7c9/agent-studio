@@ -15,8 +15,8 @@
     "smoke:acp": "node esbuild.mjs && node dist/smoke-acp.js"
   },
   "dependencies": {
-    "@agentclientprotocol/claude-agent-acp": "^0.46.0",
-    "@agentclientprotocol/sdk": "^0.26.0",
+    "@agentclientprotocol/claude-agent-acp": "^0.50.0",
+    "@agentclientprotocol/sdk": "^0.29.0",
     "nanoid": "^3.3.7"
   }
 }
