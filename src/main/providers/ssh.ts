@@ -5,6 +5,7 @@ import type { Readable } from 'stream'
 import { Client, type SFTPWrapper } from 'ssh2'
 import type {
   FileEntry,
+  GitBranches,
   GitFileChange,
   GitLog,
   GitStatus,
@@ -18,7 +19,7 @@ import { LOG_FORMAT, parseGitLog } from '../git/parseLog'
 import { ensureText, MAX_TEXT_FILE_SIZE } from '../textFile'
 import { MAX_IMAGE_FILE_SIZE } from '../../shared/imageTypes'
 import { capFiles, IGNORED_DIRS } from '../fileList'
-import { assertRepoRelative, isMissingInHead } from './local'
+import { assertBranchName, assertRepoRelative, isMissingInHead } from './local'
 import type { ProgressFn, ProjectProvider } from './types'
 
 // Cap for `git status` output (mirrors the local provider's 16MB maxBuffer) so
@@ -331,6 +332,52 @@ export class SshProjectProvider implements ProjectProvider {
         }
       }
     }
+  }
+
+  async gitBranches(): Promise<GitBranches> {
+    const root = shellQuote(this.info.rootPath)
+    // symbolic-ref exits non-zero in detached HEAD; treat that as "no branch".
+    const head = await this.exec(`git -C ${root} symbolic-ref --short -q HEAD`)
+    const current = head.code === 0 ? head.stdout.toString('utf8').trim() || null : null
+    const local = await this.gitRefList('refs/heads')
+    // Drop the symbolic `origin/HEAD -> origin/main` alias; it's not switchable.
+    const remote = (await this.gitRefList('refs/remotes')).filter((r) => !r.endsWith('/HEAD'))
+    return { current, local, remote }
+  }
+
+  private async gitRefList(ref: string): Promise<string[]> {
+    const root = shellQuote(this.info.rootPath)
+    const { code, stdout, stderr } = await this.exec(
+      `git -C ${root} for-each-ref --format=%(refname:short) ${ref}`
+    )
+    if (code !== 0) throw new Error(stderr.trim() || `git exited with code ${code}`)
+    return stdout.toString('utf8').split('\n').map((l) => l.trim()).filter(Boolean)
+  }
+
+  async gitCheckout(branch: string, discardLocal: boolean): Promise<void> {
+    assertBranchName(branch)
+    const root = shellQuote(this.info.rootPath)
+    const force = discardLocal ? '--force ' : ''
+    const { code, stderr } = await this.exec(`git -C ${root} checkout ${force}${shellQuote(branch)}`)
+    if (code !== 0) throw new Error(stderr.trim() || `git exited with code ${code}`)
+  }
+
+  async gitPull(discardLocal: boolean): Promise<string> {
+    const root = shellQuote(this.info.rootPath)
+    if (discardLocal) {
+      // Ignore local changes: sync refs, then force the tree to the upstream.
+      const fetch = await this.exec(`git -C ${root} fetch --prune`)
+      if (fetch.code !== 0) {
+        throw new Error(fetch.stderr.trim() || `git exited with code ${fetch.code}`)
+      }
+      const reset = await this.exec(`git -C ${root} reset --hard @{u}`)
+      if (reset.code !== 0) throw new Error(reset.stderr.trim() || `git exited with code ${reset.code}`)
+      return reset.stdout.toString('utf8').trim() || 'Reset to upstream.'
+    }
+    // Fast-forward only: fails clearly if the branch has diverged.
+    const { code, stdout, stderr } = await this.exec(`git -C ${root} pull --ff-only`)
+    if (code !== 0) throw new Error(stderr.trim() || `git exited with code ${code}`)
+    return `${stdout.toString('utf8')}${stderr}`.trim() || 'Already up to date.'
   }
 
   async createFile(filePath: string): Promise<void> {

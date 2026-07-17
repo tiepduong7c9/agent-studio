@@ -274,6 +274,18 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, hub: 
     await requireProvider(wsId).gitDiscard(changes)
   })
 
+  handle('git:branches', async (wsId: string) => {
+    return requireProvider(wsId).gitBranches()
+  })
+
+  handle('git:checkout', async (wsId: string, branch: string, discardLocal: boolean) => {
+    await requireProvider(wsId).gitCheckout(branch, discardLocal)
+  })
+
+  handle('git:pull', async (wsId: string, discardLocal: boolean) => {
+    return requireProvider(wsId).gitPull(discardLocal)
+  })
+
   handle('fs:createFile', async (wsId: string, filePath: string) => {
     await requireProvider(wsId).createFile(filePath)
   })

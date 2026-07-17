@@ -80,6 +80,16 @@ export interface GitLog {
   commits: GitCommit[]
 }
 
+/** Branches available in the branch switcher, from `git for-each-ref`. */
+export interface GitBranches {
+  /** Current branch, or null when in detached HEAD. */
+  current: string | null
+  /** Local branch names, e.g. ['main', 'feature']. */
+  local: string[]
+  /** Remote-tracking branch names, e.g. ['origin/main']. */
+  remote: string[]
+}
+
 export interface SshConnectOptions {
   host: string
   port?: number

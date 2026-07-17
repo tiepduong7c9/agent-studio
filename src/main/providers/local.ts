@@ -3,7 +3,14 @@ import { createReadStream, createWriteStream, promises as fs } from 'fs'
 import * as path from 'path'
 import type { Readable } from 'stream'
 import { promisify } from 'util'
-import type { FileEntry, GitFileChange, GitLog, GitStatus, ProjectInfo } from '../../shared/types'
+import type {
+  FileEntry,
+  GitBranches,
+  GitFileChange,
+  GitLog,
+  GitStatus,
+  ProjectInfo
+} from '../../shared/types'
 import { workspaceId } from '../../shared/types'
 import { parseGitStatus } from '../git/parseStatus'
 import { LOG_FORMAT, parseGitLog } from '../git/parseLog'
@@ -196,6 +203,57 @@ export class LocalProjectProvider implements ProjectProvider {
     }
   }
 
+  async gitBranches(): Promise<GitBranches> {
+    const root = this.info.rootPath
+    // symbolic-ref fails (exit 1) in detached HEAD; treat that as "no branch".
+    const current = await execFileAsync('git', ['-C', root, 'symbolic-ref', '--short', '-q', 'HEAD'])
+      .then((r) => r.stdout.trim() || null)
+      .catch(() => null)
+    const local = await this.gitRefList('refs/heads')
+    // Drop the symbolic `origin/HEAD -> origin/main` alias; it's not switchable.
+    const remote = (await this.gitRefList('refs/remotes')).filter((r) => !r.endsWith('/HEAD'))
+    return { current, local, remote }
+  }
+
+  private async gitRefList(ref: string): Promise<string[]> {
+    const { stdout } = await execFileAsync(
+      'git',
+      ['-C', this.info.rootPath, 'for-each-ref', '--format=%(refname:short)', ref],
+      { maxBuffer: 4 * 1024 * 1024 }
+    )
+    return stdout.split('\n').map((l) => l.trim()).filter(Boolean)
+  }
+
+  async gitCheckout(branch: string, discardLocal: boolean): Promise<void> {
+    assertBranchName(branch)
+    const args = ['-C', this.info.rootPath, 'checkout']
+    if (discardLocal) args.push('--force')
+    args.push(branch)
+    try {
+      await execFileAsync('git', args)
+    } catch (err: any) {
+      throw new Error(gitError(err))
+    }
+  }
+
+  async gitPull(discardLocal: boolean): Promise<string> {
+    const root = this.info.rootPath
+    try {
+      if (discardLocal) {
+        // Ignore local changes: sync refs, then force the tree to the upstream.
+        await execFileAsync('git', ['-C', root, 'fetch', '--prune'])
+        const { stdout } = await execFileAsync('git', ['-C', root, 'reset', '--hard', '@{u}'])
+        return stdout.trim() || 'Reset to upstream.'
+      }
+      // Fast-forward only: fails clearly if the branch has diverged, rather than
+      // creating a surprise merge commit.
+      const { stdout, stderr } = await execFileAsync('git', ['-C', root, 'pull', '--ff-only'])
+      return `${stdout}${stderr}`.trim() || 'Already up to date.'
+    } catch (err: any) {
+      throw new Error(gitError(err))
+    }
+  }
+
   async createFile(filePath: string): Promise<void> {
     await fs.writeFile(this.confine(filePath), '', { flag: 'wx' })
   }
@@ -266,6 +324,21 @@ export function assertRepoRelative(relPath: string): void {
   if (relPath.startsWith('/') || relPath.split(/[/\\]/).includes('..')) {
     throw new Error('Path is outside the repository')
   }
+}
+
+// A branch/ref name from the renderer must not start with '-' (which git would
+// read as an option) or contain whitespace/control chars. Args are passed as an
+// array (no shell), so this only guards against option injection and typos.
+export function assertBranchName(name: string): void {
+  if (!name || name.startsWith('-') || /[\s\x00-\x1f~^:?*[\\]/.test(name)) {
+    throw new Error(`Invalid branch name: ${name}`)
+  }
+}
+
+// A friendly one-line message from a failed execFile git call.
+export function gitError(err: any): string {
+  const stderr = err?.stderr?.toString?.() ?? ''
+  return stderr.trim() || err?.message || String(err)
 }
 
 export function isMissingInHead(stderr: string): boolean {

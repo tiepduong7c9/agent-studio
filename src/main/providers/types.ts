@@ -1,5 +1,12 @@
 import type { Readable } from 'stream'
-import type { FileEntry, GitFileChange, GitLog, GitStatus, ProjectInfo } from '../../shared/types'
+import type {
+  FileEntry,
+  GitBranches,
+  GitFileChange,
+  GitLog,
+  GitStatus,
+  ProjectInfo
+} from '../../shared/types'
 
 /** Reports incremental transfer progress: `bytesDelta` bytes moved since the
  *  previous call. Used by the Files panel's upload/download progress indicator. */
@@ -46,6 +53,23 @@ export interface ProjectProvider {
    * or untracked files are removed from disk. Irreversible.
    */
   gitDiscard(changes: GitFileChange[]): Promise<void>
+  /** Local and remote-tracking branches for the branch switcher. */
+  gitBranches(): Promise<GitBranches>
+  /**
+   * Switches the working tree to `branch`. When `branch` names a branch that
+   * exists only on a remote (e.g. "feature" with an "origin/feature"), git
+   * creates a local tracking branch for it. `discardLocal` forces the switch,
+   * throwing away uncommitted changes to tracked files (untracked files are
+   * kept) so it can't be blocked by local edits.
+   */
+  gitCheckout(branch: string, discardLocal: boolean): Promise<void>
+  /**
+   * Pulls the current branch's upstream. Normally a fast-forward, which fails
+   * cleanly if the branch has diverged. `discardLocal` instead fetches and
+   * hard-resets the working tree to the upstream, discarding local commits and
+   * tracked-file changes. Returns a short summary of what happened.
+   */
+  gitPull(discardLocal: boolean): Promise<string>
   /** Creates an empty file. Fails if it already exists. */
   createFile(filePath: string): Promise<void>
   createDir(dirPath: string): Promise<void>

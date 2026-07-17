@@ -10,6 +10,7 @@ import type {
 import type {
   BrowserChoice,
   FileEntry,
+  GitBranches,
   GitFileChange,
   GitLog,
   GitStatus,
@@ -71,6 +72,16 @@ const api = {
    *  (untracked/new files are deleted). Irreversible. */
   gitDiscard: (wsId: string, changes: GitFileChange[]): Promise<Result<void>> =>
     ipcRenderer.invoke('git:discard', wsId, changes),
+  /** Local and remote-tracking branches, for the branch switcher. */
+  gitBranches: (wsId: string): Promise<Result<GitBranches>> =>
+    ipcRenderer.invoke('git:branches', wsId),
+  /** Switch to `branch`; `discardLocal` forces past uncommitted tracked changes. */
+  gitCheckout: (wsId: string, branch: string, discardLocal: boolean): Promise<Result<void>> =>
+    ipcRenderer.invoke('git:checkout', wsId, branch, discardLocal),
+  /** Pull the current branch (fast-forward), or hard-reset to upstream when
+   *  `discardLocal` is set. Resolves with a short summary of what happened. */
+  gitPull: (wsId: string, discardLocal: boolean): Promise<Result<string>> =>
+    ipcRenderer.invoke('git:pull', wsId, discardLocal),
   createFile: (wsId: string, filePath: string): Promise<Result<void>> =>
     ipcRenderer.invoke('fs:createFile', wsId, filePath),
   createDir: (wsId: string, dirPath: string): Promise<Result<void>> =>

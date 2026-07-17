@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { AcpUsageWindow } from '../../../shared/acp'
 import type { ProjectInfo } from '../../../shared/types'
 import { hostKey, peakUtil, useUsageStore } from '../acp/usage-store'
 import { gitGraphTabId, terminalTabId, useTabsStore } from '../tabs-store'
 import { useTransferStore, type Transfer } from '../transfer-store'
+import { BranchSwitcher } from './BranchSwitcher'
 
 interface Props {
   /** Host whose account usage to show: null = local engine, else "user@host". */
@@ -99,6 +100,7 @@ export function StatusBar({
   const refresh = useUsageStore((s) => s.refresh)
   const transfers = useTransferStore((s) => s.transfers)
   const [open, setOpen] = useState(false)
+  const [branchOpen, setBranchOpen] = useState(false)
   const [branch, setBranch] = useState<string | null>(null)
   // Anchor coords for the portaled popover (fixed, relative to the viewport).
   const [anchor, setAnchor] = useState<{ right: number; bottom: number } | null>(null)
@@ -111,6 +113,13 @@ export function StatusBar({
   // terminal) by re-polling on window focus and on a slow interval while the
   // window is visible — there's no fs watcher to notify us otherwise.
   const wsId = activeWorkspace?.id ?? null
+  // Refetch the current branch — also called after a switch/pull from the popup.
+  const refreshBranch = useCallback(async () => {
+    if (!wsId) return
+    const res = await window.studio.gitStatus(wsId)
+    if (res.ok && res.data.isRepo) setBranch(res.data.branch ?? null)
+  }, [wsId])
+
   useEffect(() => {
     let cancelled = false
     setBranch(null)
@@ -223,11 +232,24 @@ export function StatusBar({
         {plan && <span className="status-item status-muted">{plan}</span>}
       </div>
       <div className="status-seg status-bar-center">
-        {branch && (
-          <span className="status-item status-branch" title={`On branch ${branch}`}>
+        {branch && wsId && (
+          <button
+            type="button"
+            className="status-item status-branch"
+            title={`On branch ${branch} — click to switch or pull`}
+            onClick={() => setBranchOpen(true)}
+          >
             <span className="codicon codicon-git-branch" />
             {branch}
-          </span>
+          </button>
+        )}
+        {branchOpen && wsId && (
+          <BranchSwitcher
+            wsId={wsId}
+            current={branch}
+            onClose={() => setBranchOpen(false)}
+            onChanged={refreshBranch}
+          />
         )}
         {activeWorkspace && (
           <button
