@@ -1,16 +1,30 @@
 # Agent Studio
 
 Standalone desktop app (Electron + React + TypeScript) modeled on the VS Code
-agent sessions window (light modern):
+agent sessions window (light modern). It runs real Claude agent sessions over the
+[Agent Client Protocol](https://agentclientprotocol.com) (ACP), backed by a
+deployable session engine, wrapped in a full local/remote code workspace.
 
 - **Frameless title bar** — sidebar toggles, command-center pill, window controls
-- **Left panel** — Sessions list skeleton + Customizations (placeholders for now)
-- **Chat pane** — "New session in … with Agent" card (visual skeleton; the Folder
-  button opens a project)
-- **Editor area** — letterpress watermark; selecting a file opens Monaco (read-only,
-  syntax highlighted); selecting a git change opens a Working Tree ↔ HEAD diff
-- **Right panel** — Changes | Files tabs: lazy tree with Seti file icons, and git
-  status (branch, ahead/behind, staged / changes / untracked / conflicts)
+- **Left panel** — live agent Sessions list + Customizations
+- **Chat pane** — start a session in a project and chat with the agent; the thread
+  renders assistant output, tool calls, and diffs, with a composer that supports
+  up/down prompt history
+- **Editor area** — letterpress watermark; selecting a file opens Monaco (syntax
+  highlighted); selecting a git change opens a Working Tree ↔ HEAD diff; integrated
+  xterm terminal
+- **Right panel** — Changes | Files tabs: lazy tree with Seti file icons, git status
+  (branch, ahead/behind, staged / changes / untracked / conflicts), and a git graph
+- **Command palette, quick open, branch switcher, theme picker**
+
+## Session engine
+
+Agent sessions run in `engine/` (`@agent-studio/engine`) — a standalone daemon that
+exposes VS Code-style IPC channels and drives the Claude agent over ACP
+(`@agentclientprotocol/claude-agent-acp`). It is packed and embedded by the app at
+build time (`npm run engine`), and can also be deployed on its own so the desktop
+app can attach to sessions running elsewhere. After changing anything under
+`engine/src`, bump `engine`'s `VERSION` so the app stops using a stale daemon.
 
 ## Reused VS Code components
 
@@ -86,8 +100,12 @@ src/
     git/       porcelain v2 status parser
     ipc.ts     IPC handlers (Result<T> envelopes)
   preload/     contextBridge API (window.studio)
-  renderer/    React UI (TopBar, panels, FileTree, GitPanel, SshDialog)
-  shared/      types shared across processes
+  renderer/    React UI (TitleBar, panels, FileTree, GitPanel, AcpThread, TerminalView, …)
+  shared/      types shared across processes (incl. ACP protocol types)
+engine/        session engine daemon
+  src/acp/     ACP session manager + Claude agent driver
+  src/channels/  VS Code-style IPC channels
 ```
 
-The `vscode/` folder is a reference checkout of VS Code and is not part of the build.
+The `vscode/` folder is a reference checkout of VS Code and is not part of the build
+(it is git-ignored).
