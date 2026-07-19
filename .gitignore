@@ -9,3 +9,5 @@ release/
 *.tsbuildinfo
 *.log
 .DS_Store
+
+icon-draft.png
