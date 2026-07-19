@@ -1,6 +1,6 @@
 {
   "name": "agent-studio",
-  "version": "0.1.0",
+  "version": "0.1.0-beta.1",
   "description": "Agent Studio desktop app",
   "main": "out/main/index.js",
   "private": true,
@@ -29,12 +29,30 @@
     "directories": {
       "output": "release"
     },
+    "publish": {
+      "provider": "github",
+      "owner": "tiepduong7c9",
+      "repo": "agent-studio"
+    },
     "linux": {
-      "target": "AppImage",
+      "target": [
+        "AppImage",
+        "deb",
+        "rpm"
+      ],
       "category": "Development",
       "executableArgs": [
         "--ozone-platform-hint=wayland"
       ]
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
     }
   },
   "dependencies": {
