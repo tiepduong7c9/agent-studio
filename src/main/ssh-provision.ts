@@ -19,7 +19,12 @@ export interface ProvisionResult {
 }
 
 function localTarball(): string {
-  return path.join(app.getAppPath(), 'engine', 'dist-pack', 'engine.tgz')
+  // Mirrors engineClientPath(): packaged, the engine is extraResources beside
+  // the asar; in dev it's in the repo tree.
+  const base = app.isPackaged
+    ? path.join(process.resourcesPath, 'engine')
+    : path.join(app.getAppPath(), 'engine')
+  return path.join(base, 'dist-pack', 'engine.tgz')
 }
 
 // Shell snippet that prints "<abs-node-path>\t<version>" for a usable Node on

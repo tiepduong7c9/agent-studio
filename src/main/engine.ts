@@ -27,7 +27,12 @@ export interface Engine {
 // ── engine client module (loaded once, as an external) ────────────────────────
 
 function engineClientPath(): string {
-  const dir = process.env.STUDIO_ENGINE_DIR || path.join(app.getAppPath(), 'engine', 'dist')
+  // Packaged, the engine ships as extraResources (outside the asar) so its
+  // daemon + native deps are real, spawnable files; in dev it lives in the repo.
+  const base = app.isPackaged
+    ? path.join(process.resourcesPath, 'engine')
+    : path.join(app.getAppPath(), 'engine')
+  const dir = process.env.STUDIO_ENGINE_DIR || path.join(base, 'dist')
   return path.join(dir, 'client.js')
 }
 
