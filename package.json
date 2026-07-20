@@ -1,6 +1,6 @@
 {
   "name": "agent-studio",
-  "version": "0.1.0-beta.1",
+  "version": "0.1.0-beta.2",
   "description": "Agent Studio desktop app",
   "author": "Tiep Duong <dmtmd2010@yahoo.com.vn>",
   "main": "out/main/index.js",
@@ -26,6 +26,24 @@
     ],
     "asarUnpack": [
       "**/node_modules/node-pty/**"
+    ],
+    "extraResources": [
+      {
+        "from": "engine/dist",
+        "to": "engine/dist"
+      },
+      {
+        "from": "engine/dist-pack",
+        "to": "engine/dist-pack"
+      },
+      {
+        "from": "engine/node_modules",
+        "to": "engine/node_modules"
+      },
+      {
+        "from": "engine/package.json",
+        "to": "engine/package.json"
+      }
     ],
     "directories": {
       "output": "release"
