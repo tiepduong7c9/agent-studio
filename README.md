@@ -1,21 +1,45 @@
 # Agent Studio
 
-Standalone desktop app (Electron + React + TypeScript) modeled on the VS Code
-agent sessions window (light modern). It runs real Claude agent sessions over the
-[Agent Client Protocol](https://agentclientprotocol.com) (ACP), backed by a
-deployable session engine, wrapped in a full local/remote code workspace.
+Agent Studio is a desktop app for running Claude coding agents on your projects.
+Start a session in any project, chat with the agent as it reads, edits, and runs
+your code, and review every change in a familiar VS Code–style workspace — whether
+your code lives on your machine or on an SSH remote.
 
-- **Frameless title bar** — sidebar toggles, command-center pill, window controls
-- **Left panel** — live agent Sessions list + Customizations
-- **Chat pane** — start a session in a project and chat with the agent; the thread
-  renders assistant output, tool calls, and diffs, with a composer that supports
-  up/down prompt history
-- **Editor area** — letterpress watermark; selecting a file opens Monaco (syntax
-  highlighted); selecting a git change opens a Working Tree ↔ HEAD diff; integrated
-  xterm terminal
-- **Right panel** — Changes | Files tabs: lazy tree with Seti file icons, git status
-  (branch, ahead/behind, staged / changes / untracked / conflicts), and a git graph
-- **Command palette, quick open, branch switcher, theme picker**
+Under the hood it drives real Claude agent sessions over the
+[Agent Client Protocol](https://agentclientprotocol.com) (ACP), backed by a
+deployable session engine, and is built with Electron + React + TypeScript with a
+UI modeled on the VS Code agent sessions window (light modern).
+
+![Agent Studio](docs/screenshot.png)
+
+## Features
+
+- **Run Claude agents on your code** — start a session in any project and chat with the
+  agent; watch it stream replies, call tools, and produce diffs as it edits your files
+- **Juggle many sessions** — keep sessions running across multiple projects, see their
+  live status at a glance, and resume a suspended one right where you left off
+- **Never miss a turn** — get a native desktop notification when a background session
+  finishes responding or starts waiting for your input
+- **Read and edit files in place** — open files in a full Monaco editor with syntax
+  highlighting, make quick edits, save, and create new files without leaving the app
+- **Review every change** — inspect Working Tree ↔ HEAD diffs, track git status (staged,
+  changed, untracked, conflicts, ahead/behind), and browse history in the branch graph
+- **Work locally or over SSH** — the same workspace whether your code lives on your
+  machine or on a remote host
+- **Stay on the keyboard** — command palette, quick open, branch switcher, theme picker,
+  and an integrated terminal
+
+## Prerequisites
+
+- **Claude authentication** — Agent Studio drives Claude through the
+  `@agentclientprotocol/claude-agent-acp` adapter, which reuses Claude Code's stored
+  credentials in `~/.claude`. Log in once with the Claude Code CLI (or set
+  `ANTHROPIC_API_KEY`) before starting a session
+- **git** on `PATH` — needed for git status, diffs, and the branch graph on local
+  projects
+- **SSH access** (optional) — only needed to open projects on a remote host; auth via
+  password, a private key file, `ssh-agent` (`SSH_AUTH_SOCK`), or the default
+  `~/.ssh/id_ed25519` / `id_rsa` keys
 
 ## Session engine
 
@@ -75,6 +99,10 @@ through the same `ProjectProvider` interface (`src/main/providers/`):
   `~/.ssh/id_ed25519` / `id_rsa` keys. Remote paths support a `~/` prefix.
 
 ## Develop
+
+Building from source needs **Node.js 20+** and **npm**, plus a C/C++ toolchain
+(build-essential / Xcode CLT / MSVC build tools) — `npm install` rebuilds the native
+`node-pty` module for Electron.
 
 ```bash
 npm install
