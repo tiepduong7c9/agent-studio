@@ -101,6 +101,10 @@ export class LocalProjectProvider implements ProjectProvider {
     return ensureText(await fs.readFile(file))
   }
 
+  async writeFile(filePath: string, content: string): Promise<void> {
+    await fs.writeFile(this.confine(filePath), content, 'utf8')
+  }
+
   async readFileBase64(filePath: string): Promise<string> {
     const file = this.confine(filePath)
     const stat = await fs.stat(file)

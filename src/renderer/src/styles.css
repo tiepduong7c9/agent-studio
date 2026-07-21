@@ -1164,6 +1164,29 @@ body {
   background: var(--vscode-toolbar-hoverBackground);
 }
 
+/* Unsaved-changes indicator: a filled dot occupying the close button's slot.
+   Hovering the tab swaps the dot out for the close button. */
+.tab-dirty {
+  font-size: 10px;
+  margin-left: 4px;
+  padding: 2px;
+  flex-shrink: 0;
+  opacity: 0.9;
+}
+
+.tab.dirty .tab-close {
+  display: none;
+}
+
+.tab.dirty:hover .tab-close {
+  display: inline-block;
+  opacity: 0.7;
+}
+
+.tab.dirty:hover .tab-dirty {
+  display: none;
+}
+
 .monaco-host {
   flex: 1;
   min-height: 0;

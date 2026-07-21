@@ -7,6 +7,7 @@ import * as defaultStyles from 'monaco-editor/esm/vs/platform/theme/browser/defa
 import type { FileEntry, ProjectInfo, Result } from '../../../shared/types'
 import type { Selection, SelectHandler } from '../selection'
 import { useToastStore } from '../toast-store'
+import { useFilesRefreshStore } from '../files-refresh-store'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { ConfirmDialog, ErrorDialog, PromptDialog } from './Dialogs'
 import { fileIconStyle } from './FileIcon'
@@ -418,7 +419,20 @@ export const FileTree = forwardRef<PanelHandle, Props>(function FileTree(
     inner?.refilter?.()
   }, [filter])
 
+  // Reload when something outside the tree changes this workspace's files (e.g.
+  // saving a new untitled file). Only react to bumps after mount and for our
+  // own project — the initial setInput already shows the current tree.
+  const refreshNonce = useFilesRefreshStore((s) => s.nonce)
+  const refreshWsId = useFilesRefreshStore((s) => s.wsId)
+  const seenNonce = useRef(refreshNonce)
+  useEffect(() => {
+    if (refreshNonce === seenNonce.current) return
+    seenNonce.current = refreshNonce
+    if (refreshWsId === project.id) refresh()
+  }, [refreshNonce, refreshWsId, project.id, refresh])
+
   useImperativeHandle(ref, () => ({
+    refresh,
     collapseAll() {
       const tree = treeRef.current
       if (!tree) return

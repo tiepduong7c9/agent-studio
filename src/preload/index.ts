@@ -61,6 +61,9 @@ const api = {
     ipcRenderer.invoke('fs:listFiles', wsId),
   readFile: (wsId: string, filePath: string): Promise<Result<string>> =>
     ipcRenderer.invoke('fs:readFile', wsId, filePath),
+  /** Overwrite (or create) a text file with `content`. Backs saving an edited file. */
+  writeFile: (wsId: string, filePath: string, content: string): Promise<Result<void>> =>
+    ipcRenderer.invoke('fs:writeFile', wsId, filePath, content),
   readFileBase64: (wsId: string, filePath: string): Promise<Result<string>> =>
     ipcRenderer.invoke('fs:readFileBase64', wsId, filePath),
   gitStatus: (wsId: string): Promise<Result<GitStatus>> => ipcRenderer.invoke('git:status', wsId),

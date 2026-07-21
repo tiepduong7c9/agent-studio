@@ -21,7 +21,10 @@ import { Toasts } from './components/Toasts'
 import { baseName } from './components/editors'
 import { notifySession } from './notify'
 import type { Selection } from './selection'
-import { chatTabId, diffTabId, fileTabId, newChatTabId, useTabsStore } from './tabs-store'
+import { chatTabId, diffTabId, fileTabId, newChatTabId, useTabsStore, type EditorTab } from './tabs-store'
+import { bufferContent, useEditorBufferStore } from './editor-buffer-store'
+import { useFilesRefreshStore } from './files-refresh-store'
+import { PromptDialog } from './components/Dialogs'
 import { useTransferStore } from './transfer-store'
 import { useViewPrefsStore } from './view-prefs-store'
 import { workspaceForSession } from './workspace'
@@ -53,6 +56,8 @@ export function App() {
   const [folderPickerHost, setFolderPickerHost] = useState<string | null>(null)
   const [quickOpen, setQuickOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  // The untitled tab awaiting a save location (Ctrl/Cmd+S on a scratch buffer).
+  const [saveAs, setSaveAs] = useState<Extract<EditorTab, { kind: 'file' }> | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [leftWidth, setLeftWidth] = useState(300)
   const [rightWidth, setRightWidth] = useState(340)
@@ -505,6 +510,96 @@ export function App() {
     return () => window.removeEventListener('keydown', onKey, { capture: true })
   }, [])
 
+  // Ctrl/Cmd+N opens an empty scratch buffer in the active workspace; it has no
+  // file until its first save. Numbered after any untitled tabs already open.
+  const newFile = useCallback(() => {
+    const ws = activeWorkspace
+    if (!ws) {
+      setError('Open a folder before creating a new file.')
+      return
+    }
+    const { tabs, activeSid: ownerSid } = useTabsStore.getState()
+    const used = tabs
+      .filter((t) => t.kind === 'file' && t.untitled)
+      .map((t) => Number((t as Extract<EditorTab, { kind: 'file' }>).name.replace('Untitled-', '')))
+      .filter((n) => Number.isFinite(n))
+    const name = `Untitled-${(used.length ? Math.max(...used) : 0) + 1}`
+    openTab(
+      { id: `untitled:${ws.id}:${ownerSid ?? ''}:${name}`, kind: 'file', title: name, name, path: '', wsId: ws.id, ownerSid, untitled: true },
+      { preview: false }
+    )
+  }, [activeWorkspace, openTab])
+
+  // Save the active file tab. Untitled buffers first need a location (save-as).
+  const saveActiveFile = useCallback(async () => {
+    const { tabs, activeId } = useTabsStore.getState()
+    const tab = tabs.find((t) => t.id === activeId)
+    if (!tab || tab.kind !== 'file') return
+    if (tab.untitled) {
+      setSaveAs(tab)
+      return
+    }
+    // No buffer means the file was only viewed, never edited — nothing to write
+    // (and writing here would truncate it, e.g. a markdown file left in preview).
+    const content = bufferContent(tab.id)
+    if (content === undefined) return
+    const res = await window.studio.writeFile(tab.wsId, tab.path, content)
+    if (res.ok) useEditorBufferStore.getState().markSaved(tab.id)
+    else setError(res.error)
+  }, [])
+
+  // Write an untitled buffer to `rel` (relative to its workspace root), promote
+  // it to a normal file tab, and drop the scratch buffer.
+  const commitSaveAs = useCallback(
+    async (tab: Extract<EditorTab, { kind: 'file' }>, rel: string) => {
+      const ws = [...workspaces, ...sessionWorkspaces].find((w) => w.id === tab.wsId)
+      if (!ws) {
+        setError('That workspace is no longer open.')
+        setSaveAs(null)
+        return
+      }
+      const path = `${ws.rootPath.replace(/\/+$/, '')}/${rel.replace(/^\/+/, '')}`
+      const content = bufferContent(tab.id) ?? ''
+      const res = await window.studio.writeFile(ws.id, path, content)
+      if (!res.ok) {
+        setError(res.error)
+        return
+      }
+      const newId = fileTabId(tab.ownerSid, ws.id, path)
+      const buffers = useEditorBufferStore.getState()
+      buffers.ensure(newId, content, false)
+      buffers.markSaved(newId, content)
+      openTab(
+        { id: newId, kind: 'file', title: baseName(path), name: baseName(path), path, wsId: ws.id, ownerSid: tab.ownerSid },
+        { preview: false }
+      )
+      useTabsStore.getState().close(tab.id)
+      buffers.discard(tab.id)
+      // Surface the new file in the tree without a manual refresh.
+      useFilesRefreshStore.getState().bump(ws.id)
+      setSaveAs(null)
+    },
+    [workspaces, sessionWorkspaces, openTab]
+  )
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return
+      if (e.key === 'n' || e.key === 'N') {
+        e.preventDefault()
+        newFile()
+      } else if (e.key === 's' || e.key === 'S') {
+        const st = useTabsStore.getState()
+        if (st.tabs.find((t) => t.id === st.activeId)?.kind === 'file') {
+          e.preventDefault()
+          saveActiveFile()
+        }
+      }
+    }
+    window.addEventListener('keydown', onKey, { capture: true })
+    return () => window.removeEventListener('keydown', onKey, { capture: true })
+  }, [newFile, saveActiveFile])
+
   const createSession = useCallback(async (ws: ProjectInfo, text: string) => {
     try {
       const meta = await window.studio.acp.createSession(ws.rootPath, ws.host ?? null)
@@ -677,6 +772,15 @@ export function App() {
             setError(null)
           }}
           onCancel={() => setFolderPickerHost(null)}
+        />
+      )}
+      {saveAs && (
+        <PromptDialog
+          title="Save As"
+          placeholder="e.g. notes/todo.md — relative to the workspace"
+          submitLabel="Save"
+          onSubmit={(rel) => commitSaveAs(saveAs, rel)}
+          onCancel={() => setSaveAs(null)}
         />
       )}
       <Toasts />

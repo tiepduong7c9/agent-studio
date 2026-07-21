@@ -231,6 +231,15 @@ export class SshProjectProvider implements ProjectProvider {
     return ensureText(buf)
   }
 
+  async writeFile(filePath: string, content: string): Promise<void> {
+    const file = this.confine(filePath)
+    await new Promise<void>((resolve, reject) => {
+      this.sftp.writeFile(file, content, { encoding: 'utf8' }, (err) =>
+        err ? reject(err) : resolve()
+      )
+    })
+  }
+
   async readFileBase64(filePath: string): Promise<string> {
     const file = this.confine(filePath)
     const stat = await new Promise<import('ssh2').Stats>((resolve, reject) => {

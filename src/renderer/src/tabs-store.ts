@@ -19,7 +19,9 @@ import type { GitFileChange } from '../../shared/types'
 export type EditorTab =
   | { id: string; kind: 'new-chat'; title: string; wsId: string }
   | { id: string; kind: 'chat'; title: string; sid: string; wsId: string }
-  | { id: string; kind: 'file'; title: string; path: string; name: string; wsId: string; ownerSid: string | null; preview?: boolean }
+  // `untitled` marks a scratch buffer with no file on disk yet (Ctrl/Cmd+N);
+  // `path` is empty until its first save promotes it to a normal file tab.
+  | { id: string; kind: 'file'; title: string; path: string; name: string; wsId: string; ownerSid: string | null; preview?: boolean; untitled?: boolean }
   | { id: string; kind: 'diff'; title: string; change: GitFileChange; wsId: string; ownerSid: string | null; preview?: boolean }
   | { id: string; kind: 'git-graph'; title: string; wsId: string; ownerSid: string | null }
   // An in-app browser showing `url`, opened from a session's links popover.

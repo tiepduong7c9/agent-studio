@@ -27,6 +27,11 @@ export interface ProjectProvider {
   listFiles(): Promise<string[]>
   /** Reads a text file. `filePath` is absolute on the project host. */
   readFile(filePath: string): Promise<string>
+  /**
+   * Writes (overwriting) a text file, creating it if absent. `filePath` is
+   * absolute on the project host. Backs saving an edited file.
+   */
+  writeFile(filePath: string, content: string): Promise<void>
   /** Reads a file as base64 (for inline image display). `filePath` is absolute. */
   readFileBase64(filePath: string): Promise<string>
   /** Byte size of a file, for range/streaming media over studio-media://. */

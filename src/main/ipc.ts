@@ -250,6 +250,10 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, hub: 
     return requireProvider(wsId).readFile(filePath)
   })
 
+  handle('fs:writeFile', async (wsId: string, filePath: string, content: string) => {
+    await requireProvider(wsId).writeFile(filePath, content)
+  })
+
   handle('fs:listFiles', async (wsId: string) => {
     return requireProvider(wsId).listFiles()
   })

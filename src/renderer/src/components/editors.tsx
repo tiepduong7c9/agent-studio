@@ -7,18 +7,34 @@ import { videoMimeType } from '../../../shared/videoTypes'
 import { monaco } from '../monaco'
 import { useMarkdownViewStore } from '../markdown-view-store'
 import { isSideBySide, useDiffViewStore } from '../diff-view-store'
+import { useEditorBufferStore } from '../editor-buffer-store'
 import { fileIconStyle } from './FileIcon'
 
 // File and diff viewers backed by Monaco. The tabbed editor area mounts one
-// per open file/diff tab.
+// per open file/diff tab. Text/markdown files open in an editable Monaco whose
+// working content lives in the editor-buffer store (so edits survive tab
+// switches); diffs stay read-only.
 
 /** Routes video/image/markdown files to their inline viewers; everything else to Monaco. */
-export function FileView({ wsId, path, tabId }: { wsId: string; path: string; tabId: string }) {
+export function FileView({
+  wsId,
+  path,
+  tabId,
+  untitled
+}: {
+  wsId: string
+  path: string
+  tabId: string
+  untitled?: boolean
+}) {
+  // Untitled scratch buffers have no file on disk: skip the read and open an
+  // empty editable editor straight away.
+  if (untitled) return <MonacoEditor tabId={tabId} path={path} untitled fallback="" />
   if (videoMimeType(path)) return <VideoView wsId={wsId} path={path} />
   const mimeType = imageMimeType(path)
   if (mimeType) return <ImageView wsId={wsId} path={path} mimeType={mimeType} />
   if (isMarkdown(path)) return <MarkdownFileView wsId={wsId} path={path} tabId={tabId} />
-  return <TextFileView wsId={wsId} path={path} />
+  return <TextFileView wsId={wsId} path={path} tabId={tabId} />
 }
 
 /** Whether a path is a markdown document (drives the preview toggle in the tab strip). */
@@ -59,11 +75,11 @@ function VideoView({ wsId, path }: { wsId: string; path: string }) {
   )
 }
 
-function TextFileView({ wsId, path }: { wsId: string; path: string }) {
+function TextFileView({ wsId, path, tabId }: { wsId: string; path: string; tabId: string }) {
   const { content, error } = useFileContent(wsId, path)
   if (error) return <ViewerMessage message={error} />
   if (content === null) return <ViewerMessage message="Loading…" />
-  return <MonacoViewer content={content} path={path} />
+  return <MonacoEditor tabId={tabId} path={path} untitled={false} fallback={content} />
 }
 
 // Fenced code block in the preview, wrapped with a hover copy button.
@@ -112,15 +128,18 @@ const MARKDOWN_COMPONENTS = {
 function MarkdownFileView({ wsId, path, tabId }: { wsId: string; path: string; tabId: string }) {
   const { content, error } = useFileContent(wsId, path)
   const sourceMode = useMarkdownViewStore((s) => !!s.sourceMode[tabId])
+  // Once the file has been edited in source mode the preview should reflect the
+  // unsaved working copy, not the stale on-disk content.
+  const edited = useEditorBufferStore((s) => s.buffers[tabId]?.content)
 
   if (error) return <ViewerMessage message={error} />
   if (content === null) return <ViewerMessage message="Loading…" />
-  if (sourceMode) return <MonacoViewer content={content} path={path} />
+  if (sourceMode) return <MonacoEditor tabId={tabId} path={path} untitled={false} fallback={content} />
 
   return (
     <div className="markdown-preview">
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
-        {content}
+        {edited ?? content}
       </ReactMarkdown>
     </div>
   )
@@ -316,24 +335,55 @@ export function DiffView({
   )
 }
 
-function MonacoViewer({ content, path }: { content: string; path: string }) {
+/**
+ * Editable Monaco editor bound to the editor-buffer store. The model is seeded
+ * from any existing buffer (preserving unsaved edits across tab switches),
+ * falling back to `fallback` (the on-disk content) on first open; every change
+ * is written back to the store. Saving to disk is handled at the app level
+ * (Ctrl/Cmd+S), which reads the buffer this keeps current.
+ */
+function MonacoEditor({
+  tabId,
+  path,
+  untitled,
+  fallback
+}: {
+  tabId: string
+  path: string
+  untitled: boolean
+  fallback: string
+}) {
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    const model = monaco.editor.createModel(content, undefined, viewerUri('view', path))
+    const store = useEditorBufferStore.getState()
+    const existing = store.buffers[tabId]
+    const initial = existing ? existing.content : fallback
+    store.ensure(tabId, initial, untitled)
+    // Untitled buffers get a per-tab uri (no extension → plaintext); saved files
+    // key off their path so Monaco infers the language from the extension.
+    const uri = untitled
+      ? monaco.Uri.from({ scheme: 'untitled', path: `/${tabId}` })
+      : viewerUri('view', path)
+    const model = monaco.editor.getModel(uri) ?? monaco.editor.createModel(initial, undefined, uri)
+    if (model.getValue() !== initial) model.setValue(initial)
     const editor = monaco.editor.create(ref.current!, {
       model,
-      readOnly: true,
+      readOnly: false,
       automaticLayout: true,
       fontSize: 13,
       renderWhitespace: 'none',
       scrollBeyondLastLine: false
     })
+    const sub = model.onDidChangeContent(() =>
+      useEditorBufferStore.getState().setContent(tabId, model.getValue())
+    )
     return () => {
+      sub.dispose()
       editor.dispose()
       model.dispose()
     }
-  }, [content, path])
+  }, [tabId, path, untitled, fallback])
 
   return <div ref={ref} className="monaco-host" />
 }

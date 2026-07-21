@@ -1,6 +1,8 @@
-import { useState, type MouseEvent } from 'react'
+import { useEffect, useState, type MouseEvent } from 'react'
 import type { GitFileChange, ProjectInfo } from '../../../shared/types'
 import { fileTabId, useTabsStore, visibleTabs, type EditorTab } from '../tabs-store'
+import { useEditorBufferStore } from '../editor-buffer-store'
+import { ConfirmDialog } from './Dialogs'
 import { AcpThread } from './AcpThread'
 import { BrowserPane } from './BrowserPane'
 import { ChatCard } from './ChatCard'
@@ -74,6 +76,27 @@ export function EditorArea({ workspaces, sessionWorkspaces, onCreateSession, onP
   const toggleMarkdownSource = useMarkdownViewStore((s) => s.toggle)
   const toggleSideBySide = useDiffViewStore((s) => s.toggleSideBySide)
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null)
+  // Tabs with unsaved edits, so the strip can show a dirty dot and warn on close.
+  const dirty = useEditorBufferStore((s) => s.dirty)
+  const discardBuffer = useEditorBufferStore((s) => s.discard)
+  const pruneBuffers = useEditorBufferStore((s) => s.prune)
+  // A dirty file tab pending a discard-and-close confirmation.
+  const [confirmClose, setConfirmClose] = useState<string | null>(null)
+
+  // Drop edit buffers whose tab has closed (any close path), so a file reopened
+  // later loads fresh from disk rather than resurrecting a stale buffer.
+  useEffect(() => {
+    pruneBuffers(new Set(allTabs.map((t) => t.id)))
+  }, [allTabs, pruneBuffers])
+
+  const closeTab = (id: string) => {
+    if (dirty[id]) {
+      setConfirmClose(id)
+      return
+    }
+    discardBuffer(id)
+    close(id)
+  }
 
   const active = allTabs.find((t) => t.id === activeId) ?? null
   const markdownTab = active?.kind === 'file' && isMarkdown(active.path) ? active : null
@@ -108,7 +131,7 @@ export function EditorArea({ workspaces, sessionWorkspaces, onCreateSession, onP
 
   const onCloseTab = (e: MouseEvent, id: string) => {
     e.stopPropagation()
-    close(id)
+    closeTab(id)
   }
 
   const onTabContextMenu = (e: MouseEvent, tab: EditorTab) => {
@@ -119,7 +142,7 @@ export function EditorArea({ workspaces, sessionWorkspaces, onCreateSession, onP
       items.push({ label: 'Keep Open', run: () => keep(tab.id) })
       items.push({ separator: true })
     }
-    items.push({ label: 'Close', run: () => close(tab.id) })
+    items.push({ label: 'Close', run: () => closeTab(tab.id) })
     items.push({ label: 'Close Others', enabled: tabs.length > 1, run: () => closeOthers(tab.id) })
     items.push({ label: 'Close All', run: () => closeAll() })
     setMenu({ x: e.clientX, y: e.clientY, items })
@@ -135,7 +158,7 @@ export function EditorArea({ workspaces, sessionWorkspaces, onCreateSession, onP
                 key={tab.id}
                 role="tab"
                 aria-selected={tab.id === activeId}
-                className={`tab ${tab.id === activeId ? 'active' : ''} ${'preview' in tab && tab.preview ? 'preview' : ''}`}
+                className={`tab ${tab.id === activeId ? 'active' : ''} ${'preview' in tab && tab.preview ? 'preview' : ''} ${dirty[tab.id] ? 'dirty' : ''}`}
                 title={tab.title}
                 onClick={() => setActive(tab.id)}
                 onDoubleClick={toggleMaximize}
@@ -143,6 +166,7 @@ export function EditorArea({ workspaces, sessionWorkspaces, onCreateSession, onP
               >
                 <span className={`codicon ${tabIcon(tab)} tab-icon`} />
                 <span className="tab-name">{tab.title}</span>
+                {dirty[tab.id] && <span className="tab-dirty codicon codicon-circle-filled" />}
                 <span
                   className="tab-close codicon codicon-close"
                   role="button"
@@ -229,6 +253,20 @@ export function EditorArea({ workspaces, sessionWorkspaces, onCreateSession, onP
         )}
       </div>
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
+      {confirmClose && (
+        <ConfirmDialog
+          message="Discard unsaved changes?"
+          detail={allTabs.find((t) => t.id === confirmClose)?.title}
+          confirmLabel="Discard"
+          danger
+          onConfirm={() => {
+            discardBuffer(confirmClose)
+            close(confirmClose)
+            setConfirmClose(null)
+          }}
+          onCancel={() => setConfirmClose(null)}
+        />
+      )}
     </div>
   )
 }
@@ -275,7 +313,7 @@ function TabContent({
         <div className="editor-pane">
           <Breadcrumbs relPath={relativeToRoot(workspace?.rootPath, tab.path)} />
           <div className="editor-pane-body">
-            <FileView key={tab.id} wsId={tab.wsId} path={tab.path} tabId={tab.id} />
+            <FileView key={tab.id} wsId={tab.wsId} path={tab.path} tabId={tab.id} untitled={tab.untitled} />
           </div>
         </div>
       )

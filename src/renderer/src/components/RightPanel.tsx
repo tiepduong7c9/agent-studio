@@ -13,9 +13,10 @@ interface Props {
 type Tab = 'changes' | 'files'
 
 // Imperative handle both trees expose so the shared header buttons
-// (collapse-all) can drive whichever panel is active.
+// (refresh, collapse-all) can drive whichever panel is active.
 export interface PanelHandle {
   collapseAll: () => void
+  refresh: () => void
 }
 
 export function RightPanel({ project, selection, onSelect }: Props) {
@@ -64,6 +65,13 @@ export function RightPanel({ project, selection, onSelect }: Props) {
           title="Search"
           onClick={toggleSearch}
         />
+        {tab === 'files' && (
+          <button
+            className="icon-button codicon codicon-refresh"
+            title="Refresh"
+            onClick={() => treeRef.current?.refresh()}
+          />
+        )}
         <button
           className="icon-button codicon codicon-collapse-all"
           title="Collapse All"

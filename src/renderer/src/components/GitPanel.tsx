@@ -311,6 +311,9 @@ export const GitPanel = forwardRef<PanelHandle, Props>(function GitPanel(
   }, [filter])
 
   useImperativeHandle(ref, () => ({
+    refresh() {
+      refresh()
+    },
     collapseAll() {
       const tree = treeRef.current
       if (!tree) return
