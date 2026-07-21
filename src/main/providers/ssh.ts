@@ -357,7 +357,7 @@ export class SshProjectProvider implements ProjectProvider {
   private async gitRefList(ref: string): Promise<string[]> {
     const root = shellQuote(this.info.rootPath)
     const { code, stdout, stderr } = await this.exec(
-      `git -C ${root} for-each-ref --format=%(refname:short) ${ref}`
+      `git -C ${root} for-each-ref --format=${shellQuote('%(refname:short)')} ${ref}`
     )
     if (code !== 0) throw new Error(stderr.trim() || `git exited with code ${code}`)
     return stdout.toString('utf8').split('\n').map((l) => l.trim()).filter(Boolean)
