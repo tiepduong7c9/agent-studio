@@ -206,6 +206,9 @@ const api = {
       ipcRenderer.invoke('acp:resumeConversation', { sid, sessionId }),
     rename: (sid: string, name: string): Promise<SessionMeta | null> =>
       ipcRenderer.invoke('acp:rename', { sid, name }),
+    /** Ask Claude to recap the conversation into a fresh title (out-of-band). */
+    regenerateTitle: (sid: string): Promise<SessionMeta | null> =>
+      ipcRenderer.invoke('acp:regenerateTitle', sid),
     kill: (sid: string): Promise<boolean> => ipcRenderer.invoke('acp:kill', sid),
     /** Subscribe to per-session thread events; returns an unsubscribe fn. */
     onEvent: (cb: (payload: AcpEventPayload) => void): (() => void) => {

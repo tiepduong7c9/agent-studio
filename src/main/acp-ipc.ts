@@ -253,6 +253,7 @@ export function registerAcpIpc(getWindow: () => BrowserWindow | null): AcpHub {
     await (await smForSid(arg.sid)).resumeConversation(arg.sid, arg.sessionId)
   })
   ipcMain.handle('acp:rename', async (_e, arg: { sid: string; name: string }) => (await smForSid(arg.sid)).rename(arg.sid, arg.name))
+  ipcMain.handle('acp:regenerateTitle', async (_e, sid: string) => (await smForSid(sid)).regenerateTitle(sid))
   ipcMain.handle('acp:kill', async (_e, sid: string) => {
     const hc = await hcForSid(sid)
     hc.subs.get(sid)?.dispose()
