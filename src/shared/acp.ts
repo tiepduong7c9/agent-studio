@@ -124,6 +124,7 @@ export interface ISessionManagerClient {
   newConversation(sid: string): Promise<void>
   resumeConversation(sid: string, sessionId: string): Promise<void>
   rename(sid: string, name: string): Promise<SessionMeta | null>
+  regenerateTitle(sid: string): Promise<SessionMeta | null>
   kill(sid: string): Promise<boolean>
   onDidChangeSessions: EventFn<SessionMeta[]>
   onSessionEvent(sid: string): EventFn<AcpEvent>

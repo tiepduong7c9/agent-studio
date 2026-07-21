@@ -124,6 +124,8 @@ function LiveRow({ s, active, pinned, hidden, done, doneAt, unread, onSelect, on
   const subTime = displayStatus === 'done' && doneAt ? relTime(doneAt) : relTime(activity(s))
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [confirming, setConfirming] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [busy, setBusy] = useState(false)
 
   const openMenu = (e: MouseEvent) => {
     e.preventDefault()
@@ -131,7 +133,25 @@ function LiveRow({ s, active, pinned, hidden, done, doneAt, unread, onSelect, on
     setMenu({ x: e.clientX, y: e.clientY })
   }
 
+  const commitRename = (value: string) => {
+    const name = value.trim()
+    setEditing(false)
+    if (name && name !== s.name) void window.studio.acp.rename(s.id, name)
+  }
+
+  const regenerateTitle = async () => {
+    setBusy(true)
+    try {
+      await window.studio.acp.regenerateTitle(s.id)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const items: MenuItem[] = [
+    { label: 'Rename', run: () => setEditing(true) },
+    { label: 'Regenerate title', enabled: !busy, run: () => void regenerateTitle() },
+    { separator: true },
     { label: unread ? 'Mark as read' : 'Mark as unread', run: onToggleUnread },
     { label: pinned ? 'Unpin' : 'Pin', run: onTogglePin },
     { label: hidden ? 'Unhide' : 'Hide', run: hidden ? onUnhide : onHide },
@@ -141,19 +161,36 @@ function LiveRow({ s, active, pinned, hidden, done, doneAt, unread, onSelect, on
 
   return (
     <div className={`acp-session-row-wrap ${hidden ? 'hidden' : ''}`}>
-      <button
-        className={`acp-session-row ${active ? 'active' : ''} ${displayStatus === 'done' ? 'done' : ''} ${displayStatus === 'waiting' ? 'waiting' : ''} ${unread ? 'unread' : ''}`}
-        onClick={onSelect}
-        onContextMenu={openMenu}
-      >
-        <span className={`acp-status-dot ${statusClass(displayStatus)}`} />
-        <span className="acp-session-main">
-          <span className="acp-session-name">{s.name}</span>
-          <span className="acp-session-sub">
-            {displayStatus ?? s.status} · {subTime}
+      {editing ? (
+        <div className="acp-session-row editing">
+          <span className={`acp-status-dot ${statusClass(displayStatus)}`} />
+          <input
+            className="acp-session-name-edit"
+            defaultValue={s.name}
+            autoFocus
+            spellCheck={false}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commitRename(e.currentTarget.value)
+              else if (e.key === 'Escape') setEditing(false)
+            }}
+            onBlur={(e) => commitRename(e.currentTarget.value)}
+          />
+        </div>
+      ) : (
+        <button
+          className={`acp-session-row ${active ? 'active' : ''} ${displayStatus === 'done' ? 'done' : ''} ${displayStatus === 'waiting' ? 'waiting' : ''} ${unread ? 'unread' : ''}`}
+          onClick={onSelect}
+          onContextMenu={openMenu}
+        >
+          <span className={`acp-status-dot ${statusClass(displayStatus)}`} />
+          <span className="acp-session-main">
+            <span className="acp-session-name">{s.name}</span>
+            <span className="acp-session-sub">
+              {busy ? 'generating title…' : `${displayStatus ?? s.status} · ${subTime}`}
+            </span>
           </span>
-        </span>
-      </button>
+        </button>
+      )}
       {pinned && <span className="acp-session-pin codicon codicon-pinned" title="Pinned" />}
       {menu && <ContextMenu x={menu.x} y={menu.y} items={items} onClose={() => setMenu(null)} />}
       {confirming && (

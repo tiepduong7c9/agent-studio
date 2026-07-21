@@ -6,7 +6,7 @@ import * as path from 'path';
 // where the daemon keeps its socket, pid, and persisted sessions.
 export const STATE_DIR = path.join(os.homedir(), '.agent-studio');
 
-export const VERSION = '0.2.6';
+export const VERSION = '0.2.7';
 
 // Platform-correct control channel: a Unix domain socket on posix, a named pipe
 // on Windows. This mirrors VS Code's createStaticIPCHandle (prefer

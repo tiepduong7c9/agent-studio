@@ -16,6 +16,8 @@ import { STATE_DIR, SESSIONS_FILE } from '../constants.js';
 import { listAllProjects } from './projects.js';
 // CommonJS usage fetcher (account + rate-limit windows); esbuild interops the named export.
 import { getUsageDetail } from './usage.cjs';
+// CommonJS out-of-band title generator (subscription-OAuth call to /v1/messages).
+import { generateTitle } from './title.cjs';
 import type { AcpConversation, AcpEvent, AcpSnapshot, AcpUsageDetail, ClaudeStatus, CreateSessionOptions, ProjectConversations, SessionMeta } from './types.js';
 
 const ADJECTIVES = ['amber', 'arctic', 'bold', 'brave', 'bright', 'calm', 'cool', 'crisp', 'dawn', 'deep', 'fast', 'fierce', 'gentle', 'golden', 'grand', 'hidden', 'jade', 'keen', 'lively', 'lucid', 'mellow', 'misty', 'noble', 'quiet', 'rapid', 'royal', 'shady', 'sharp', 'silent', 'silver', 'sleek', 'solar', 'still', 'sturdy', 'swift', 'teal', 'vivid', 'warm', 'wild', 'wise'];
@@ -184,6 +186,24 @@ export class SessionManager {
     const rec = this._sessions.get(id);
     if (!rec) return null;
     rec.meta.name = name;
+    rec.meta.titleLocked = true;
+    this._changed();
+    return { ...rec.meta };
+  }
+
+  // Ask Claude to recap the conversation into a fresh title, out-of-band (no turn
+  // injected into the session). Adopts the result like a manual rename — it
+  // becomes user-owned, so Claude's own auto-titles won't override it. Returns
+  // the updated meta, or null if the session is gone or a title couldn't be made
+  // (empty conversation, missing/expired credentials, API failure).
+  async regenerateTitle(id: string): Promise<SessionMeta | null> {
+    const rec = this._sessions.get(id);
+    if (!rec) return null;
+    const title = await generateTitle({ cwd: rec.meta.cwd, acpSessionId: rec.meta.acpSessionId });
+    if (!title) return null;
+    // Re-check: the session may have been killed while the request was in flight.
+    if (!this._sessions.has(id)) return null;
+    rec.meta.name = title;
     rec.meta.titleLocked = true;
     this._changed();
     return { ...rec.meta };

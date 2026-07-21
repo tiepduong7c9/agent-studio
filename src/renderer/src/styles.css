@@ -648,6 +648,20 @@ body {
 .acp-session-row.active .acp-session-name { font-weight: 700; }
 .acp-session-main { display: flex; flex-direction: column; min-width: 0; }
 .acp-session-name { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Inline rename: the row swaps to a non-button container holding this input. */
+.acp-session-row.editing { cursor: default; }
+.acp-session-name-edit {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-focusBorder, #0078d4);
+  border-radius: 3px;
+  padding: 1px 4px;
+  outline: none;
+}
 .acp-session-sub { font-size: 11px; color: var(--vscode-descriptionForeground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .acp-session-row.active .acp-session-sub { color: var(--vscode-list-activeSelectionForeground); opacity: 0.8; }
 /* Past (resumable) conversations read slightly muted vs live sessions. */
