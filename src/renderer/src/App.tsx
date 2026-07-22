@@ -97,7 +97,11 @@ export function App() {
   const pruneWorkspace = useTabsStore((s) => s.pruneWorkspace)
 
   const active = tabs.find((t) => t.id === activeId) ?? null
-  const activeSid = active?.kind === 'chat' ? active.sid : null
+  // The active session is tracked by the tabs store and only changes when a chat
+  // tab is opened — opening a file, browser, or terminal keeps it. Deriving it
+  // from the active tab's kind here would wrongly clear the highlight whenever a
+  // non-chat tab is focused.
+  const activeSid = useTabsStore((s) => s.activeSid)
 
   // Selecting/opening a session means the user is now looking at it — clear its
   // "done" (unread-completion) marker. Deliberately not cleared on mere window
