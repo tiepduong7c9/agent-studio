@@ -149,19 +149,26 @@ export function App() {
   }, [sessions])
   const activeChatMeta =
     active?.kind === 'chat' ? (sessions.find((s) => s.id === active.sid) ?? null) : null
+  // A chat session's workspace: an open folder that contains it, else a provider
+  // rooted at the session's own cwd (ensured by the effect below).
+  const sessionWorkspace = (meta: SessionMeta | null): ProjectInfo | null =>
+    meta
+      ? (workspaceForSession(meta, workspaces) ??
+         sessionWorkspaces.find((w) => matchesSessionDir(w, meta)) ??
+         null)
+      : null
   // The right panel follows the active tab's workspace. For a chat that's the
-  // session's workspace: an open folder that contains it, else a provider rooted
-  // at the session's own cwd (ensured by the effect below). File/diff tabs carry
-  // an explicit workspace id. With no active tab, fall back to the first open one.
+  // session's workspace. File/diff tabs carry an explicit workspace id. Browser
+  // and terminal tabs may have no resolvable workspace of their own (the in-app
+  // browser needs none), so fall back to the workspace of the session that owns
+  // them — the active session — keeping the panel and status bar populated while
+  // you're still in that session. With no active tab, fall back to the first open.
   const activeWorkspace: ProjectInfo | null = !active
     ? (workspaces[0] ?? null)
     : active.kind === 'chat'
-      ? activeChatMeta
-        ? (workspaceForSession(activeChatMeta, workspaces) ??
-           sessionWorkspaces.find((w) => matchesSessionDir(w, activeChatMeta)) ??
-           null)
-        : null
-      : ([...workspaces, ...sessionWorkspaces].find((w) => w.id === active.wsId) ?? null)
+      ? sessionWorkspace(activeChatMeta)
+      : ([...workspaces, ...sessionWorkspaces].find((w) => w.id === active.wsId) ??
+         sessionWorkspace(sessions.find((s) => s.id === activeSid) ?? null))
   const selection: Selection | null =
     active?.kind === 'file'
       ? { kind: 'file', wsId: active.wsId, path: active.path, name: active.name }
