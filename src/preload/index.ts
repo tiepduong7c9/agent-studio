@@ -140,7 +140,10 @@ const api = {
   links: {
     listBrowsers: (): Promise<Result<BrowserChoice[]>> => ipcRenderer.invoke('links:listBrowsers'),
     openIn: (url: string, browserId: string): Promise<Result<void>> =>
-      ipcRenderer.invoke('links:openIn', url, browserId)
+      ipcRenderer.invoke('links:openIn', url, browserId),
+    /** Open a link in a standalone app-owned browser window (separate OS window). */
+    openInWindow: (url: string): Promise<Result<void>> =>
+      ipcRenderer.invoke('links:openWindow', url)
   },
 
   // Integrated terminal: a PTY per tab, living in the main process. create()

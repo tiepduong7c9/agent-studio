@@ -4,6 +4,7 @@ import { registerAcpIpc } from './acp-ipc'
 import { disposeProvider, dismissAllNotifications, registerIpcHandlers } from './ipc'
 import { registerMediaProtocol, registerMediaScheme } from './media-protocol'
 import { registerTerminalIpc } from './terminal-ipc'
+import { openInWindow } from './browsers'
 import icon from '../../resources/icon.png?asset'
 
 // Note: the native-Wayland ozone platform (which avoids GNOME 48+/50's "Allow
@@ -60,8 +61,14 @@ function createWindow(): void {
   // covers coming back to the app by any means (alt-tab, dock, etc.).
   mainWindow.on('focus', () => dismissAllNotifications())
 
+  // A chat link opens in a fresh system-browser window (single tab) by default;
+  // if that can't be resolved, fall back to the OS handler.
+  const openLink = (url: string): void => {
+    openInWindow(url).catch(() => shell.openExternal(url))
+  }
+
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
+    openLink(url)
     return { action: 'deny' }
   })
 
@@ -69,7 +76,7 @@ function createWindow(): void {
   // links (e.g. markdown anchors in the chat) navigate the window itself, which
   // would replace the app with the page. Intercept those: same-origin
   // navigation (dev-server reload/HMR) is allowed through; everything else
-  // opens in the external browser.
+  // opens in a new browser window.
   mainWindow.webContents.on('will-navigate', (event, url) => {
     const current = mainWindow?.webContents.getURL()
     try {
@@ -78,7 +85,7 @@ function createWindow(): void {
       // Unparseable URL — fall through and treat as external.
     }
     event.preventDefault()
-    shell.openExternal(url)
+    openLink(url)
   })
 
   // Right-clicking a link offers open/copy. Gated on linkURL so it only shows
@@ -88,7 +95,8 @@ function createWindow(): void {
     const url = params.linkURL
     if (!url) return
     Menu.buildFromTemplate([
-      { label: 'Open Link', click: () => shell.openExternal(url) },
+      { label: 'Open in System Browser', click: () => shell.openExternal(url) },
+      { label: 'Open in New Window', click: () => void openInWindow(url).catch(() => {}) },
       { label: 'Copy Link', click: () => clipboard.writeText(url) }
     ]).popup()
   })

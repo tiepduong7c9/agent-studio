@@ -69,6 +69,10 @@ export function SessionLinksButton({ sid, wsId }: { sid: string; wsId: string | 
     window.studio.links.openIn(url, browserId).catch(() => {})
   }
 
+  const openWindow = (url: string): void => {
+    window.studio.links.openInWindow(url).catch(() => {})
+  }
+
   const showTargetMenu = async (e: MouseEvent, url: string): Promise<void> => {
     e.preventDefault()
     e.stopPropagation()
@@ -79,6 +83,7 @@ export function SessionLinksButton({ sid, wsId }: { sid: string; wsId: string | 
     }
     const items: MenuItem[] = [
       { label: 'Open in app', run: () => openInApp(url) },
+      { label: 'Open in new window', run: () => openWindow(url) },
       { separator: true },
       ...browsersRef.current.map((b) => ({
         label: b.id === 'default' ? 'Open in system default' : `Open in ${b.name}`,

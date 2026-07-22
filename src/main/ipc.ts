@@ -2,7 +2,7 @@ import { promises as fsp } from 'fs'
 import * as path from 'path'
 import { BrowserWindow, dialog, ipcMain, Notification, shell } from 'electron'
 import type { GitFileChange, Result, SshConnectOptions } from '../shared/types'
-import { listBrowsers, openInBrowser } from './browsers'
+import { listBrowsers, openInBrowser, openInWindow } from './browsers'
 import { engineHostKey, workspaceId } from '../shared/types'
 import { clearSshEngine, LOCAL_HOST_KEY, registerEngineTarget, sshTargetFor } from './engine'
 import { LocalProjectProvider } from './providers/local'
@@ -438,6 +438,10 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, hub: 
   handle('links:listBrowsers', async () => listBrowsers())
   handle('links:openIn', async (url: string, browserId: string) => {
     await openInBrowser(url, browserId)
+  })
+  // Open a link in the system browser, forced into a fresh window (single tab).
+  handle('links:openWindow', async (url: string) => {
+    await openInWindow(url)
   })
 
   handle('window:control', async (action: 'minimize' | 'maximize' | 'close') => {
