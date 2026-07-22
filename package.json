@@ -1,6 +1,6 @@
 {
   "name": "agent-studio",
-  "version": "0.1.1-beta.2",
+  "version": "0.1.1-beta.3",
   "description": "Agent Studio desktop app",
   "author": "Tiep Duong <dmtmd2010@yahoo.com.vn>",
   "main": "out/main/index.js",
