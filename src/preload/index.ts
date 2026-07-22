@@ -157,6 +157,11 @@ const api = {
     resize: (id: string, cols: number, rows: number): void =>
       ipcRenderer.send('terminal:resize', id, cols, rows),
     kill: (id: string): void => ipcRenderer.send('terminal:kill', id),
+    /** Pop the native right-click menu; resolves with the action the user picked. */
+    contextMenu: (opts: {
+      hasSelection: boolean
+    }): Promise<'copy' | 'paste' | 'selectAll' | null> =>
+      ipcRenderer.invoke('terminal:contextMenu', opts),
     /** Subscribe to a terminal's output; returns an unsubscribe fn. */
     onData: (cb: (payload: { id: string; data: string }) => void): (() => void) => {
       const h = (_e: unknown, payload: { id: string; data: string }) => cb(payload)

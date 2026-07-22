@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain } from 'electron'
+import { BrowserWindow, ipcMain, Menu } from 'electron'
 import { randomUUID } from 'crypto'
 import * as os from 'os'
 import * as pty from 'node-pty'
@@ -133,6 +133,25 @@ export function registerTerminalIpc(getWindow: () => BrowserWindow | null): () =
     h.kill()
   })
 
+  // Native right-click menu for the terminal. xterm keeps its own (canvas)
+  // selection that Electron's default context menu can't see, so the renderer
+  // tells us whether there's a selection and we return the chosen action for it
+  // to carry out (copy/paste go through the renderer's clipboard + PTY plumbing).
+  ipcMain.handle(
+    'terminal:contextMenu',
+    (_e, opts: { hasSelection: boolean }): Promise<'copy' | 'paste' | 'selectAll' | null> =>
+      new Promise((resolve) => {
+        let action: 'copy' | 'paste' | 'selectAll' | null = null
+        const menu = Menu.buildFromTemplate([
+          { label: 'Copy', enabled: opts.hasSelection, click: () => (action = 'copy') },
+          { label: 'Paste', click: () => (action = 'paste') },
+          { type: 'separator' },
+          { label: 'Select All', click: () => (action = 'selectAll') }
+        ])
+        menu.popup({ window: getWindow() ?? undefined, callback: () => resolve(action) })
+      })
+  )
+
   return () => {
     for (const h of handles.values()) h.kill()
     handles.clear()
@@ -140,5 +159,6 @@ export function registerTerminalIpc(getWindow: () => BrowserWindow | null): () =
     ipcMain.removeAllListeners('terminal:input')
     ipcMain.removeAllListeners('terminal:resize')
     ipcMain.removeAllListeners('terminal:kill')
+    ipcMain.removeHandler('terminal:contextMenu')
   }
 }
