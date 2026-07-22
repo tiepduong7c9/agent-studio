@@ -241,9 +241,10 @@ export function EditorArea({ workspaces, sessionWorkspaces, onCreateSession, onP
         </div>
       )}
       <div className="editor-body">
-        {/* Terminals persist while their tab is open: kept mounted (so the PTY
-            keeps running) even when another tab is showing, and revealed when
-            active. Everything else renders through TabContent for the active tab. */}
+        {/* Terminals and browsers persist while their tab is open: kept mounted
+            (so the PTY keeps running / the page isn't reloaded) even when another
+            tab is showing, and revealed when active. Everything else renders
+            through TabContent for the active tab. */}
         {allTabs
           .filter((t): t is Extract<EditorTab, { kind: 'terminal' }> => t.kind === 'terminal')
           .map((t) => (
@@ -255,7 +256,18 @@ export function EditorArea({ workspaces, sessionWorkspaces, onCreateSession, onP
               <TerminalView wsId={t.wsId} cwd={t.cwd} host={t.host} active={t.id === activeId} />
             </div>
           ))}
-        {active?.kind !== 'terminal' && (
+        {allTabs
+          .filter((t): t is Extract<EditorTab, { kind: 'browser' }> => t.kind === 'browser')
+          .map((t) => (
+            <div
+              key={t.id}
+              className="editor-browser-layer"
+              style={{ display: t.id === activeId ? 'flex' : 'none' }}
+            >
+              <BrowserPane url={t.url} />
+            </div>
+          ))}
+        {active?.kind !== 'terminal' && active?.kind !== 'browser' && (
           <ErrorBoundary inline resetKeys={[active?.id]}>
             <TabContent
               tab={active}
@@ -321,8 +333,6 @@ function TabContent({
       return <AcpThread key={tab.id} sid={tab.sid} workspace={workspace} />
     case 'git-graph':
       return <GitGraphView key={tab.id} wsId={tab.wsId} />
-    case 'browser':
-      return <BrowserPane key={tab.id} url={tab.url} />
     case 'file':
       return (
         <div className="editor-pane">
