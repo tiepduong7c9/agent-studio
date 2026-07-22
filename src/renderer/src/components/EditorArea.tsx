@@ -13,6 +13,8 @@ import { ErrorBoundary } from './ErrorBoundary'
 import { baseName, Breadcrumbs, DiffView, FileView, isMarkdown, relativeToRoot } from './editors'
 import { useMarkdownViewStore } from '../markdown-view-store'
 import { isSideBySide, useDiffViewStore } from '../diff-view-store'
+import { useSessionsStore } from '../acp/sessions-store'
+import { sessionInWorkspace, workspaceForSession } from '../workspace'
 import letterpress from '../assets/letterpress-light.svg'
 
 interface Props {
@@ -61,6 +63,7 @@ function tabIcon(tab: EditorTab): string {
 export function EditorArea({ workspaces, sessionWorkspaces, onCreateSession, onPickFolder }: Props) {
   const allTabs = useTabsStore((s) => s.tabs)
   const activeSid = useTabsStore((s) => s.activeSid)
+  const sessions = useSessionsStore((s) => s.sessions)
   // Only the active session's tabs are shown; switching sessions swaps the set.
   const tabs = visibleTabs(allTabs, activeSid)
   const activeId = useTabsStore((s) => s.activeId)
@@ -99,6 +102,22 @@ export function EditorArea({ workspaces, sessionWorkspaces, onCreateSession, onP
   }
 
   const active = allTabs.find((t) => t.id === activeId) ?? null
+  // The workspace backing a tab. Chat tabs resolve by the session's cwd (their
+  // own wsId can be blank for a session outside any open folder), matching how
+  // the right panel picks a workspace; other tabs carry an explicit wsId.
+  const workspaceForTab = (t: EditorTab | null): ProjectInfo | null => {
+    if (!t) return null
+    if (t.kind === 'chat') {
+      const meta = sessions.find((s) => s.id === t.sid)
+      if (!meta) return null
+      return (
+        workspaceForSession(meta, workspaces) ??
+        sessionWorkspaces.find((w) => sessionInWorkspace(meta, w)) ??
+        null
+      )
+    }
+    return [...workspaces, ...sessionWorkspaces].find((w) => w.id === t.wsId) ?? null
+  }
   const markdownTab = active?.kind === 'file' && isMarkdown(active.path) ? active : null
   const markdownSource = useMarkdownViewStore((s) => (markdownTab ? !!s.sourceMode[markdownTab.id] : false))
   const diffTab = active?.kind === 'diff' ? active : null
@@ -240,11 +259,7 @@ export function EditorArea({ workspaces, sessionWorkspaces, onCreateSession, onP
           <ErrorBoundary inline resetKeys={[active?.id]}>
             <TabContent
               tab={active}
-              workspace={
-                active
-                  ? ([...workspaces, ...sessionWorkspaces].find((w) => w.id === active.wsId) ?? null)
-                  : null
-              }
+              workspace={workspaceForTab(active)}
               onCreateSession={onCreateSession}
               onPickFolder={onPickFolder}
               onCloseNewChat={() => active && close(active.id)}
@@ -303,7 +318,7 @@ function TabContent({
         />
       )
     case 'chat':
-      return <AcpThread key={tab.id} sid={tab.sid} />
+      return <AcpThread key={tab.id} sid={tab.sid} workspace={workspace} />
     case 'git-graph':
       return <GitGraphView key={tab.id} wsId={tab.wsId} />
     case 'browser':

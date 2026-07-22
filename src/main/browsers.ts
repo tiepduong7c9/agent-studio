@@ -69,3 +69,41 @@ export async function openInBrowser(url: string, browserId: string): Promise<voi
   const child = spawn(browserId, [url], { detached: true, stdio: 'ignore' })
   child.unref()
 }
+
+/** Resolve the system default browser to a binary on PATH (Linux xdg), or null.
+ *  `xdg-settings` reports a .desktop id (e.g. "firefox.desktop"); we map its stem
+ *  onto a known/among-PATH binary so we can pass it a --new-window flag. */
+async function defaultBrowserBin(): Promise<string | null> {
+  try {
+    const { stdout } = await execFile('xdg-settings', ['get', 'default-web-browser'])
+    const stem = stdout.trim().replace(/\.desktop$/, '')
+    if (!stem) return null
+    for (const c of CANDIDATES) {
+      if ((stem === c.bin || stem.startsWith(c.bin) || c.bin.startsWith(stem)) && (await onPath(c.bin))) {
+        return c.bin
+      }
+    }
+    if (await onPath(stem)) return stem
+  } catch {
+    // xdg-settings missing or no default set — caller falls back.
+  }
+  return null
+}
+
+/** Open `url` in the system browser, forced into a fresh browser window (a single
+ *  tab) rather than a new tab in an existing window. Resolves the default browser
+ *  and passes --new-window; if it can't be resolved, falls back to the OS handler
+ *  (which typically opens a tab). */
+export async function openInWindow(url: string): Promise<void> {
+  const parsed = new URL(url)
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(`Refusing to open non-http URL: ${url}`)
+  }
+  const bin = await defaultBrowserBin()
+  if (bin) {
+    const child = spawn(bin, ['--new-window', url], { detached: true, stdio: 'ignore' })
+    child.unref()
+    return
+  }
+  await shell.openExternal(url)
+}
