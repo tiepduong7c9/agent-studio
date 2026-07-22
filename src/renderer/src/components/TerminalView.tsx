@@ -97,6 +97,60 @@ export function TerminalView({
     termRef.current = term
     fitRef.current = fit
 
+    const copySelection = () => {
+      const sel = term.getSelection()
+      if (sel) void navigator.clipboard.writeText(sel)
+    }
+    const paste = () => {
+      void navigator.clipboard.readText().then((text) => {
+        if (text && idRef.current) window.studio.terminal.input(idRef.current, text)
+      })
+    }
+
+    // xterm sends Ctrl+C to the PTY as SIGINT, so clipboard copy/paste use the
+    // Linux terminal convention (Ctrl+Shift+C/V, plus the Insert variants).
+    // preventDefault is essential: Chromium natively treats Ctrl+Shift+V as
+    // "paste as plain text" into the hidden textarea, which — on top of our own
+    // paste() — would insert the text twice. Returning false also stops xterm
+    // from forwarding the keystroke to the PTY.
+    term.attachCustomKeyEventHandler((e) => {
+      if (e.type !== 'keydown') return true
+      const key = e.key.toLowerCase()
+      if (e.ctrlKey && e.shiftKey && key === 'c') {
+        e.preventDefault()
+        copySelection()
+        return false
+      }
+      if (e.ctrlKey && e.shiftKey && key === 'v') {
+        e.preventDefault()
+        paste()
+        return false
+      }
+      if (e.ctrlKey && e.key === 'Insert') {
+        e.preventDefault()
+        copySelection()
+        return false
+      }
+      if (e.shiftKey && e.key === 'Insert') {
+        e.preventDefault()
+        paste()
+        return false
+      }
+      return true
+    })
+
+    // Right-click opens the native Copy/Paste/Select All menu (built in the main
+    // process, since xterm's selection is invisible to Electron's default menu).
+    const onContextMenu = (e: MouseEvent) => {
+      e.preventDefault()
+      void window.studio.terminal.contextMenu({ hasSelection: term.hasSelection() }).then((action) => {
+        if (action === 'copy') copySelection()
+        else if (action === 'paste') paste()
+        else if (action === 'selectAll') term.selectAll()
+      })
+    }
+    hostRef.current!.addEventListener('contextmenu', onContextMenu)
+
     // Keystrokes → PTY (dropped until the PTY exists; the shell isn't up yet).
     term.onData((data) => {
       if (idRef.current) window.studio.terminal.input(idRef.current, data)
@@ -141,9 +195,11 @@ export function TerminalView({
     })
     ro.observe(hostRef.current!)
 
+    const hostEl = hostRef.current!
     return () => {
       disposed = true
       ro.disconnect()
+      hostEl.removeEventListener('contextmenu', onContextMenu)
       offData()
       offExit()
       if (idRef.current) window.studio.terminal.kill(idRef.current)
