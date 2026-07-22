@@ -194,6 +194,27 @@
 .acp-assistant pre code { background: none; padding: 0; color: inherit; }
 .acp-assistant a { color: var(--vscode-textLink-foreground); }
 
+/* A file path that names a real project file — click to open it in the editor.
+   Rendered without the code chip box so it reads as an inline link, whether it
+   came from inline code or plain prose. */
+.acp-assistant code.acp-fileref {
+  background: none;
+  padding: 0;
+  color: var(--vscode-textLink-foreground);
+  cursor: pointer;
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+}
+.acp-assistant code.acp-fileref:hover {
+  color: var(--vscode-textLink-activeForeground, var(--vscode-textLink-foreground));
+  text-decoration-style: solid;
+}
+.acp-assistant code.acp-fileref:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 1px;
+}
+
 /* Code block wrapper (adds a hover copy button around fenced code). */
 .acp-code { position: relative; margin: 8px 0; }
 .acp-code pre { margin: 0; }

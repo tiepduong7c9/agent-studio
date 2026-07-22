@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
@@ -19,11 +19,141 @@ import type {
 import { ASK_OPTION_META_KEY } from '../acp/protocol'
 import { useCommandHistory } from '../acp/command-history'
 import { useDrafts } from '../acp/drafts-store'
-import { useTabsStore } from '../tabs-store'
+import { fileTabId, useTabsStore } from '../tabs-store'
+import type { ProjectInfo } from '../../../shared/types'
 import { SessionLinksButton } from './SessionLinksButton'
 import './AcpThread.css'
 
 const acp = () => window.studio.acp
+
+const fileBaseName = (p: string): string => p.split('/').pop() || p
+
+// Collapse "." and ".." segments in a posix path, keeping it absolute.
+function normalizePosix(path: string): string {
+  const out: string[] = []
+  for (const seg of path.split('/')) {
+    if (seg === '' || seg === '.') continue
+    if (seg === '..') out.pop()
+    else out.push(seg)
+  }
+  return '/' + out.join('/')
+}
+
+// Carries everything the assistant markdown needs to turn a file path it
+// mentions into an openable editor tab: the set of the project's files (relative
+// to root, so only real files linkify), the project root, the session cwd
+// (relative paths are resolved against it), and the opener.
+type FileMatch = { rel: string; abs: string }
+type FileRefCtx = {
+  /** Resolve a raw path token to a project file, or null. */
+  match: ((token: string) => FileMatch | null) | null
+  open: (absPath: string) => void
+}
+const FileRefContext = createContext<FileRefCtx | null>(null)
+
+// Build a resolver from the project's file index: maps a raw path token to the
+// project file it names, or null. Accepts a path relative to the session cwd,
+// relative to the project root, an absolute path under root, or an unambiguous
+// basename; a trailing :line[:col] reference is stripped. Returns null unless it
+// names a real project file, so prose like `arr.length` or a URL never matches.
+function makeMatcher(
+  files: Set<string> | null,
+  root: string | null,
+  cwd: string | null
+): ((token: string) => FileMatch | null) | null {
+  if (!files || !root) return null
+  const r = root.replace(/\/+$/, '')
+  // basename → rel, but only where a basename names exactly one file (null marks
+  // an ambiguous basename, so it never resolves to an arbitrary match).
+  const byBase = new Map<string, string | null>()
+  for (const rel of files) {
+    const base = rel.slice(rel.lastIndexOf('/') + 1)
+    byBase.set(base, byBase.has(base) ? null : rel)
+  }
+  const hit = (rel: string): FileMatch | null => (files.has(rel) ? { rel, abs: `${r}/${rel}` } : null)
+  const under = (abs: string): FileMatch | null =>
+    abs.startsWith(r + '/') ? hit(abs.slice(r.length + 1)) : null
+  return (token: string) => {
+    const p = token.replace(/:\d+(?::\d+)?$/, '') // drop a trailing line[:col] ref
+    if (!p) return null
+    if (p.startsWith('/')) return under(normalizePosix(p))
+    if (cwd) { const m = under(normalizePosix(`${cwd}/${p}`)); if (m) return m }
+    const m = under(normalizePosix(`${r}/${p}`))
+    if (m) return m
+    if (!p.includes('/')) { const rel = byBase.get(p); if (rel) return hit(rel) }
+    return null
+  }
+}
+
+// hast node builder for a matched file path — a clickable inline <code>.
+function fileRefNode(text: string, m: FileMatch): unknown {
+  return {
+    type: 'element',
+    tagName: 'code',
+    properties: { className: ['acp-fileref'], 'data-abs': m.abs, title: `Open ${m.rel}` },
+    children: [{ type: 'text', value: text }]
+  }
+}
+
+// rehype plugin: scan text (prose and inline code alike) for tokens that name a
+// project file and turn them into clickable <code class="acp-fileref"> nodes.
+// Fenced code (under <pre>) and link text (<a>) are left untouched.
+function rehypeFileRefs(match: (t: string) => FileMatch | null) {
+  const PATH_RE = /[A-Za-z0-9_@+.~/-]+/g
+  const TRAILING = /[).,;:'"`\]}!?]+$/
+  // Split a text value into text + file-ref nodes, or null if nothing matched.
+  const splitText = (value: string): unknown[] | null => {
+    const out: unknown[] = []
+    let last = 0
+    let changed = false
+    let m: RegExpExecArray | null
+    PATH_RE.lastIndex = 0
+    while ((m = PATH_RE.exec(value))) {
+      const raw = m[0]
+      const core = raw.replace(TRAILING, '') // strip prose punctuation for display
+      if (!core || (!core.includes('/') && !/\.[A-Za-z0-9]+$/.test(core))) continue
+      const hit = match(core)
+      if (!hit) continue
+      changed = true
+      if (m.index > last) out.push({ type: 'text', value: value.slice(last, m.index) })
+      out.push(fileRefNode(core, hit))
+      last = m.index + core.length
+    }
+    if (!changed) return null
+    if (last < value.length) out.push({ type: 'text', value: value.slice(last) })
+    return out
+  }
+  const annotateCode = (node: any) => {
+    const text = (node.children ?? []).map((c: any) => (c.type === 'text' ? c.value : '')).join('')
+    const hit = match(text.trim())
+    if (!hit) return
+    const props = (node.properties = node.properties || {})
+    const cn = props.className
+    props.className = Array.isArray(cn) ? [...cn, 'acp-fileref'] : ['acp-fileref']
+    props['data-abs'] = hit.abs
+    props.title = `Open ${hit.rel}`
+  }
+  const visit = (node: any) => {
+    if (!node || !Array.isArray(node.children)) return
+    const next: any[] = []
+    for (const child of node.children) {
+      if (child.type === 'text') {
+        const parts = splitText(child.value)
+        next.push(...(parts ?? [child]))
+      } else if (child.type === 'element' && child.tagName === 'code') {
+        annotateCode(child) // inline code (block code lives under <pre>, skipped below)
+        next.push(child)
+      } else if (child.type === 'element' && (child.tagName === 'pre' || child.tagName === 'a')) {
+        next.push(child) // leave fenced code and existing links alone
+      } else {
+        visit(child)
+        next.push(child)
+      }
+    }
+    node.children = next
+  }
+  return (tree: unknown) => visit(tree)
+}
 
 // Copy-to-clipboard affordance for code/output blocks; flips to a check briefly.
 function CopyButton({ getText, className }: { getText: () => string; className?: string }) {
@@ -55,8 +185,52 @@ function CodeBlock({ children }: React.ComponentPropsWithoutRef<'pre'>) {
   )
 }
 
+// Flatten a code element's children to text (react-markdown passes a string or
+// an array of strings for a <code>'s content).
+function childrenText(children: React.ReactNode): string {
+  if (typeof children === 'string') return children
+  if (Array.isArray(children) && children.every((c) => typeof c === 'string')) return children.join('')
+  return ''
+}
+
+// A <code> the rehype plugin tagged as a project file (class "acp-fileref", plus
+// a data-abs hint) renders as a one-click "open in editor" affordance; all other
+// code is verbatim. The absolute path comes from data-abs, or is re-resolved from
+// the token text as a fallback if that attribute didn't survive rendering.
+function CodeText({ className, children, node: _node, ...props }: React.ComponentPropsWithoutRef<'code'> & { node?: unknown }) {
+  const ctx = useContext(FileRefContext)
+  const rest = props as Record<string, unknown>
+  const isRef = (className ?? '').split(/\s+/).includes('acp-fileref')
+  const abs = isRef && ctx ? ((rest['data-abs'] as string | undefined) ?? ctx.match?.(childrenText(children))?.abs) : undefined
+  if (!abs || !ctx) return <code className={className} {...props}>{children}</code>
+  const { ['data-abs']: _abs, ...domProps } = rest
+  return (
+    <code
+      className={className}
+      role="link"
+      tabIndex={0}
+      {...domProps}
+      onClick={(e) => { e.preventDefault(); e.stopPropagation(); ctx.open(abs) }}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); ctx.open(abs) } }}
+    >
+      {children}
+    </code>
+  )
+}
+
 const Markdown = memo(function Markdown({ children }: { children: string }) {
-  return <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ pre: CodeBlock }}>{children}</ReactMarkdown>
+  const ctx = useContext(FileRefContext)
+  // Rebuilt only when the matcher changes (ctx is stable while streaming).
+  const rehypePlugins = useMemo(() => {
+    const match = ctx?.match ?? null
+    const plugins: [typeof rehypeFileRefs, typeof match][] = match ? [[rehypeFileRefs, match]] : []
+    return plugins
+  }, [ctx])
+  return (
+    <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={rehypePlugins} components={{ pre: CodeBlock, code: CodeText }}>
+      {children}
+    </ReactMarkdown>
+  )
 })
 
 function useOutsideClose(open: boolean, onClose: () => void) {
@@ -533,7 +707,7 @@ const BUILTIN_COMMANDS: AcpCommand[] = [
   { name: 'clear', description: 'Start a new conversation' }
 ]
 
-export function AcpThread({ sid, visible = true }: { sid: string; visible?: boolean }) {
+export function AcpThread({ sid, workspace = null, visible = true }: { sid: string; workspace?: ProjectInfo | null; visible?: boolean }) {
   const thread = useAcpStore((s) => s.threads.get(sid))
   const setHistory = useAcpStore((s) => s.setHistory)
   const resolvePermissionLocal = useAcpStore((s) => s.resolvePermissionLocal)
@@ -553,6 +727,9 @@ export function AcpThread({ sid, visible = true }: { sid: string; visible?: bool
   // Workspace of this session's chat tab — used to anchor in-app browser tabs
   // opened from the links popover.
   const wsId = useTabsStore((s) => s.tabs.find((t) => t.kind === 'chat' && t.sid === sid)?.wsId ?? null)
+  // The session's working directory — file paths the assistant mentions relative
+  // to it are resolved against this to open them in the editor.
+  const cwd = useSessionsStore((s) => s.sessions.find((x) => x.id === sid)?.cwd ?? null)
   // Draft lives in a per-session store, not local state: the composer remounts on
   // every session switch (its tab key changes), so keeping it here would drop
   // whatever was typed. Reading from the store restores it when switching back.
@@ -614,6 +791,43 @@ export function AcpThread({ sid, visible = true }: { sid: string; visible?: bool
     const seen = new Set(BUILTIN_COMMANDS.map((c) => c.name))
     return [...BUILTIN_COMMANDS, ...(thread?.availableCommands ?? []).filter((c) => !seen.has(c.name))]
   }, [thread?.availableCommands])
+
+  // Project file index (paths relative to the workspace root), loaded lazily so
+  // the assistant's file mentions can be matched to real files and turned into
+  // one-click "open in editor" links. Reloaded when the workspace changes.
+  const wsRoot = workspace?.rootPath ?? null
+  const [projectFiles, setProjectFiles] = useState<Set<string> | null>(null)
+  useEffect(() => {
+    if (!workspace) { setProjectFiles(null); return }
+    let cancelled = false
+    window.studio.listFiles(workspace.id).then((res) => {
+      if (!cancelled) setProjectFiles(res.ok ? new Set(res.data) : null)
+    }).catch(() => { if (!cancelled) setProjectFiles(null) })
+    return () => { cancelled = true }
+  }, [workspace?.id])
+
+  // Open a project file the assistant mentioned in the editor, in this session's
+  // group, as a transient preview tab (VS Code style — a single click reuses it).
+  const openProjectFile = useCallback((absPath: string) => {
+    if (!workspace) return
+    useTabsStore.getState().open(
+      {
+        id: fileTabId(sid, workspace.id, absPath),
+        kind: 'file',
+        title: fileBaseName(absPath),
+        path: absPath,
+        name: fileBaseName(absPath),
+        wsId: workspace.id,
+        ownerSid: sid
+      },
+      { preview: true }
+    )
+  }, [workspace?.id, sid])
+
+  const fileCtx = useMemo<FileRefCtx>(
+    () => ({ match: makeMatcher(projectFiles, wsRoot, cwd), open: openProjectFile }),
+    [projectFiles, wsRoot, cwd, openProjectFile]
+  )
 
   // Slash-command autosuggest: active only while typing the command token — a
   // leading "/" with no space yet. Recently used commands rank first, the rest
@@ -797,7 +1011,9 @@ export function AcpThread({ sid, visible = true }: { sid: string; visible?: bool
 
       <div className="acp-body">
         <div ref={scrollRef} className="acp-scroll" onScroll={onScroll}>
-          <MessageList items={items} working={working} onAnswerPermission={answerPermission} onAnswerElicitation={answerElicitation} />
+          <FileRefContext.Provider value={fileCtx}>
+            <MessageList items={items} working={working} onAnswerPermission={answerPermission} onAnswerElicitation={answerElicitation} />
+          </FileRefContext.Provider>
         </div>
         {resuming && (
           <div className="acp-overlay">
