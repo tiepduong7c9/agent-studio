@@ -33,8 +33,62 @@
   border-left: 3px solid #e5534b;
 }
 
-.toast-msg {
+.toast-body {
   flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.toast-msg {
+  /* Never let a long message push the dismiss button off-screen: clamp to a
+     few lines and stash the rest behind the "Details" button. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.toast-details-btn {
+  align-self: flex-start;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--vscode-textLink-foreground, #3794ff);
+  cursor: pointer;
+  font-size: 12px;
+  text-decoration: underline;
+}
+.toast-details-btn:hover {
+  color: var(--vscode-textLink-activeForeground, #3794ff);
+}
+
+/* Details popup: full command output, monospaced and scrollable. */
+.modal.toast-details-modal {
+  display: flex;
+  flex-direction: column;
+  width: 760px;
+  max-height: 70vh;
+}
+
+.toast-details-text {
+  margin: 0;
+  padding: 10px;
+  flex: 1;
+  overflow: auto;
+  max-height: 55vh;
+  border-radius: 4px;
+  background: var(--vscode-textCodeBlock-background, var(--vscode-editor-background));
+  border: 1px solid var(--vscode-widget-border);
+  color: var(--vscode-foreground);
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .toast-dismiss {

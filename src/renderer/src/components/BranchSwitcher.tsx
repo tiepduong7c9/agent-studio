@@ -39,6 +39,16 @@ export function BranchSwitcher({ wsId, current, onClose, onChanged }: Props) {
   const listRef = useRef<HTMLDivElement>(null)
   const push = useToastStore((s) => s.push)
 
+  // Git output (a pull's summary, or an error) can run to many lines and would
+  // overflow the toast off-screen. Show a short line inline when the output is
+  // brief; otherwise keep the summary and stash the full text behind "Details".
+  const pushOutput = (kind: 'info' | 'danger', summary: string, full: string) => {
+    const text = full.trim()
+    const brief = !text.includes('\n') && text.length <= 100
+    if (brief) push(kind, summary ? `${summary} · ${text}` : text)
+    else push(kind, summary || text.split('\n', 1)[0], text)
+  }
+
   useEffect(() => {
     let cancelled = false
     window.studio.gitBranches(wsId).then((res) => {
@@ -93,7 +103,7 @@ export function BranchSwitcher({ wsId, current, onClose, onChanged }: Props) {
       const res = await window.studio.gitCheckout(wsId, item.target, discardLocal)
       if (!res.ok) {
         setBusy(null)
-        return push('danger', res.error)
+        return pushOutput('danger', 'Switch failed', res.error)
       }
     }
     if (pullLatest) {
@@ -103,9 +113,9 @@ export function BranchSwitcher({ wsId, current, onClose, onChanged }: Props) {
         setBusy(null)
         // The switch (if any) still succeeded — reflect it before reporting.
         onChanged()
-        return push('danger', res.error)
+        return pushOutput('danger', 'Pull failed', res.error)
       }
-      push('info', switching ? `Switched to ${item.target} · ${res.data}` : res.data)
+      pushOutput('info', switching ? `Switched to ${item.target}` : 'Pulled latest', res.data)
     } else {
       push('info', `Switched to ${item.target}`)
     }
