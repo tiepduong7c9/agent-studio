@@ -27,6 +27,13 @@ const { nanoid } = require('nanoid');
 
 const MAX_HISTORY = 5000; // cap retained thread events for replay
 
+// After a turn's prompt() resolves, the adapter keeps forwarding session updates
+// for autonomous background work (task-notification followups / draining
+// sub-agents — adapter issue #773). We reflect that as 'working'; this is how
+// long the stream must stay quiet (with no tool calls outstanding) before we
+// drop back to idle.
+const BACKGROUND_IDLE_MS = 3000;
+
 // The SDK is ESM-only; agentnode is CommonJS. Load it lazily via dynamic import.
 let _sdkPromise = null;
 function loadSdk() {
@@ -68,6 +75,10 @@ class AcpSession {
     this._pending = new Map();       // requestId -> resolve(outcome) — permission prompts
     this._pendingElicit = new Map(); // requestId -> resolve(response) — elicitation forms
     this._seq = 0;                   // monotonic id per stored event (browser dedupes on it)
+    this._promptInFlight = false;    // true while a prompt() turn owns the status
+    this._hasPrompted = false;       // true once the user has sent a prompt this life (gates background-activity tracking off during resume replay)
+    this._bgIdleTimer = null;        // debounce back to idle after post-turn background work drains
+    this._openToolCalls = new Set(); // tool calls announced but not yet resolved
   }
 
   // Spawn the adapter and establish the session. Returns the ACP sessionId.
@@ -100,6 +111,7 @@ class AcpSession {
     child.stderr.on('data', (d) => process.stderr.write(`[acp ${this.acpSessionId || '?'}] ${d}`));
     child.on('exit', (code) => {
       this.alive = false;
+      clearTimeout(this._bgIdleTimer);
       this._emit({ type: 'exit', code: code == null ? 0 : code });
       this.listeners.clear();
       // Reject any in-flight permission prompts so the adapter side unblocks.
@@ -264,9 +276,47 @@ class AcpSession {
       this._emitUsage();
       return;
     }
+    this._trackToolCall(update);
     const item = { type: 'acp_update', update };
     this._pushHistory(item);
     this._emit(item);
+    this._noteBackgroundActivity();
+  }
+
+  // Maintain the set of tool calls that have been announced but not yet resolved,
+  // so the background-idle debounce can tell "still working" from "gone quiet".
+  _trackToolCall(update) {
+    if (!update) return;
+    const kind = update.sessionUpdate;
+    if (kind !== 'tool_call' && kind !== 'tool_call_update') return;
+    const id = update.toolCallId;
+    if (id == null) return;
+    const st = update.status;
+    if (st === 'completed' || st === 'failed' || st === 'cancelled') this._openToolCalls.delete(id);
+    else if (kind === 'tool_call' || st) this._openToolCalls.add(id);
+  }
+
+  // The adapter settles prompt() at the user turn's terminal result, then keeps
+  // forwarding updates while it drains autonomous background work (issue #773).
+  // Treat that trailing output as 'working' so the status doesn't read idle while
+  // the thread is still moving, and (re)arm a debounce back to idle. Gated so it
+  // never fires during resume replay (no prompt yet) or while a live turn owns
+  // the status.
+  _noteBackgroundActivity() {
+    if (!this._hasPrompted || this._promptInFlight) return;
+    if (this.claudeStatus === 'waiting') return; // a pending prompt outranks background work
+    this._setStatus('working');
+    this._armBackgroundIdle();
+  }
+
+  _armBackgroundIdle() {
+    clearTimeout(this._bgIdleTimer);
+    this._bgIdleTimer = setTimeout(() => {
+      if (this._promptInFlight || this.claudeStatus !== 'working') return;
+      // Still work outstanding — keep polling rather than lying about idle.
+      if (this._openToolCalls.size > 0) { this._armBackgroundIdle(); return; }
+      this._setStatus('idle');
+    }, BACKGROUND_IDLE_MS);
   }
 
   async setMode(modeId) {
@@ -366,6 +416,9 @@ class AcpSession {
     // Back to working; the turn continues. If the turn was actually finished the
     // next prompt result will flip us to idle.
     this._setStatus('working');
+    // A permission raised by drained background work (after prompt() resolved)
+    // has no in-flight turn to return us to idle — arm the debounce ourselves.
+    if (!this._promptInFlight) this._armBackgroundIdle();
   }
 
   // The agent is asking the user to fill in a form — AskUserQuestion, or an MCP
@@ -397,6 +450,7 @@ class AcpSession {
     }
     fn(res);
     this._setStatus('working');
+    if (!this._promptInFlight) this._armBackgroundIdle();
   }
 
   // blocks: ACP ContentBlock[] (e.g. [{ type: 'text', text: '...' }])
@@ -408,12 +462,20 @@ class AcpSession {
     this._pushHistory(userItem);
     this._emit(userItem);
 
+    this._hasPrompted = true;
+    this._promptInFlight = true;
+    clearTimeout(this._bgIdleTimer);
+    this._openToolCalls.clear();
     this._setStatus('working');
     try {
       const res = await this._conn.prompt({ sessionId: this.acpSessionId, prompt: blocks });
       const stop = { type: 'acp_stop', stopReason: res.stopReason };
       this._pushHistory(stop);
       this._emit(stop);
+      // prompt() resolves at the turn's terminal result, but the adapter may keep
+      // draining background work afterward; _noteBackgroundActivity flips us back
+      // to 'working' if that output arrives (issue #773).
+      this._promptInFlight = false;
       this._setStatus('idle');
       this._scheduleModelRefresh();
       this._scheduleTitleRefresh();
@@ -422,6 +484,7 @@ class AcpSession {
       const errItem = { type: 'acp_error', message: err && err.message ? err.message : String(err) };
       this._pushHistory(errItem);
       this._emit(errItem);
+      this._promptInFlight = false;
       this._setStatus('idle');
       throw err;
     }
@@ -438,6 +501,10 @@ class AcpSession {
   _resetThread() {
     this.history = [];
     this._seq = 0;
+    clearTimeout(this._bgIdleTimer);
+    this._openToolCalls.clear();
+    this._promptInFlight = false;
+    this._hasPrompted = false;
     this.claudeStatus = undefined;
     this.model = null;
     this._lastTitle = null;          // new conversation → let its own title surface
@@ -693,6 +760,7 @@ class AcpSession {
 
   kill() {
     this.alive = false;
+    clearTimeout(this._bgIdleTimer);
     clearTimeout(this._titleDebounce);
     try { if (this._titleWatcher) this._titleWatcher.close(); } catch (_) {}
     this._titleWatcher = null;
