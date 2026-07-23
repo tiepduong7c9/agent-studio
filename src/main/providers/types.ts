@@ -44,6 +44,12 @@ export interface ProjectProvider {
   /** Git status of the project root, or isRepo:false when not a repo. */
   gitStatus(): Promise<GitStatus>
   /**
+   * URL of the `origin` remote (or the first configured remote) of the project
+   * root, or null when the root isn't a git repo or has no remote. Backs
+   * surfacing the repository as a session link.
+   */
+  gitRemoteUrl(): Promise<string | null>
+  /**
    * Content of a file at HEAD (`relPath` relative to the repo root), or
    * null when the file doesn't exist in HEAD (new/untracked files).
    */

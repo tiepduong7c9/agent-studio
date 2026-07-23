@@ -1,10 +1,18 @@
-import { useEffect, useRef, useState, type MouseEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { Link } from 'lucide-react'
 import type { BrowserChoice } from '../../../shared/types'
 import { browserTabId, useTabsStore } from '../tabs-store'
-import { useSessionLinks } from '../session-links'
+import { useRepoLink, useSessionLinks, type LinkSource } from '../session-links'
 import { ContextMenu, type MenuItem } from './ContextMenu'
+
+/** Short badge and hover title for where a link came from. */
+const SRC_LABEL: Record<LinkSource, string> = { user: 'You', assistant: 'Claude', repo: 'Repo' }
+const SRC_TITLE: Record<LinkSource, string> = {
+  user: 'Sent by you',
+  assistant: 'Sent by Claude',
+  repo: "This session's git repository"
+}
 
 /** Hostname for a link, for the tab title and compact row label. */
 function hostOf(url: string): string {
@@ -34,6 +42,13 @@ function restOf(url: string): string {
  */
 export function SessionLinksButton({ sid, wsId }: { sid: string; wsId: string | null }) {
   const links = useSessionLinks(sid)
+  const repoLink = useRepoLink(wsId)
+  // Surface the repo first; drop it from the extracted list if chat also
+  // mentioned the same URL, so it isn't listed twice.
+  const allLinks = useMemo(
+    () => (repoLink ? [repoLink, ...links.filter((l) => l.url !== repoLink.url)] : links),
+    [links, repoLink]
+  )
   const openTab = useTabsStore((s) => s.open)
   const [open, setOpen] = useState(false)
   // Detected browsers, fetched once lazily when a target menu is first opened.
@@ -99,11 +114,11 @@ export function SessionLinksButton({ sid, wsId }: { sid: string; wsId: string | 
     <>
       <button
         className="acp-btn acp-links-toggle"
-        title={links.length ? `Session links (${links.length})` : 'Session links'}
+        title={allLinks.length ? `Session links (${allLinks.length})` : 'Session links'}
         onClick={() => setOpen((o) => !o)}
       >
         <Link size={14} />
-        {links.length > 0 && <span className="acp-links-badge">{links.length}</span>}
+        {allLinks.length > 0 && <span className="acp-links-badge">{allLinks.length}</span>}
       </button>
       {open &&
         createPortal(
@@ -117,7 +132,7 @@ export function SessionLinksButton({ sid, wsId }: { sid: string; wsId: string | 
               <div className="acp-links-modal-header">
                 <Link size={14} />
                 <span className="acp-links-modal-title">Links</span>
-                {links.length > 0 && <span className="acp-links-count">{links.length}</span>}
+                {allLinks.length > 0 && <span className="acp-links-count">{allLinks.length}</span>}
                 <button
                   className="acp-links-close codicon codicon-close"
                   title="Close"
@@ -125,10 +140,10 @@ export function SessionLinksButton({ sid, wsId }: { sid: string; wsId: string | 
                 />
               </div>
               <div className="acp-links-modal-body">
-                {links.length === 0 && (
+                {allLinks.length === 0 && (
                   <div className="acp-links-empty">No links in this session yet</div>
                 )}
-                {links.map((link) => (
+                {allLinks.map((link) => (
                   <div
                     key={link.url}
                     className="acp-links-item"
@@ -138,9 +153,9 @@ export function SessionLinksButton({ sid, wsId }: { sid: string; wsId: string | 
                   >
                     <span
                       className={`acp-links-src acp-links-src-${link.source}`}
-                      title={link.source === 'user' ? 'Sent by you' : 'Sent by Claude'}
+                      title={SRC_TITLE[link.source]}
                     >
-                      {link.source === 'user' ? 'You' : 'Claude'}
+                      {SRC_LABEL[link.source]}
                     </span>
                     <span className="acp-links-url">
                       <span className="acp-links-host">{hostOf(link.url)}</span>

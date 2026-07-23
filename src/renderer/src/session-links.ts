@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useAcpStore } from './acp/store'
 import { textOf } from './acp/buildThread'
 import type { AcpContentBlock, AcpEvent } from './acp/protocol'
@@ -9,7 +9,7 @@ import type { AcpContentBlock, AcpEvent } from './acp/protocol'
 // no stale/duplicate entries. The scan is memoized on the events reference, so
 // it only re-runs when the conversation actually changes.
 
-export type LinkSource = 'user' | 'assistant'
+export type LinkSource = 'user' | 'assistant' | 'repo'
 export interface SessionLink {
   url: string
   source: LinkSource
@@ -74,4 +74,60 @@ export function extractLinks(events: AcpEvent[] | undefined): SessionLink[] {
 export function useSessionLinks(sid: string): SessionLink[] {
   const events = useAcpStore((s) => s.threads.get(sid)?.events)
   return useMemo(() => extractLinks(events), [events])
+}
+
+// Turn a git remote (as reported by `git remote get-url`) into a browsable
+// web URL: scp-style `git@host:owner/repo.git` and `ssh://`/`git://` transports
+// all become `https://host/owner/repo`, credentials are dropped, and the `.git`
+// suffix is trimmed. Returns null for anything that isn't a real http(s) host.
+export function repoWebUrl(remote: string): string | null {
+  let raw = remote.trim()
+  if (!raw) return null
+  // scp-like syntax has no `://` — rewrite `user@host:path` to a URL first.
+  if (!raw.includes('://')) {
+    const scp = /^[^/@]+@([^/:]+):(.+)$/.exec(raw)
+    if (scp) raw = `https://${scp[1]}/${scp[2]}`
+  }
+  let u: URL
+  try {
+    u = new URL(raw)
+  } catch {
+    return null
+  }
+  const path = u.pathname.replace(/\.git\/?$/, '').replace(/\/$/, '')
+  // Rebuild as browsable https from host + path, dropping any credentials. We
+  // construct it by hand rather than setting `u.protocol`, since the URL setter
+  // refuses to rewrite a non-special scheme (ssh:, git:) to https. For http(s)
+  // we keep the port (self-hosted forges); for git transports we drop it (:22).
+  const out =
+    u.protocol === 'http:' || u.protocol === 'https:'
+      ? `${u.protocol}//${u.host}${path}`
+      : `https://${u.hostname}${path}`
+  return isRealUrl(out) ? out : null
+}
+
+/**
+ * The session's git repository as a browsable web link, or null when the
+ * workspace isn't a git repo / has no remote. Fetched once per workspace (the
+ * remote rarely changes), so it stays off the frequent git-status polls.
+ */
+export function useRepoLink(wsId: string | null): SessionLink | null {
+  const [link, setLink] = useState<SessionLink | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    setLink(null)
+    if (!wsId) return
+    window.studio
+      .gitRemoteUrl(wsId)
+      .then((res) => {
+        if (cancelled || !res.ok || !res.data) return
+        const url = repoWebUrl(res.data)
+        if (url) setLink({ url, source: 'repo' })
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [wsId])
+  return link
 }

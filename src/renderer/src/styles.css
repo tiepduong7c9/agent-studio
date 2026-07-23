@@ -2615,6 +2615,11 @@ body {
   color: var(--vscode-editor-background);
 }
 
+.acp-links-src-repo {
+  background: var(--vscode-gitDecoration-modifiedResourceForeground, var(--vscode-charts-green));
+  color: var(--vscode-editor-background);
+}
+
 /* One line: bold host followed by a dimmed path, truncated as a whole. */
 .acp-links-url {
   flex: 1;

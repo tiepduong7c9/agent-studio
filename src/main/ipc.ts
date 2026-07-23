@@ -266,6 +266,10 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, hub: 
     return requireProvider(wsId).gitStatus()
   })
 
+  handle('git:remoteUrl', async (wsId: string) => {
+    return requireProvider(wsId).gitRemoteUrl()
+  })
+
   handle('git:showHead', async (wsId: string, relPath: string) => {
     return requireProvider(wsId).gitShowHead(relPath)
   })

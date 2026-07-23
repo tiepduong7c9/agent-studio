@@ -307,6 +307,20 @@ export class SshProjectProvider implements ProjectProvider {
     return parseGitStatus(stdout.toString('utf8'))
   }
 
+  async gitRemoteUrl(): Promise<string | null> {
+    const root = shellQuote(this.info.rootPath)
+    const getUrl = async (name: string): Promise<string | null> => {
+      const { code, stdout } = await this.exec(`git -C ${root} remote get-url ${shellQuote(name)}`)
+      return code === 0 ? stdout.toString('utf8').trim() || null : null
+    }
+    const origin = await getUrl('origin')
+    if (origin) return origin
+    // No `origin` — fall back to whichever remote is listed first.
+    const { code, stdout } = await this.exec(`git -C ${root} remote`)
+    const first = code === 0 ? stdout.toString('utf8').split('\n')[0]?.trim() : ''
+    return first ? getUrl(first) : null
+  }
+
   async gitLog(limit = 300, allBranches = true): Promise<GitLog> {
     // --all: every branch so the graph shows real branch/merge structure;
     // omit it to follow only the current branch (HEAD). --topo-order keeps

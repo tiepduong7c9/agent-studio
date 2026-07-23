@@ -164,6 +164,26 @@ export class LocalProjectProvider implements ProjectProvider {
     }
   }
 
+  async gitRemoteUrl(): Promise<string | null> {
+    const run = async (args: string[]): Promise<string | null> => {
+      try {
+        const { stdout } = await execFileAsync('git', ['-C', this.info.rootPath, ...args], {
+          maxBuffer: 1024 * 1024
+        })
+        return stdout.trim() || null
+      } catch {
+        // Not a repo, or the requested remote isn't configured.
+        return null
+      }
+    }
+    const origin = await run(['remote', 'get-url', 'origin'])
+    if (origin) return origin
+    // No `origin` — fall back to whichever remote is listed first.
+    const remotes = await run(['remote'])
+    const first = remotes?.split('\n')[0]?.trim()
+    return first ? run(['remote', 'get-url', first]) : null
+  }
+
   async gitLog(limit = 300, allBranches = true): Promise<GitLog> {
     try {
       // --all: every branch so the graph shows real branch/merge structure;

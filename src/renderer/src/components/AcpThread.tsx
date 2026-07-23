@@ -1111,7 +1111,7 @@ export function AcpThread({ sid, workspace = null, visible = true }: { sid: stri
                 </span>
               )}
               <span className="acp-input-sep" />
-              <SessionLinksButton sid={sid} wsId={wsId} />
+              <SessionLinksButton sid={sid} wsId={workspace?.id ?? wsId} />
               <button
                 className={`acp-btn acp-unread-toggle ${unread ? 'active' : ''}`}
                 title={unread ? 'Marked unread — click to mark read' : 'Mark as unread to follow up later'}

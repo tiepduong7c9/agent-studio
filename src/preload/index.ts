@@ -67,6 +67,10 @@ const api = {
   readFileBase64: (wsId: string, filePath: string): Promise<Result<string>> =>
     ipcRenderer.invoke('fs:readFileBase64', wsId, filePath),
   gitStatus: (wsId: string): Promise<Result<GitStatus>> => ipcRenderer.invoke('git:status', wsId),
+  /** The project's `origin` (or first) git remote URL, or null when it isn't a
+   *  repo / has no remote. Backs surfacing the repository in the session links. */
+  gitRemoteUrl: (wsId: string): Promise<Result<string | null>> =>
+    ipcRenderer.invoke('git:remoteUrl', wsId),
   gitShowHead: (wsId: string, relPath: string): Promise<Result<string | null>> =>
     ipcRenderer.invoke('git:showHead', wsId, relPath),
   gitLog: (wsId: string, limit?: number, allBranches?: boolean): Promise<Result<GitLog>> =>
