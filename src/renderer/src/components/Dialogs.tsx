@@ -91,6 +91,23 @@ export function ConfirmDialog({
   )
 }
 
+export function AboutDialog({ version, onClose }: { version: string | null; onClose: () => void }) {
+  return (
+    <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal modal-small about-dialog">
+        <h2 className="modal-title">Agent Studio</h2>
+        <div className="about-version">Version {version ?? '—'}</div>
+        <div className="modal-detail">Desktop workspace for Claude Code agents.</div>
+        <div className="modal-actions">
+          <button className="btn btn-primary" onClick={onClose} autoFocus>
+            OK
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function ErrorDialog({ message, onClose }: { message: string; onClose: () => void }) {
   return (
     <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>

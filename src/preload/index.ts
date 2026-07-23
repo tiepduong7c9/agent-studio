@@ -99,6 +99,8 @@ const api = {
     ipcRenderer.invoke('fs:delete', wsId, entryPath),
   revealInFileManager: (entryPath: string): Promise<Result<void>> =>
     ipcRenderer.invoke('app:reveal', entryPath),
+  /** The app's version string (from the packaged app's package.json). */
+  getVersion: (): Promise<Result<string>> => ipcRenderer.invoke('app:version'),
   /** Upload files/folders into `destDir` on the project host. With `sourcePaths`
    *  (from a drag-drop) it uploads those directly; otherwise a native picker
    *  collects them. Resolves with how many top-level items were uploaded. */

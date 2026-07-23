@@ -1,11 +1,12 @@
 import { type KeyboardEvent, type MouseEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { Info } from 'lucide-react'
 import type { AcpConversation, ProjectConversations, SessionMeta } from '../../../shared/acp'
 import { workspaceId, type ProjectInfo } from '../../../shared/types'
 import { useSessionsStore } from '../acp/sessions-store'
 import { useViewPrefsStore } from '../view-prefs-store'
 import { groupKey, normRoot, workspaceForSession } from '../workspace'
 import { ContextMenu, type MenuItem } from './ContextMenu'
-import { ConfirmDialog } from './Dialogs'
+import { AboutDialog, ConfirmDialog } from './Dialogs'
 
 const CUSTOMIZATIONS = [
   { icon: 'sparkle', label: 'Agents' },
@@ -395,6 +396,21 @@ export function SessionsPanel({
   // buckets). Groups are expanded by default; a key present here is collapsed.
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [customizationsCollapsed, setCustomizationsCollapsed] = useState(false)
+  const [aboutOpen, setAboutOpen] = useState(false)
+  // App version for the About dialog, fetched once from the main process.
+  const [version, setVersion] = useState<string | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    window.studio
+      .getVersion()
+      .then((res) => {
+        if (!cancelled && res.ok) setVersion(res.data)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
   const toggle = (key: string) =>
     setCollapsed((prev) => {
       const next = new Set(prev)
@@ -1116,14 +1132,26 @@ export function SessionsPanel({
           />
           <span>Customizations</span>
         </div>
-        {!customizationsCollapsed &&
-          CUSTOMIZATIONS.map((c) => (
-            <div key={c.label} className="customization-row">
-              <span className={`codicon codicon-${c.icon}`} />
-              <span className="customization-name">{c.label}</span>
+        {!customizationsCollapsed && (
+          <>
+            {CUSTOMIZATIONS.map((c) => (
+              <div key={c.label} className="customization-row">
+                <span className={`codicon codicon-${c.icon}`} />
+                <span className="customization-name">{c.label}</span>
+              </div>
+            ))}
+            <div
+              className="customization-row"
+              role="button"
+              onClick={() => setAboutOpen(true)}
+            >
+              <Info size={16} className="customization-icon" />
+              <span className="customization-name">About</span>
             </div>
-          ))}
+          </>
+        )}
       </div>
+      {aboutOpen && <AboutDialog version={version} onClose={() => setAboutOpen(false)} />}
     </div>
   )
 }

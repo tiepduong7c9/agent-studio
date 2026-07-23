@@ -1,6 +1,6 @@
 import { promises as fsp } from 'fs'
 import * as path from 'path'
-import { BrowserWindow, dialog, ipcMain, Notification, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from 'electron'
 import type { GitFileChange, Result, SshConnectOptions } from '../shared/types'
 import { listBrowsers, openInBrowser, openInWindow } from './browsers'
 import { engineHostKey, workspaceId } from '../shared/types'
@@ -322,6 +322,8 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, hub: 
   handle('app:reveal', async (entryPath: string) => {
     shell.showItemInFolder(entryPath)
   })
+
+  handle('app:version', async () => app.getVersion())
 
   // Upload local files/folders into `destDir` on the project host. `sourcePaths`
   // comes from a drag-drop (paths already chosen); when absent, a native open

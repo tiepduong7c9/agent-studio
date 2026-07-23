@@ -884,6 +884,18 @@ body {
   color: var(--vscode-icon-foreground);
 }
 
+/* lucide icons used in place of a codicon (no matching glyph in the subset) */
+.customization-icon {
+  flex: 0 0 auto;
+  color: var(--vscode-icon-foreground);
+}
+
+.about-dialog .about-version {
+  margin-top: -6px;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+}
+
 /* ── Chat pane (new session card) ────────────────────── */
 
 .chat-pane {
