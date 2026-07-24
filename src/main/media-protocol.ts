@@ -1,6 +1,7 @@
 import { protocol } from 'electron'
 import { Readable } from 'stream'
 import { videoMimeType } from '../shared/videoTypes'
+import { imageMimeType } from '../shared/imageTypes'
 import { getProvider } from './ipc'
 
 // A custom scheme that streams project files to the renderer with HTTP Range
@@ -47,7 +48,8 @@ async function handleMediaRequest(request: Request): Promise<Response> {
     return new Response(err?.message || 'Not found', { status: 404 })
   }
 
-  const contentType = videoMimeType(filePath) ?? 'application/octet-stream'
+  const contentType =
+    videoMimeType(filePath) ?? imageMimeType(filePath) ?? 'application/octet-stream'
   const range = parseRange(request.headers.get('Range'), size)
 
   // No/invalid Range → whole file (200); a satisfiable Range → 206 partial.
