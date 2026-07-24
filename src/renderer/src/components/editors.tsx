@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { GitFileChange, ProjectInfo } from '../../../shared/types'
@@ -110,14 +110,40 @@ function MarkdownCodeBlock({ children }: React.ComponentPropsWithoutRef<'pre'>) 
   )
 }
 
-const MARKDOWN_COMPONENTS = {
-  // Prevent link clicks from navigating the renderer away from the app.
-  a: ({ children, href, ...props }: React.ComponentPropsWithoutRef<'a'>) => (
-    <a {...props} href={href} title={href} onClick={(e) => e.preventDefault()}>
-      {children}
-    </a>
-  ),
-  pre: MarkdownCodeBlock
+/**
+ * Resolves a markdown `<img>` src for display. Remote/data/blob URLs pass
+ * through untouched; a repo-local path (absolute or relative to the markdown
+ * file) is streamed via the studio-media:// protocol, since the renderer's
+ * origin can't read project files directly.
+ */
+function resolveMarkdownImageSrc(
+  src: string | undefined,
+  wsId: string,
+  fileDir: string
+): string | undefined {
+  if (!src) return src
+  // Anything with an explicit scheme (http:, https:, data:, blob:…) or a
+  // protocol-relative URL is left as-is.
+  if (/^[a-z][a-z0-9+.-]*:/i.test(src) || src.startsWith('//')) return src
+  const abs = normalizePath(src.startsWith('/') ? src : joinPath(fileDir, src))
+  return `studio-media://stream/?ws=${encodeURIComponent(wsId)}&p=${encodeURIComponent(abs)}`
+}
+
+/** Builds the markdown preview's element overrides, bound to the file's location. */
+function markdownComponents(wsId: string, fileDir: string) {
+  return {
+    // Prevent link clicks from navigating the renderer away from the app.
+    a: ({ children, href, ...props }: React.ComponentPropsWithoutRef<'a'>) => (
+      <a {...props} href={href} title={href} onClick={(e) => e.preventDefault()}>
+        {children}
+      </a>
+    ),
+    // Resolve repo-local image paths so they load through the media protocol.
+    img: ({ src, alt, ...props }: React.ComponentPropsWithoutRef<'img'>) => (
+      <img {...props} src={resolveMarkdownImageSrc(src, wsId, fileDir)} alt={alt ?? ''} />
+    ),
+    pre: MarkdownCodeBlock
+  }
 }
 
 /**
@@ -132,13 +158,15 @@ function MarkdownFileView({ wsId, path, tabId }: { wsId: string; path: string; t
   // unsaved working copy, not the stale on-disk content.
   const edited = useEditorBufferStore((s) => s.buffers[tabId]?.content)
 
+  const components = useMemo(() => markdownComponents(wsId, dirName(path)), [wsId, path])
+
   if (error) return <ViewerMessage message={error} />
   if (content === null) return <ViewerMessage message="Loading…" />
   if (sourceMode) return <MonacoEditor tabId={tabId} path={path} untitled={false} fallback={content} />
 
   return (
     <div className="markdown-preview">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
         {edited ?? content}
       </ReactMarkdown>
     </div>
@@ -511,4 +539,26 @@ export function baseName(p: string): string {
 
 function joinPath(root: string, rel: string): string {
   return `${root.replace(/\/+$/, '')}/${rel}`
+}
+
+/** The directory portion of an absolute path (its parent, or "/" at the root). */
+function dirName(p: string): string {
+  const i = p.lastIndexOf('/')
+  return i <= 0 ? '/' : p.slice(0, i)
+}
+
+/** Collapses `.`/`..` segments in a path (POSIX-style), preserving leading `/`. */
+function normalizePath(p: string): string {
+  const isAbs = p.startsWith('/')
+  const out: string[] = []
+  for (const seg of p.split('/')) {
+    if (seg === '' || seg === '.') continue
+    if (seg === '..') {
+      if (out.length && out[out.length - 1] !== '..') out.pop()
+      else if (!isAbs) out.push('..')
+    } else {
+      out.push(seg)
+    }
+  }
+  return (isAbs ? '/' : '') + out.join('/')
 }
