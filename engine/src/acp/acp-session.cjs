@@ -31,8 +31,26 @@ const MAX_HISTORY = 5000; // cap retained thread events for replay
 // for autonomous background work (task-notification followups / draining
 // sub-agents — adapter issue #773). We reflect that as 'working'; this is how
 // long the stream must stay quiet (with no tool calls outstanding) before we
-// drop back to idle.
+// drop back to idle. This is only a FALLBACK: when the adapter forwards the SDK's
+// authoritative session_state_changed events (see SDK_STATE_FILTER) they drive the
+// status directly and this debounce stands down.
 const BACKGROUND_IDLE_MS = 3000;
+
+// Ask the adapter (claude-agent-acp) to forward just the SDK's own
+// `session_state_changed` system messages as `_claude/sdkMessage` ext-notifications.
+// Its `state` ('idle' | 'running' | 'requires_action') is the SDK's authoritative
+// turn-over signal — 'idle' fires only after held-back results flush and the
+// background-agent loop exits — so it tells us precisely when all background work
+// has drained, no heuristic needed. Unknown to older adapters, which ignore it and
+// leave us on the debounce fallback.
+const SDK_STATE_FILTER = [{ type: 'system', subtype: 'session_state_changed' }];
+
+// The `_meta` every session-creation call passes so the adapter forwards SDK state
+// (see SDK_STATE_FILTER). Shared so newSession/loadSession — including the
+// conversation-switch paths — stamp it identically; a session created without it
+// won't forward state, and if `_sdkStateAuthoritative` is already latched on the
+// debounce fallback is suppressed too, stranding the status at 'working'.
+const SDK_STATE_META = { claudeCode: { emitRawSDKMessages: SDK_STATE_FILTER } };
 
 // The SDK is ESM-only; agentnode is CommonJS. Load it lazily via dynamic import.
 let _sdkPromise = null;
@@ -79,6 +97,8 @@ class AcpSession {
     this._hasPrompted = false;       // true once the user has sent a prompt this life (gates background-activity tracking off during resume replay)
     this._bgIdleTimer = null;        // debounce back to idle after post-turn background work drains
     this._openToolCalls = new Set(); // tool calls announced but not yet resolved
+    this._sdkStateAuthoritative = false; // true once the adapter forwards SDK session_state_changed — then it drives status and the debounce stands down
+    this._pendingRun = false;        // a prompt was sent but its SDK 'running' state hasn't arrived — gates out the prior turn's lagging 'idle'
   }
 
   // Spawn the adapter and establish the session. Returns the ACP sessionId.
@@ -137,6 +157,10 @@ class AcpSession {
       // Only fires for url-mode elicitations, which we don't advertise — kept as
       // a no-op so the adapter never invokes an undefined client method.
       unstable_completeElicitation: async () => {},
+      // Adapter-forwarded raw SDK messages (we subscribe to session_state_changed
+      // only, via SDK_STATE_FILTER). This is the authoritative status signal when
+      // the adapter supports it.
+      extNotification: async (method, params) => { this._onExtNotification(method, params); },
       // fs/* and terminal/* intentionally omitted — we do not advertise those
       // capabilities, so the Claude SDK runs file edits and bash internally and
       // reports them to us as tool_call updates.
@@ -159,11 +183,11 @@ class AcpSession {
 
     if (resumeSessionId && this._loadSupported) {
       this.acpSessionId = resumeSessionId;
-      const res = await this._conn.loadSession({ sessionId: resumeSessionId, cwd: this.cwd, mcpServers: [] });
+      const res = await this._conn.loadSession({ sessionId: resumeSessionId, cwd: this.cwd, mcpServers: [], _meta: SDK_STATE_META });
       if (res && res.modes) this.modeState = res.modes;
       if (res) this._applyConfigOptions(res.configOptions);
     } else {
-      const res = await this._conn.newSession({ cwd: this.cwd, mcpServers: [] });
+      const res = await this._conn.newSession({ cwd: this.cwd, mcpServers: [], _meta: SDK_STATE_META });
       this.acpSessionId = res.sessionId;
       if (res.modes) this.modeState = res.modes;
       this._applyConfigOptions(res.configOptions);
@@ -303,6 +327,7 @@ class AcpSession {
   // never fires during resume replay (no prompt yet) or while a live turn owns
   // the status.
   _noteBackgroundActivity() {
+    if (this._sdkStateAuthoritative) return; // SDK session_state_changed drives status; don't guess from stream traffic
     if (!this._hasPrompted || this._promptInFlight) return;
     if (this.claudeStatus === 'waiting') return; // a pending prompt outranks background work
     this._setStatus('working');
@@ -310,6 +335,7 @@ class AcpSession {
   }
 
   _armBackgroundIdle() {
+    if (this._sdkStateAuthoritative) return; // authoritative idle arrives as an event; no debounce needed
     clearTimeout(this._bgIdleTimer);
     this._bgIdleTimer = setTimeout(() => {
       if (this._promptInFlight || this.claudeStatus !== 'working') return;
@@ -317,6 +343,44 @@ class AcpSession {
       if (this._openToolCalls.size > 0) { this._armBackgroundIdle(); return; }
       this._setStatus('idle');
     }, BACKGROUND_IDLE_MS);
+  }
+
+  // Adapter ext-notifications. We only subscribe to the SDK's session_state_changed
+  // system message (SDK_STATE_FILTER); its `state` is the authoritative session
+  // status, including through background sub-agent / task-notification drain. The
+  // first one we see promotes us off the debounce fallback for this session's life.
+  _onExtNotification(method, params) {
+    if (method !== '_claude/sdkMessage') return;
+    const msg = params && params.message;
+    if (!msg || msg.type !== 'system' || msg.subtype !== 'session_state_changed') return;
+
+    if (!this._sdkStateAuthoritative) {
+      this._sdkStateAuthoritative = true;
+      clearTimeout(this._bgIdleTimer); // hand off from the heuristic
+    }
+
+    if (msg.state === 'running') {
+      this._pendingRun = false;
+      // Ignore replay-time 'running' before the user has driven the session: on
+      // resume/attach the SDK can stream a running→idle pair for the loaded state,
+      // and a working→idle transition would read as a finished turn and fire a
+      // false 'done' notification. (Mirrors the _hasPrompted gate on the heuristic
+      // path.) A permission/elicitation form ('waiting') also outranks 'running'.
+      if (this._hasPrompted && this.claudeStatus !== 'waiting') this._setStatus('working');
+    } else if (msg.state === 'idle') {
+      // A prompt was just sent but hasn't started running yet: this 'idle' is the
+      // PREVIOUS turn's trailing state draining out (the SDK queues the new turn
+      // behind it), so ignore it — honoring it would flap idle→working the instant
+      // the new turn starts. The turn's own 'running' clears the gate.
+      if (this._pendingRun) return;
+      // Don't clobber an open permission/elicitation prompt: 'waiting' outranks a
+      // stray/lagging 'idle' (a genuinely-finished turn has no prompt open).
+      if (this.claudeStatus === 'waiting') return;
+      this._promptInFlight = false;
+      this._setStatus('idle');
+    }
+    // 'requires_action' is surfaced by the concrete permission/elicitation request
+    // (which sets 'waiting'); we don't act on it here.
   }
 
   async setMode(modeId) {
@@ -464,6 +528,7 @@ class AcpSession {
 
     this._hasPrompted = true;
     this._promptInFlight = true;
+    this._pendingRun = true;         // until the SDK reports this turn 'running', gate out the prior turn's lagging 'idle'
     clearTimeout(this._bgIdleTimer);
     this._openToolCalls.clear();
     this._setStatus('working');
@@ -472,11 +537,18 @@ class AcpSession {
       const stop = { type: 'acp_stop', stopReason: res.stopReason };
       this._pushHistory(stop);
       this._emit(stop);
-      // prompt() resolves at the turn's terminal result, but the adapter may keep
-      // draining background work afterward; _noteBackgroundActivity flips us back
-      // to 'working' if that output arrives (issue #773).
       this._promptInFlight = false;
-      this._setStatus('idle');
+      // Authoritative path: the SDK's session_state_changed 'idle' (which fires only
+      // once all background work has drained) settles the status. Clear the run gate
+      // so a local command that never reports 'running' still honors its trailing idle.
+      this._pendingRun = false;
+      // Fallback path (older adapter, no SDK state forwarded): prompt() resolves at
+      // the turn's terminal result but the adapter keeps draining background work
+      // (issue #773). Don't flip straight to idle — that edge fires a premature
+      // "done" and flaps back to 'working' when trailing output arrives. Stay
+      // 'working' and arm the debounce so we settle to idle exactly once, when the
+      // stream goes quiet. (No-op when the SDK signal is authoritative.)
+      this._armBackgroundIdle();
       this._scheduleModelRefresh();
       this._scheduleTitleRefresh();
       return res;
@@ -485,6 +557,7 @@ class AcpSession {
       this._pushHistory(errItem);
       this._emit(errItem);
       this._promptInFlight = false;
+      this._pendingRun = false;
       this._setStatus('idle');
       throw err;
     }
@@ -504,7 +577,9 @@ class AcpSession {
     clearTimeout(this._bgIdleTimer);
     this._openToolCalls.clear();
     this._promptInFlight = false;
+    this._pendingRun = false;
     this._hasPrompted = false;
+    // _sdkStateAuthoritative stays: the same adapter/child keeps forwarding SDK state.
     this.claudeStatus = undefined;
     this.model = null;
     this._lastTitle = null;          // new conversation → let its own title surface
@@ -515,7 +590,7 @@ class AcpSession {
   async newConversation() {
     await this.ready();
     if (!this._conn) return;
-    const res = await this._conn.newSession({ cwd: this.cwd, mcpServers: [] });
+    const res = await this._conn.newSession({ cwd: this.cwd, mcpServers: [], _meta: SDK_STATE_META });
     this.acpSessionId = res.sessionId;
     if (res.modes) this.modeState = res.modes;
     this._resetThread();
@@ -532,7 +607,7 @@ class AcpSession {
     this.acpSessionId = sessionId;
     this._resetThread();
     try {
-      const res = await this._conn.loadSession({ sessionId, cwd: this.cwd, mcpServers: [] });
+      const res = await this._conn.loadSession({ sessionId, cwd: this.cwd, mcpServers: [], _meta: SDK_STATE_META });
       if (res && res.modes) { this.modeState = res.modes; this._emitMode(); }
       if (res) { this._applyConfigOptions(res.configOptions); this._emitModel(); }
       this._refreshModel();
