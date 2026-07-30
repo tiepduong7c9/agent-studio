@@ -601,6 +601,10 @@ const MessageList = memo(function MessageList({
               <div className="acp-permission">
                 <div className="acp-permission-title"><ShieldQuestion size={15} /> Permission required</div>
                 {item.request.toolCall?.title && <div style={{ fontSize: 12, marginBottom: 8, opacity: 0.75 }}>{item.request.toolCall.title}</div>}
+                {item.request.toolCall?.content?.map((c: AcpToolContent, i) => {
+                  const t = textOf(c.content)
+                  return t ? <div key={i} className="acp-permission-plan"><Markdown>{t}</Markdown></div> : null
+                })}
                 {item.resolved ? (
                   <div style={{ fontSize: 12, opacity: 0.7 }}>
                     {item.resolved === '__cancelled__' ? 'Cancelled' : `Answered: ${item.request.options.find((o) => o.optionId === item.resolved)?.name ?? item.resolved}`}

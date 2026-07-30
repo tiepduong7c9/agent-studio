@@ -378,6 +378,10 @@
 .acp-plan li { display: flex; gap: 8px; font-size: 12px; }
 .acp-plan-done { text-decoration: line-through; color: var(--vscode-descriptionForeground); }
 .acp-perm-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+/* Plan markdown surfaced in an ExitPlanMode ("Ready to code?") permission. */
+.acp-permission-plan { margin: 4px 0 10px; padding: 10px 12px; max-height: 420px; overflow-y: auto; font-size: 13px; background: var(--vscode-textCodeBlock-background, rgba(127,127,127,.1)); border: 1px solid var(--vscode-sideBar-border); border-radius: 4px; }
+.acp-permission-plan > :first-child { margin-top: 0; }
+.acp-permission-plan > :last-child { margin-bottom: 0; }
 
 /* Elicitation (AskUserQuestion / MCP form) — reuses the .acp-permission card. */
 .acp-elicit-message { font-size: 13px; margin-bottom: 10px; }
