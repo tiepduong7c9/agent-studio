@@ -95,3 +95,43 @@ export interface CreateSessionOptions {
   name?: string;
   cwd: string;
 }
+
+/** Where a skill lives. `library` is the app-owned store (main process only);
+ *  the engine only ever reports `host` and `project` skills. */
+export type SkillScope = 'library' | 'host' | 'project';
+
+/** A skill directory (SKILL.md + resources) discovered on a host. */
+export interface SkillRef {
+  /** Stable id `${scope}:${dir}`; the main process prepends the host. */
+  id: string;
+  /** Skill name (frontmatter `name`, falling back to the folder name). */
+  name: string;
+  /** Frontmatter `description` ('' when absent). */
+  description: string;
+  scope: SkillScope;
+  /** Host the skill lives on; decorated in the main process (null = local). */
+  host?: string | null;
+  /** Project root, when scope === 'project'. */
+  projectPath?: string;
+  /** Absolute skill directory on its host. */
+  dir: string;
+  /** Resource files under the skill dir (excludes SKILL.md), posix-relative. */
+  resources: { rel: string; size: number }[];
+  mtime: number;
+  /** SKILL.md is missing usable frontmatter — still listed, flagged for repair. */
+  invalid?: boolean;
+}
+
+/** One file within a skill: `text` for text files, `base64` for binary ones. */
+export interface SkillFile {
+  rel: string;
+  size: number;
+  binary: boolean;
+  text?: string;
+  base64?: string;
+  /** True when the file exceeded the read cap and `text`/`base64` is a prefix. */
+  truncated?: boolean;
+}
+
+/** A skill's files (SKILL.md first, then resources) for the viewer/editor. */
+export interface SkillFiles { files: SkillFile[] }

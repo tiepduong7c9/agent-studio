@@ -7,6 +7,7 @@ import { useViewPrefsStore } from '../view-prefs-store'
 import { groupKey, normRoot, workspaceForSession } from '../workspace'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { AboutDialog, ConfirmDialog } from './Dialogs'
+import { SkillsManager } from './SkillsManager'
 
 const CUSTOMIZATIONS = [
   { icon: 'sparkle', label: 'Agents' },
@@ -410,6 +411,7 @@ export function SessionsPanel({
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [customizationsCollapsed, setCustomizationsCollapsed] = useState(false)
   const [aboutOpen, setAboutOpen] = useState(false)
+  const [skillsOpen, setSkillsOpen] = useState(false)
   // App version for the About dialog, fetched once from the main process.
   const [version, setVersion] = useState<string | null>(null)
   useEffect(() => {
@@ -1147,12 +1149,20 @@ export function SessionsPanel({
         </div>
         {!customizationsCollapsed && (
           <>
-            {CUSTOMIZATIONS.map((c) => (
-              <div key={c.label} className="customization-row">
-                <span className={`codicon codicon-${c.icon}`} />
-                <span className="customization-name">{c.label}</span>
-              </div>
-            ))}
+            {CUSTOMIZATIONS.map((c) => {
+              const onClick = c.label === 'Skills' ? () => setSkillsOpen(true) : undefined
+              return (
+                <div
+                  key={c.label}
+                  className="customization-row"
+                  role={onClick ? 'button' : undefined}
+                  onClick={onClick}
+                >
+                  <span className={`codicon codicon-${c.icon}`} />
+                  <span className="customization-name">{c.label}</span>
+                </div>
+              )
+            })}
             <div
               className="customization-row"
               role="button"
@@ -1165,6 +1175,14 @@ export function SessionsPanel({
         )}
       </div>
       {aboutOpen && <AboutDialog version={version} onClose={() => setAboutOpen(false)} />}
+      {skillsOpen && (
+        <SkillsManager
+          remoteHosts={remoteHosts}
+          engineStatus={engineStatus}
+          onReconnectRemote={onReconnectRemote}
+          onClose={() => setSkillsOpen(false)}
+        />
+      )}
     </div>
   )
 }
