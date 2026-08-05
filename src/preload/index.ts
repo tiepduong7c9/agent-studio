@@ -224,6 +224,9 @@ const api = {
     regenerateTitle: (sid: string): Promise<SessionMeta | null> =>
       ipcRenderer.invoke('acp:regenerateTitle', sid),
     kill: (sid: string): Promise<boolean> => ipcRenderer.invoke('acp:kill', sid),
+    /** Restart the session's adapter to pick up host-side config changes (e.g.
+     *  newly-added MCP servers), reloading the prior conversation. */
+    restart: (sid: string): Promise<boolean> => ipcRenderer.invoke('acp:restart', sid),
     /** Subscribe to per-session thread events; returns an unsubscribe fn. */
     onEvent: (cb: (payload: AcpEventPayload) => void): (() => void) => {
       const h = (_e: unknown, payload: AcpEventPayload) => cb(payload)

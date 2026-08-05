@@ -260,6 +260,10 @@ export function registerAcpIpc(getWindow: () => BrowserWindow | null): AcpHub {
     hc.subs.delete(sid)
     return hc.engine!.sm.kill(sid)
   })
+  // Restart the session's adapter to pick up host-side config (e.g. new MCP
+  // servers). Unlike kill, the session lives on, so keep the event subscription
+  // in place — the adapter re-spawns and events keep flowing to the renderer.
+  ipcMain.handle('acp:restart', async (_e, sid: string) => (await smForSid(sid)).restart(sid))
 
   return {
     ensureHost: (key: string) => { connectHost(ensureHostConn(key)).catch(() => {}) },

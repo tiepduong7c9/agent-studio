@@ -149,14 +149,27 @@ function LiveRow({ s, active, pinned, hidden, done, doneAt, unread, onSelect, on
     }
   }
 
+  // Re-spawn the session's adapter so it re-reads host-side config (e.g. newly
+  // added MCP servers); the conversation is reloaded, but any in-flight turn is
+  // dropped.
+  const restart = async () => {
+    setBusy(true)
+    try {
+      await window.studio.acp.restart(s.id)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const items: MenuItem[] = [
+    { label: pinned ? 'Unpin' : 'Pin', run: onTogglePin },
+    { label: unread ? 'Mark as read' : 'Mark as unread', run: onToggleUnread },
+    { separator: true },
     { label: 'Rename', run: () => setEditing(true) },
     { label: 'Regenerate title', enabled: !busy, run: () => void regenerateTitle() },
+    { label: 'Restart session', enabled: !busy, run: () => void restart() },
     { separator: true },
-    { label: unread ? 'Mark as read' : 'Mark as unread', run: onToggleUnread },
-    { label: pinned ? 'Unpin' : 'Pin', run: onTogglePin },
     { label: hidden ? 'Unhide' : 'Hide', run: hidden ? onUnhide : onHide },
-    { separator: true },
     { label: 'Delete Session', run: () => setConfirming(true) }
   ]
 

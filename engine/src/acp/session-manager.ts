@@ -218,6 +218,25 @@ export class SessionManager {
     return true;
   }
 
+  // Restart a session's adapter to pick up host-side config that's only read at
+  // adapter spawn — most usefully newly-added MCP servers, which the Claude ACP
+  // adapter loads from the host's config files (not injected by us). Kills the
+  // current adapter child and re-spawns it via the resume path, so the prior
+  // conversation is reloaded by acpSessionId and history is preserved. Any
+  // in-flight turn is dropped by the kill.
+  restart(id: string): boolean {
+    const rec = this._sessions.get(id);
+    if (!rec) return false;
+    // Detach this adapter's status mirror before killing it: the child's 'exit'
+    // fires asynchronously, and its listener would otherwise flip the freshly
+    // resumed session's status back to 'suspended' after _resume set 'running'.
+    if (rec.statusListener) { try { rec.acp.listeners.delete(rec.statusListener); } catch { /* ignore */ } }
+    try { rec.acp.kill(); } catch { /* ignore */ }
+    rec.meta.status = 'suspended';
+    delete rec.meta.claudeStatus;
+    return this._resume(rec);
+  }
+
   // Suspend every live session (daemon shutdown): the adapters exit but the
   // conversations remain resumable by acpSessionId on next attach.
   suspendAll(): void {

@@ -33,6 +33,7 @@ export class SessionManagerChannel implements IServerChannel {
       case 'rename': return this.manager.rename(arg.sid, arg.name);
       case 'regenerateTitle': return this.manager.regenerateTitle(arg as string);
       case 'kill': return this.manager.kill(arg as string);
+      case 'restart': return this.manager.restart(arg as string);
       default: throw new Error(`sessionManager channel: unknown command '${command}'`);
     }
   }
@@ -67,6 +68,7 @@ export interface ISessionManagerClient {
   rename(sid: string, name: string): Promise<SessionMeta | null>;
   regenerateTitle(sid: string): Promise<SessionMeta | null>;
   kill(sid: string): Promise<boolean>;
+  restart(sid: string): Promise<boolean>;
   onDidChangeSessions: Event<SessionMeta[]>;
   onSessionEvent(sid: string): Event<AcpEvent>;
 }
@@ -91,6 +93,7 @@ export function createSessionManagerClient(channel: IChannel): ISessionManagerCl
     rename: (sid, name) => channel.call('rename', { sid, name }),
     regenerateTitle: (sid) => channel.call('regenerateTitle', sid),
     kill: (sid) => channel.call('kill', sid),
+    restart: (sid) => channel.call('restart', sid),
     onDidChangeSessions: channel.listen('onDidChangeSessions'),
     onSessionEvent: (sid) => channel.listen('onSessionEvent', sid),
   };
