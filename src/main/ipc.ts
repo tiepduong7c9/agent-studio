@@ -15,6 +15,7 @@ import {
 } from './providers/ssh'
 import type { ProjectProvider } from './providers/types'
 import { loadSavedHosts, removeHost, saveHost } from './remote-hosts'
+import { libraryRoot } from './skills-library'
 
 // Several projects can be open at once — a local folder and one or more SSH
 // remotes — so providers are held in a map keyed by workspace id. File/git IPC
@@ -321,6 +322,32 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, hub: 
 
   handle('app:reveal', async (entryPath: string) => {
     shell.showItemInFolder(entryPath)
+  })
+
+  // Inject a library skill into an open project: copy the library skill folder
+  // (`sourceDir`, under the app library) into the project's .claude/skills, via
+  // the workspace provider so it works for local and ssh projects alike.
+  // Re-injecting replaces the existing folder wholesale (uploadDir only merges,
+  // so we delete first) — otherwise a resource dropped from the library would be
+  // left behind as a stale file in the project.
+  handle('skills:inject', async (wsId: string, sourceDir: string) => {
+    const provider = requireProvider(wsId)
+    const root = path.resolve(libraryRoot())
+    const src = path.resolve(sourceDir)
+    if (src !== root && !src.startsWith(root + path.sep)) {
+      throw new Error('Not a library skill')
+    }
+    const name = path.basename(src)
+    const claudeDir = joinRemote(provider.info.rootPath, '.claude')
+    const skillsDir = joinRemote(claudeDir, 'skills')
+    const dest = joinRemote(skillsDir, name)
+    // Best-effort parent creation (mkdir errors if the dir already exists).
+    await provider.createDir(claudeDir).catch(() => {})
+    await provider.createDir(skillsDir).catch(() => {})
+    // Clear any prior copy so removed files don't linger (no-op if absent).
+    await provider.deleteEntry(dest).catch(() => {})
+    await provider.uploadDir(src, dest)
+    return { name }
   })
 
   handle('app:version', async () => app.getVersion())

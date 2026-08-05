@@ -14,11 +14,12 @@ import { Emitter, Event } from '../vendor/vs/base/common/event.js';
 import { toDisposable, IDisposable } from '../vendor/vs/base/common/lifecycle.js';
 import { STATE_DIR, SESSIONS_FILE } from '../constants.js';
 import { listAllProjects } from './projects.js';
+import { listSkills, readSkill } from './skills.js';
 // CommonJS usage fetcher (account + rate-limit windows); esbuild interops the named export.
 import { getUsageDetail } from './usage.cjs';
 // CommonJS out-of-band title generator (subscription-OAuth call to /v1/messages).
 import { generateTitle } from './title.cjs';
-import type { AcpConversation, AcpEvent, AcpSnapshot, AcpUsageDetail, ClaudeStatus, CreateSessionOptions, ProjectConversations, SessionMeta } from './types.js';
+import type { AcpConversation, AcpEvent, AcpSnapshot, AcpUsageDetail, ClaudeStatus, CreateSessionOptions, ProjectConversations, SessionMeta, SkillFiles, SkillRef } from './types.js';
 
 const ADJECTIVES = ['amber', 'arctic', 'bold', 'brave', 'bright', 'calm', 'cool', 'crisp', 'dawn', 'deep', 'fast', 'fierce', 'gentle', 'golden', 'grand', 'hidden', 'jade', 'keen', 'lively', 'lucid', 'mellow', 'misty', 'noble', 'quiet', 'rapid', 'royal', 'shady', 'sharp', 'silent', 'silver', 'sleek', 'solar', 'still', 'sturdy', 'swift', 'teal', 'vivid', 'warm', 'wild', 'wise'];
 const ANIMALS = ['bear', 'bison', 'boar', 'cobra', 'crane', 'crow', 'deer', 'dove', 'eagle', 'elk', 'falcon', 'finch', 'fox', 'goat', 'goose', 'hawk', 'heron', 'hound', 'jay', 'kite', 'lark', 'lion', 'lynx', 'mink', 'moose', 'newt', 'orca', 'otter', 'owl', 'panda', 'puma', 'quail', 'raven', 'robin', 'seal', 'shark', 'snipe', 'stag', 'swan', 'tiger', 'trout', 'viper', 'vole', 'wasp', 'weasel', 'whale', 'wolf', 'wren'];
@@ -122,6 +123,19 @@ export class SessionManager {
   // from ~/.claude/projects/ — independent of the sessions this daemon manages.
   listProjects(): Promise<ProjectConversations[]> {
     return listAllProjects();
+  }
+
+  // Every skill on this host: personal (~/.claude/skills) + each project's
+  // .claude/skills. Read straight off disk, independent of managed sessions.
+  listSkills(): Promise<SkillRef[]> {
+    return listSkills();
+  }
+
+  // A skill's files (SKILL.md + resources) for the viewer/editor. `dir` is an
+  // absolute skill directory reported by listSkills; readSkill confines it to a
+  // real .claude/skills root.
+  readSkill(dir: string): Promise<SkillFiles> {
+    return readSkill(dir);
   }
 
   // Account + subscription-usage windows for this host's Claude credentials.
