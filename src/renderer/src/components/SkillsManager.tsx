@@ -94,16 +94,20 @@ export function SkillsManager({ remoteHosts, engineStatus, onReconnectRemote, on
     void scan()
   }, [scan, statusKey])
 
-  // Escape cancels an in-progress edit, otherwise closes the overlay.
+  // Escape backs out the innermost thing: an open dialog first, then an
+  // in-progress edit, and only then closes the overlay. (The dialogs don't stop
+  // the event reaching this window listener, so without the dialog guard Escape
+  // would tear down the whole manager instead of just the dialog.)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
-      if (editing) setEditing(false)
+      if (dialog) setDialog(null)
+      else if (editing) setEditing(false)
       else onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose, editing])
+  }, [onClose, editing, dialog])
 
   // Flat, name-deduplicated list across every source.
   const entries = useMemo<SkillEntry[]>(() => {
@@ -171,7 +175,7 @@ export function SkillsManager({ remoteHosts, engineStatus, onReconnectRemote, on
 
   // Run a mutation with busy-guarding + error toast; refresh and optionally
   // select the resulting skill so the UI lands on it.
-  const run = async (label: string, fn: () => Promise<SkillRef | void>, land?: boolean) => {
+  const run = async (fn: () => Promise<SkillRef | void>, land?: boolean) => {
     setBusy(true)
     try {
       const ref = await fn()
@@ -186,7 +190,7 @@ export function SkillsManager({ remoteHosts, engineStatus, onReconnectRemote, on
   }
 
   const doCreate = (name: string) =>
-    run('create', async () => {
+    run(async () => {
       const ref = await window.studio.skills.create({ name })
       pushToast('info', `Created "${ref.name}"`)
       return ref
@@ -195,7 +199,7 @@ export function SkillsManager({ remoteHosts, engineStatus, onReconnectRemote, on
   const doDuplicate = (name: string) => {
     if (!selected) return
     const src = selected
-    return run('duplicate', async () => {
+    return run(async () => {
       const ref = await window.studio.skills.import({
         host: src.host ?? null,
         scope: src.scope,
@@ -208,7 +212,7 @@ export function SkillsManager({ remoteHosts, engineStatus, onReconnectRemote, on
   }
 
   const doDelete = async (skill: SkillRef) => {
-    await run('delete', async () => {
+    await run(async () => {
       await window.studio.skills.remove({ dir: skill.dir })
       pushToast('info', `Deleted "${skill.name}"`)
     })
@@ -218,7 +222,7 @@ export function SkillsManager({ remoteHosts, engineStatus, onReconnectRemote, on
   const doSave = async () => {
     if (!selected) return
     const src = selected
-    await run('save', async () => {
+    await run(async () => {
       await window.studio.skills.writeFile({ dir: src.dir, rel: activeFile, content: draft })
       pushToast('info', 'Saved')
     })

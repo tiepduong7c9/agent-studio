@@ -2795,14 +2795,6 @@ body {
   padding: 8px 0;
 }
 
-.skills-group {
-  margin-bottom: 10px;
-}
-
-.skills-group.disconnected {
-  opacity: 0.6;
-}
-
 .skills-group-label {
   display: flex;
   align-items: center;
@@ -2813,12 +2805,6 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--vscode-descriptionForeground);
-}
-
-.skills-group-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .skills-reconnect {
@@ -2833,15 +2819,6 @@ body {
   font-size: 11px;
   text-transform: none;
   letter-spacing: 0;
-}
-
-.skills-subgroup-label {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 12px 3px 20px;
-  font-size: 11px;
-  color: var(--vscode-descriptionForeground);
 }
 
 .skills-empty {

@@ -327,7 +327,9 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, hub: 
   // Inject a library skill into an open project: copy the library skill folder
   // (`sourceDir`, under the app library) into the project's .claude/skills, via
   // the workspace provider so it works for local and ssh projects alike.
-  // Re-injecting an existing skill overwrites its files (an update).
+  // Re-injecting replaces the existing folder wholesale (uploadDir only merges,
+  // so we delete first) — otherwise a resource dropped from the library would be
+  // left behind as a stale file in the project.
   handle('skills:inject', async (wsId: string, sourceDir: string) => {
     const provider = requireProvider(wsId)
     const root = path.resolve(libraryRoot())
@@ -338,10 +340,13 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, hub: 
     const name = path.basename(src)
     const claudeDir = joinRemote(provider.info.rootPath, '.claude')
     const skillsDir = joinRemote(claudeDir, 'skills')
+    const dest = joinRemote(skillsDir, name)
     // Best-effort parent creation (mkdir errors if the dir already exists).
     await provider.createDir(claudeDir).catch(() => {})
     await provider.createDir(skillsDir).catch(() => {})
-    await provider.uploadDir(src, joinRemote(skillsDir, name))
+    // Clear any prior copy so removed files don't linger (no-op if absent).
+    await provider.deleteEntry(dest).catch(() => {})
+    await provider.uploadDir(src, dest)
     return { name }
   })
 

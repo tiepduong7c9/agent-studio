@@ -13,8 +13,9 @@ import { listAllProjects } from './projects.js';
 import type { SkillFile, SkillFiles, SkillRef } from './types.js';
 
 /** Per-file cap when reading a skill's contents, so a stray huge resource can't
- *  balloon an RPC payload. Files past this are returned truncated. */
-const MAX_FILE_BYTES = 512 * 1024;
+ *  balloon an RPC payload. Files past this are returned truncated. Sized to
+ *  comfortably fit real skill assets (icons, fonts) so import copies them whole. */
+const MAX_FILE_BYTES = 2 * 1024 * 1024;
 /** Guard rails on the resource walk so a pathological tree can't hang a scan. */
 const MAX_RESOURCES = 200;
 const MAX_DEPTH = 6;
@@ -48,17 +49,33 @@ async function readHead(file: string, bytes: number): Promise<string> {
 }
 
 // Pull `name`/`description` out of a leading `--- ... ---` YAML frontmatter block.
-// Deliberately minimal (no YAML dependency): handles the flat scalar fields skills
-// use, tolerating quotes and a folded/`>`-style description on the same line.
+// Deliberately minimal (no YAML dependency): handles the flat scalar fields
+// skills use, tolerating quotes and multi-line folded (`>`) / literal (`|`)
+// block scalars — their indented continuation lines are gathered and joined into
+// the single-line value we display.
 function parseFrontmatter(text: string): { name?: string; description?: string } {
   const m = /^﻿?---\r?\n([\s\S]*?)\r?\n---/.exec(text);
   if (!m) return {};
+  const lines = m[1].split(/\r?\n/);
   const out: { name?: string; description?: string } = {};
-  for (const raw of m[1].split(/\r?\n/)) {
-    const line = /^(name|description)\s*:\s*(.*)$/.exec(raw.trim());
+  for (let i = 0; i < lines.length; i++) {
+    const line = /^(name|description)\s*:\s*(.*)$/.exec(lines[i]);
     if (!line) continue;
-    let val = line[2].trim().replace(/^['"]|['"]$/g, '');
-    if (val === '>' || val === '|' || val === '>-' || val === '|-') val = '';
+    let val = line[2].trim();
+    if (/^[|>][+-]?$/.test(val)) {
+      // Block/folded scalar: consume the following more-indented lines.
+      const parts: string[] = [];
+      let j = i + 1;
+      for (; j < lines.length; j++) {
+        if (lines[j].trim() === '') { parts.push(''); continue; }
+        if (/^\s/.test(lines[j])) parts.push(lines[j].trim());
+        else break;
+      }
+      i = j - 1;
+      val = parts.join(' ').replace(/\s+/g, ' ').trim();
+    } else {
+      val = val.replace(/^['"]|['"]$/g, '');
+    }
     (out as any)[line[1]] = val;
   }
   return out;
@@ -147,11 +164,14 @@ export async function listSkills(): Promise<SkillRef[]> {
 
 // Confine skill file access to real skill roots so a crafted `dir` can't read
 // arbitrary paths: it must sit directly under ~/.claude/skills or some
-// */.claude/skills, and must not escape via `..`.
+// */.claude/skills. Uses path segments (not a regex) so it holds on Windows,
+// where path.resolve emits '\' rather than '/'.
 function assertSkillDir(dir: string): void {
   const resolved = path.resolve(dir);
-  const underHost = path.dirname(resolved) === hostSkillsRoot();
-  const underProject = /(?:^|\/)\.claude\/skills\/[^/]+$/.test(resolved);
+  const parent = path.dirname(resolved); // .../.claude/skills
+  const underHost = parent === hostSkillsRoot();
+  const underProject =
+    path.basename(parent) === 'skills' && path.basename(path.dirname(parent)) === '.claude';
   if (!underHost && !underProject) {
     throw new Error(`Refusing to read skill outside a .claude/skills root: ${dir}`);
   }

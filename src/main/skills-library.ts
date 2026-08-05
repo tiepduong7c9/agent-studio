@@ -10,7 +10,8 @@ import type { SkillFile, SkillFiles, SkillRef } from '../shared/acp'
 // Browsing (list/read) plus authoring (create/import/duplicate/edit/delete) all
 // operate on this local store; injecting back out to hosts/projects is Phase 3.
 
-const MAX_FILE_BYTES = 512 * 1024
+// Matches the engine scanner's cap; sized so real skill assets copy whole.
+const MAX_FILE_BYTES = 2 * 1024 * 1024
 const MAX_RESOURCES = 200
 const MAX_DEPTH = 6
 const FRONTMATTER_HEAD_BYTES = 16384
@@ -66,16 +67,35 @@ async function readHeadBuffer(file: string, bytes: number): Promise<Buffer> {
   }
 }
 
-// Minimal `name`/`description` frontmatter parse — matches the engine scanner.
+// Minimal `name`/`description` frontmatter parse — must stay in lockstep with
+// the engine scanner's parseFrontmatter (engine/src/acp/skills.ts), so library
+// copies parse identically to their host sources. Handles multi-line folded
+// (`>`) / literal (`|`) block scalars by joining their indented lines.
 function parseFrontmatter(text: string): { name?: string; description?: string } {
   const m = /^﻿?---\r?\n([\s\S]*?)\r?\n---/.exec(text)
   if (!m) return {}
+  const lines = m[1].split(/\r?\n/)
   const out: { name?: string; description?: string } = {}
-  for (const raw of m[1].split(/\r?\n/)) {
-    const line = /^(name|description)\s*:\s*(.*)$/.exec(raw.trim())
+  for (let i = 0; i < lines.length; i++) {
+    const line = /^(name|description)\s*:\s*(.*)$/.exec(lines[i])
     if (!line) continue
-    let val = line[2].trim().replace(/^['"]|['"]$/g, '')
-    if (val === '>' || val === '|' || val === '>-' || val === '|-') val = ''
+    let val = line[2].trim()
+    if (/^[|>][+-]?$/.test(val)) {
+      const parts: string[] = []
+      let j = i + 1
+      for (; j < lines.length; j++) {
+        if (lines[j].trim() === '') {
+          parts.push('')
+          continue
+        }
+        if (/^\s/.test(lines[j])) parts.push(lines[j].trim())
+        else break
+      }
+      i = j - 1
+      val = parts.join(' ').replace(/\s+/g, ' ').trim()
+    } else {
+      val = val.replace(/^['"]|['"]$/g, '')
+    }
     ;(out as any)[line[1]] = val
   }
   return out
@@ -203,16 +223,22 @@ function sanitizeName(name: string): string {
   return clean
 }
 
-function libraryDirFor(name: string): string {
-  return path.join(libraryRoot(), sanitizeName(name))
-}
-
 async function exists(p: string): Promise<boolean> {
   try {
     await fsp.stat(p)
     return true
   } catch {
     return false
+  }
+}
+
+/** Whether the library already contains a skill with this (sanitized) name. Lets
+ *  a Scan treat a same-named source as an already-collected duplicate. */
+export async function libraryHasSkill(name: string): Promise<boolean> {
+  try {
+    return await exists(path.join(libraryRoot(), sanitizeName(name)))
+  } catch {
+    return false // unsanitizable name → nothing to collide with
   }
 }
 
@@ -282,6 +308,9 @@ export async function importIntoLibrary(name: string, files: SkillFile[]): Promi
   if (await exists(dir)) throw new Error(`A library skill named "${clean}" already exists`)
   await fsp.mkdir(dir, { recursive: true })
   for (const f of files) {
+    // A truncated binary is only a prefix of the real bytes, so writing it would
+    // silently corrupt the file — skip it rather than ship a broken asset.
+    if (f.binary && f.truncated) continue
     const target = resolveWithin(dir, f.rel)
     await fsp.mkdir(path.dirname(target), { recursive: true })
     if (f.binary && f.base64 != null) {

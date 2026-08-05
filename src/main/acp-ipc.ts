@@ -21,6 +21,7 @@ import {
   deleteLibrarySkill,
   getCollectedKeys,
   importIntoLibrary,
+  libraryHasSkill,
   listLibrarySkills,
   readLibrarySkill,
   writeLibraryFile
@@ -287,13 +288,19 @@ export function registerAcpIpc(getWindow: () => BrowserWindow | null): AcpHub {
     const newlyCollected: string[] = []
     for (const s of discovered) {
       if (collected.has(s.id)) continue
-      newlyCollected.push(s.id)
+      // A same-named skill is already in the library → first source wins; record
+      // this one as collected so we don't retry it forever.
+      if (await libraryHasSkill(s.name)) {
+        newlyCollected.push(s.id)
+        continue
+      }
       try {
         const files = await readSkillFiles({ host: s.host ?? null, scope: s.scope, dir: s.dir })
         await importIntoLibrary(s.name, files.files)
+        newlyCollected.push(s.id) // only after a successful import
       } catch {
-        // Name already in the library (dedup) or a bad read — still mark the
-        // source collected so we don't reconsider it every scan.
+        // Transient read/import failure (e.g. an SSH drop mid-scan) — leave the
+        // source uncollected so a later scan retries it.
       }
     }
     await addCollectedKeys(newlyCollected)
