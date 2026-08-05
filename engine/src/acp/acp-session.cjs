@@ -36,14 +36,51 @@ const MAX_HISTORY = 5000; // cap retained thread events for replay
 // status directly and this debounce stands down.
 const BACKGROUND_IDLE_MS = 3000;
 
-// Ask the adapter (claude-agent-acp) to forward just the SDK's own
-// `session_state_changed` system messages as `_claude/sdkMessage` ext-notifications.
-// Its `state` ('idle' | 'running' | 'requires_action') is the SDK's authoritative
-// turn-over signal — 'idle' fires only after held-back results flush and the
-// background-agent loop exits — so it tells us precisely when all background work
-// has drained, no heuristic needed. Unknown to older adapters, which ignore it and
-// leave us on the debounce fallback.
-const SDK_STATE_FILTER = [{ type: 'system', subtype: 'session_state_changed' }];
+// Safety net that bounds how long the status may stay 'working' for an outstanding
+// detached task. The normal path never relies on it: a background task's terminal
+// task_notification (and the follow-up turn it triggers) clears the hold. It only
+// fires when that terminal signal never arrives — a dropped message, or a task torn
+// down without one. It re-arms (heartbeat) on every task lifecycle message, so an
+// actively-reporting monitor/subagent keeps it at bay; but a plain run_in_background
+// Bash task streams output to a file, not as heartbeats, so a long *silent* build
+// only has this fixed window before we give up on it. Hence sized WELL ABOVE
+// realistic background-task durations: the cost of firing too early (a spurious
+// idle/"done" mid-task) is far worse — and hits the common case — than the cost of
+// firing too late (a rare wedged status lingering a few extra minutes). Cancels and
+// teardowns clear the tracking directly, so this is really just the lost-message net.
+const BG_TASK_WATCHDOG_MS = 20 * 60 * 1000;
+
+// Whether a settled background task's terminal status hands control back to the
+// agent (starting a follow-up turn). 'completed'/'failed' deliver output and
+// re-invoke; 'stopped'/'killed' (user/agent cancelled it) do not. This decides
+// whether we wait for the follow-up turn's SDK idle to settle status, or settle now.
+function reInvokes(status) { return status === 'completed' || status === 'failed'; }
+
+// Ask the adapter (claude-agent-acp) to forward the SDK system messages we drive
+// status from, as `_claude/sdkMessage` ext-notifications:
+//
+// - `session_state_changed` — its `state` ('idle' | 'running' | 'requires_action')
+//   is the SDK's authoritative turn-over signal: 'idle' fires only after held-back
+//   results flush and the background-AGENT loop exits, so it tells us when the
+//   FOREGROUND turn (incl. draining sub-agents) has fully settled.
+// - `task_started` / `task_notification` / `task_updated` — the lifecycle of
+//   BACKGROUNDED tasks (a `run_in_background` Bash command, or any foreground task
+//   sent to the background with Ctrl+B). These outlive the turn: the SDK reports the
+//   session 'idle' the moment the foreground turn ends, but the detached task keeps
+//   running and only later fires a `task_notification` (which re-invokes the agent).
+//   Without them the status would read 'idle' while a background monitor/build is
+//   still running. We keep the status 'working' until every started task settles.
+//
+// The adapter ignores task_* in its own switch, so this filter is the only way to
+// see them. Unknown to older adapters, which ignore the meta and leave us on the
+// debounce fallback (which never learns about detached tasks — a known limitation).
+const SDK_STATE_FILTER = [
+  { type: 'system', subtype: 'session_state_changed' },
+  { type: 'system', subtype: 'task_started' },
+  { type: 'system', subtype: 'task_notification' },
+  { type: 'system', subtype: 'task_updated' },
+  { type: 'system', subtype: 'task_progress' }, // heartbeat only — re-arms the watchdog
+];
 
 // The `_meta` every session-creation call passes so the adapter forwards SDK state
 // (see SDK_STATE_FILTER). Shared so newSession/loadSession — including the
@@ -99,6 +136,9 @@ class AcpSession {
     this._openToolCalls = new Set(); // tool calls announced but not yet resolved
     this._sdkStateAuthoritative = false; // true once the adapter forwards SDK session_state_changed — then it drives status and the debounce stands down
     this._pendingRun = false;        // a prompt was sent but its SDK 'running' state hasn't arrived — gates out the prior turn's lagging 'idle'
+    this._activeTasks = new Set();    // task_ids started but not yet settled (see _onExtNotification) — a non-empty set means detached background work is still running, so a session 'idle' must not read as idle
+    this._sdkIdle = false;            // last SDK session_state was 'idle' — so a background task settling to empty can finish the turn without waiting for another state event
+    this._bgTaskWatchdog = null;      // bounds the 'working' hold if a tracked task's terminal notification never arrives (see BG_TASK_WATCHDOG_MS)
   }
 
   // Spawn the adapter and establish the session. Returns the ACP sessionId.
@@ -132,6 +172,8 @@ class AcpSession {
     child.on('exit', (code) => {
       this.alive = false;
       clearTimeout(this._bgIdleTimer);
+      clearTimeout(this._bgTaskWatchdog); // don't let a settle timer fire on a dead session
+      this._activeTasks.clear();
       this._emit({ type: 'exit', code: code == null ? 0 : code });
       this.listeners.clear();
       // Reject any in-flight permission prompts so the adapter side unblocks.
@@ -157,9 +199,9 @@ class AcpSession {
       // Only fires for url-mode elicitations, which we don't advertise — kept as
       // a no-op so the adapter never invokes an undefined client method.
       unstable_completeElicitation: async () => {},
-      // Adapter-forwarded raw SDK messages (we subscribe to session_state_changed
-      // only, via SDK_STATE_FILTER). This is the authoritative status signal when
-      // the adapter supports it.
+      // Adapter-forwarded raw SDK messages (session_state_changed + the task_*
+      // lifecycle, via SDK_STATE_FILTER). This is the authoritative status signal
+      // when the adapter supports it.
       extNotification: async (method, params) => { this._onExtNotification(method, params); },
       // fs/* and terminal/* intentionally omitted — we do not advertise those
       // capabilities, so the Claude SDK runs file edits and bash internally and
@@ -338,49 +380,132 @@ class AcpSession {
     if (this._sdkStateAuthoritative) return; // authoritative idle arrives as an event; no debounce needed
     clearTimeout(this._bgIdleTimer);
     this._bgIdleTimer = setTimeout(() => {
-      if (this._promptInFlight || this.claudeStatus !== 'working') return;
       // Still work outstanding — keep polling rather than lying about idle.
       if (this._openToolCalls.size > 0) { this._armBackgroundIdle(); return; }
-      this._setStatus('idle');
+      this._settleIdle();
     }, BACKGROUND_IDLE_MS);
   }
 
-  // Adapter ext-notifications. We only subscribe to the SDK's session_state_changed
-  // system message (SDK_STATE_FILTER); its `state` is the authoritative session
-  // status, including through background sub-agent / task-notification drain. The
-  // first one we see promotes us off the debounce fallback for this session's life.
+  // The one place status lands on idle from a timer/settle path. A live turn
+  // (_promptInFlight) or any non-'working' status (an open 'waiting' prompt) outranks
+  // a settle. Kept single so every deferred idle transition shares the same guard.
+  _settleIdle() {
+    if (this._promptInFlight || this.claudeStatus !== 'working') return;
+    this._setStatus('idle');
+  }
+
+  // Adapter ext-notifications. We subscribe (SDK_STATE_FILTER) to the SDK's
+  // session_state_changed — the authoritative foreground-turn status — plus the
+  // task_* lifecycle, which tracks DETACHED background work that outlives the turn.
+  // The first message we see promotes us off the debounce fallback for this life.
   _onExtNotification(method, params) {
     if (method !== '_claude/sdkMessage') return;
     const msg = params && params.message;
-    if (!msg || msg.type !== 'system' || msg.subtype !== 'session_state_changed') return;
+    if (!msg || msg.type !== 'system') return;
 
     if (!this._sdkStateAuthoritative) {
       this._sdkStateAuthoritative = true;
       clearTimeout(this._bgIdleTimer); // hand off from the heuristic
     }
 
-    if (msg.state === 'running') {
+    switch (msg.subtype) {
+      case 'session_state_changed':
+        this._onSdkState(msg.state);
+        return;
+      case 'task_started':
+        this._onTaskStarted(msg);
+        return;
+      case 'task_progress':
+        // Pure heartbeat: proof the tracked task is still alive, re-arming the watchdog.
+        this._heartbeatBgTasks();
+        return;
+      case 'task_notification':
+        this._onTaskSettled(msg.task_id, reInvokes(msg.status));
+        return;
+      case 'task_updated': {
+        const st = msg.patch && msg.patch.status;
+        // A terminal in-place patch settles the task; anything else (running, paused,
+        // is_backgrounded) is a heartbeat that the task is still alive.
+        if (st === 'completed' || st === 'failed' || st === 'killed') this._onTaskSettled(msg.task_id, reInvokes(st));
+        else this._heartbeatBgTasks();
+        return;
+      }
+    }
+  }
+
+  _onSdkState(state) {
+    if (state === 'running') {
       this._pendingRun = false;
+      this._sdkIdle = false;
+      clearTimeout(this._bgTaskWatchdog); // a live turn owns the status now
       // Ignore replay-time 'running' before the user has driven the session: on
       // resume/attach the SDK can stream a running→idle pair for the loaded state,
       // and a working→idle transition would read as a finished turn and fire a
       // false 'done' notification. (Mirrors the _hasPrompted gate on the heuristic
       // path.) A permission/elicitation form ('waiting') also outranks 'running'.
       if (this._hasPrompted && this.claudeStatus !== 'waiting') this._setStatus('working');
-    } else if (msg.state === 'idle') {
+    } else if (state === 'idle') {
       // A prompt was just sent but hasn't started running yet: this 'idle' is the
       // PREVIOUS turn's trailing state draining out (the SDK queues the new turn
       // behind it), so ignore it — honoring it would flap idle→working the instant
       // the new turn starts. The turn's own 'running' clears the gate.
       if (this._pendingRun) return;
+      this._sdkIdle = true;
       // Don't clobber an open permission/elicitation prompt: 'waiting' outranks a
       // stray/lagging 'idle' (a genuinely-finished turn has no prompt open).
       if (this.claudeStatus === 'waiting') return;
+      // A detached background task (run_in_background Bash / a Ctrl+B'd task) is
+      // still running past the turn's end: the foreground is idle but the agent
+      // WILL be re-invoked when the task settles. Stay 'working' — its follow-up
+      // turn's SDK idle settles us. The watchdog bounds this in case that never comes.
+      if (this._activeTasks.size > 0) { this._setStatus('working'); this._armBgTaskWatchdog(); return; }
       this._promptInFlight = false;
       this._setStatus('idle');
     }
     // 'requires_action' is surfaced by the concrete permission/elicitation request
     // (which sets 'waiting'); we don't act on it here.
+  }
+
+  // A task began. Ambient/housekeeping tasks (skip_transcript) — title generation,
+  // memory recall, compaction — are short-lived side work, not the user's turn;
+  // counting them risks stranding the status at 'working', so ignore them.
+  _onTaskStarted(msg) {
+    if (!msg.task_id || msg.skip_transcript) return;
+    this._activeTasks.add(msg.task_id);
+    this._heartbeatBgTasks();
+  }
+
+  // A task settled. 'completed'/'failed' re-invoke the agent, so we leave status
+  // 'working' and let the follow-up turn's SDK idle settle it — settling here would
+  // race the re-invocation and fire a false "done". 'stopped'/'killed' won't
+  // re-invoke, so once the last one settles while the foreground is already idle,
+  // land on idle. The watchdog stays armed either way to bound a follow-up (or
+  // notification) that never arrives.
+  _onTaskSettled(taskId, taskReInvokes) {
+    if (taskId == null || !this._activeTasks.delete(taskId)) return;
+    if (!this._sdkIdle) return; // a live turn owns the status; its own idle will settle
+    if (this._activeTasks.size > 0 || taskReInvokes) { this._armBgTaskWatchdog(); return; }
+    clearTimeout(this._bgTaskWatchdog);
+    this._settleIdle();
+  }
+
+  // Re-arm the watchdog on any sign the tracked background work is still alive, but
+  // only while we're actually holding 'working' for it at an SDK idle — task chatter
+  // during a live turn must not arm it (the turn owns the status).
+  _heartbeatBgTasks() {
+    if (this._sdkIdle && this._activeTasks.size > 0) this._armBgTaskWatchdog();
+  }
+
+  _armBgTaskWatchdog() {
+    clearTimeout(this._bgTaskWatchdog);
+    this._bgTaskWatchdog = setTimeout(() => {
+      // No task lifecycle activity for the whole window: the terminal notification
+      // was lost (cancelled/interrupted turn, dropped message) or the task is truly
+      // silent. Drop the stale tracking so a stale id can't re-assert 'working' on
+      // every future SDK idle, and settle if the foreground is idle.
+      this._activeTasks.clear();
+      this._settleIdle();
+    }, BG_TASK_WATCHDOG_MS);
   }
 
   async setMode(modeId) {
@@ -529,7 +654,9 @@ class AcpSession {
     this._hasPrompted = true;
     this._promptInFlight = true;
     this._pendingRun = true;         // until the SDK reports this turn 'running', gate out the prior turn's lagging 'idle'
+    this._sdkIdle = false;
     clearTimeout(this._bgIdleTimer);
+    clearTimeout(this._bgTaskWatchdog); // a fresh turn owns the status; the watchdog re-arms at its next idle if tasks are still outstanding
     this._openToolCalls.clear();
     this._setStatus('working');
     try {
@@ -564,6 +691,11 @@ class AcpSession {
   }
 
   cancel() {
+    // The user is interrupting the turn: any tasks we're tracking are being torn down
+    // with it, and their terminal notifications may never arrive. Drop the tracking
+    // and the watchdog so status can't wedge at 'working' after the cancel.
+    this._activeTasks.clear();
+    clearTimeout(this._bgTaskWatchdog);
     if (this._conn && this.acpSessionId) {
       Promise.resolve(this._conn.cancel({ sessionId: this.acpSessionId })).catch(() => {});
     }
@@ -575,7 +707,10 @@ class AcpSession {
     this.history = [];
     this._seq = 0;
     clearTimeout(this._bgIdleTimer);
+    clearTimeout(this._bgTaskWatchdog);
     this._openToolCalls.clear();
+    this._activeTasks.clear();
+    this._sdkIdle = false;
     this._promptInFlight = false;
     this._pendingRun = false;
     this._hasPrompted = false;
@@ -836,6 +971,8 @@ class AcpSession {
   kill() {
     this.alive = false;
     clearTimeout(this._bgIdleTimer);
+    clearTimeout(this._bgTaskWatchdog);
+    this._activeTasks.clear();
     clearTimeout(this._titleDebounce);
     try { if (this._titleWatcher) this._titleWatcher.close(); } catch (_) {}
     this._titleWatcher = null;
