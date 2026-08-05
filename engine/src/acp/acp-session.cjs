@@ -36,6 +36,26 @@ const MAX_HISTORY = 5000; // cap retained thread events for replay
 // status directly and this debounce stands down.
 const BACKGROUND_IDLE_MS = 3000;
 
+// Safety net that bounds how long the status may stay 'working' for an outstanding
+// detached task. The normal path never relies on it: a background task's terminal
+// task_notification (and the follow-up turn it triggers) clears the hold. It only
+// fires when that terminal signal never arrives — a dropped message, or a task torn
+// down without one. It re-arms (heartbeat) on every task lifecycle message, so an
+// actively-reporting monitor/subagent keeps it at bay; but a plain run_in_background
+// Bash task streams output to a file, not as heartbeats, so a long *silent* build
+// only has this fixed window before we give up on it. Hence sized WELL ABOVE
+// realistic background-task durations: the cost of firing too early (a spurious
+// idle/"done" mid-task) is far worse — and hits the common case — than the cost of
+// firing too late (a rare wedged status lingering a few extra minutes). Cancels and
+// teardowns clear the tracking directly, so this is really just the lost-message net.
+const BG_TASK_WATCHDOG_MS = 20 * 60 * 1000;
+
+// Whether a settled background task's terminal status hands control back to the
+// agent (starting a follow-up turn). 'completed'/'failed' deliver output and
+// re-invoke; 'stopped'/'killed' (user/agent cancelled it) do not. This decides
+// whether we wait for the follow-up turn's SDK idle to settle status, or settle now.
+function reInvokes(status) { return status === 'completed' || status === 'failed'; }
+
 // Ask the adapter (claude-agent-acp) to forward the SDK system messages we drive
 // status from, as `_claude/sdkMessage` ext-notifications:
 //
@@ -59,6 +79,7 @@ const SDK_STATE_FILTER = [
   { type: 'system', subtype: 'task_started' },
   { type: 'system', subtype: 'task_notification' },
   { type: 'system', subtype: 'task_updated' },
+  { type: 'system', subtype: 'task_progress' }, // heartbeat only — re-arms the watchdog
 ];
 
 // The `_meta` every session-creation call passes so the adapter forwards SDK state
@@ -117,7 +138,7 @@ class AcpSession {
     this._pendingRun = false;        // a prompt was sent but its SDK 'running' state hasn't arrived — gates out the prior turn's lagging 'idle'
     this._activeTasks = new Set();    // task_ids started but not yet settled (see _onExtNotification) — a non-empty set means detached background work is still running, so a session 'idle' must not read as idle
     this._sdkIdle = false;            // last SDK session_state was 'idle' — so a background task settling to empty can finish the turn without waiting for another state event
-    this._taskSettleTimer = null;     // debounce back to idle after the last background task settles (a follow-up turn cancels it)
+    this._bgTaskWatchdog = null;      // bounds the 'working' hold if a tracked task's terminal notification never arrives (see BG_TASK_WATCHDOG_MS)
   }
 
   // Spawn the adapter and establish the session. Returns the ACP sessionId.
@@ -151,6 +172,8 @@ class AcpSession {
     child.on('exit', (code) => {
       this.alive = false;
       clearTimeout(this._bgIdleTimer);
+      clearTimeout(this._bgTaskWatchdog); // don't let a settle timer fire on a dead session
+      this._activeTasks.clear();
       this._emit({ type: 'exit', code: code == null ? 0 : code });
       this.listeners.clear();
       // Reject any in-flight permission prompts so the adapter side unblocks.
@@ -357,11 +380,18 @@ class AcpSession {
     if (this._sdkStateAuthoritative) return; // authoritative idle arrives as an event; no debounce needed
     clearTimeout(this._bgIdleTimer);
     this._bgIdleTimer = setTimeout(() => {
-      if (this._promptInFlight || this.claudeStatus !== 'working') return;
       // Still work outstanding — keep polling rather than lying about idle.
       if (this._openToolCalls.size > 0) { this._armBackgroundIdle(); return; }
-      this._setStatus('idle');
+      this._settleIdle();
     }, BACKGROUND_IDLE_MS);
+  }
+
+  // The one place status lands on idle from a timer/settle path. A live turn
+  // (_promptInFlight) or any non-'working' status (an open 'waiting' prompt) outranks
+  // a settle. Kept single so every deferred idle transition shares the same guard.
+  _settleIdle() {
+    if (this._promptInFlight || this.claudeStatus !== 'working') return;
+    this._setStatus('idle');
   }
 
   // Adapter ext-notifications. We subscribe (SDK_STATE_FILTER) to the SDK's
@@ -378,15 +408,28 @@ class AcpSession {
       clearTimeout(this._bgIdleTimer); // hand off from the heuristic
     }
 
-    if (msg.subtype === 'session_state_changed') { this._onSdkState(msg.state); return; }
-    if (msg.subtype === 'task_started') { this._onTaskStarted(msg); return; }
-    if (msg.subtype === 'task_notification') { this._onTaskSettled(msg.task_id); return; }
-    if (msg.subtype === 'task_updated') {
-      // A task can also settle via an in-place status patch (e.g. killed) without a
-      // separate task_notification; treat any terminal status as settled.
-      const st = msg.patch && msg.patch.status;
-      if (st === 'completed' || st === 'failed' || st === 'killed') this._onTaskSettled(msg.task_id);
-      return;
+    switch (msg.subtype) {
+      case 'session_state_changed':
+        this._onSdkState(msg.state);
+        return;
+      case 'task_started':
+        this._onTaskStarted(msg);
+        return;
+      case 'task_progress':
+        // Pure heartbeat: proof the tracked task is still alive, re-arming the watchdog.
+        this._heartbeatBgTasks();
+        return;
+      case 'task_notification':
+        this._onTaskSettled(msg.task_id, reInvokes(msg.status));
+        return;
+      case 'task_updated': {
+        const st = msg.patch && msg.patch.status;
+        // A terminal in-place patch settles the task; anything else (running, paused,
+        // is_backgrounded) is a heartbeat that the task is still alive.
+        if (st === 'completed' || st === 'failed' || st === 'killed') this._onTaskSettled(msg.task_id, reInvokes(st));
+        else this._heartbeatBgTasks();
+        return;
+      }
     }
   }
 
@@ -394,7 +437,7 @@ class AcpSession {
     if (state === 'running') {
       this._pendingRun = false;
       this._sdkIdle = false;
-      clearTimeout(this._taskSettleTimer); // a live turn owns the status now
+      clearTimeout(this._bgTaskWatchdog); // a live turn owns the status now
       // Ignore replay-time 'running' before the user has driven the session: on
       // resume/attach the SDK can stream a running→idle pair for the loaded state,
       // and a working→idle transition would read as a finished turn and fire a
@@ -413,9 +456,9 @@ class AcpSession {
       if (this.claudeStatus === 'waiting') return;
       // A detached background task (run_in_background Bash / a Ctrl+B'd task) is
       // still running past the turn's end: the foreground is idle but the agent
-      // WILL be re-invoked when the task settles. Stay 'working' — the trailing
-      // task_notification (and its follow-up turn) will settle us to idle.
-      if (this._activeTasks.size > 0) { this._setStatus('working'); return; }
+      // WILL be re-invoked when the task settles. Stay 'working' — its follow-up
+      // turn's SDK idle settles us. The watchdog bounds this in case that never comes.
+      if (this._activeTasks.size > 0) { this._setStatus('working'); this._armBgTaskWatchdog(); return; }
       this._promptInFlight = false;
       this._setStatus('idle');
     }
@@ -429,31 +472,40 @@ class AcpSession {
   _onTaskStarted(msg) {
     if (!msg.task_id || msg.skip_transcript) return;
     this._activeTasks.add(msg.task_id);
+    this._heartbeatBgTasks();
   }
 
-  // A task settled. Once the set empties while the foreground is already idle, the
-  // thread is *probably* done — but a settling background task usually re-invokes
-  // the agent (that's the point of run_in_background), and that follow-up turn's
-  // 'running' arrives a beat AFTER the notification. Settling to idle immediately
-  // would flap idle→working and fire a false "done" notification. So debounce: arm
-  // a short timer that only lands on idle if no follow-up turn has taken over. A
-  // killed/stopped task that never re-invokes still settles here, just delayed.
-  _onTaskSettled(taskId) {
+  // A task settled. 'completed'/'failed' re-invoke the agent, so we leave status
+  // 'working' and let the follow-up turn's SDK idle settle it — settling here would
+  // race the re-invocation and fire a false "done". 'stopped'/'killed' won't
+  // re-invoke, so once the last one settles while the foreground is already idle,
+  // land on idle. The watchdog stays armed either way to bound a follow-up (or
+  // notification) that never arrives.
+  _onTaskSettled(taskId, taskReInvokes) {
     if (taskId == null || !this._activeTasks.delete(taskId)) return;
-    if (this._activeTasks.size > 0) return;
-    this._armTaskSettleIdle();
+    if (!this._sdkIdle) return; // a live turn owns the status; its own idle will settle
+    if (this._activeTasks.size > 0 || taskReInvokes) { this._armBgTaskWatchdog(); return; }
+    clearTimeout(this._bgTaskWatchdog);
+    this._settleIdle();
   }
 
-  _armTaskSettleIdle() {
-    clearTimeout(this._taskSettleTimer);
-    this._taskSettleTimer = setTimeout(() => {
-      // A follow-up turn (running) clears _sdkIdle; an outstanding task, live turn,
-      // or open prompt all outrank a settle. Only idle when the thread is truly quiet.
-      if (this._activeTasks.size > 0) return;
-      if (!this._sdkIdle || this._promptInFlight) return;
-      if (this.claudeStatus !== 'working') return;
-      this._setStatus('idle');
-    }, BACKGROUND_IDLE_MS);
+  // Re-arm the watchdog on any sign the tracked background work is still alive, but
+  // only while we're actually holding 'working' for it at an SDK idle — task chatter
+  // during a live turn must not arm it (the turn owns the status).
+  _heartbeatBgTasks() {
+    if (this._sdkIdle && this._activeTasks.size > 0) this._armBgTaskWatchdog();
+  }
+
+  _armBgTaskWatchdog() {
+    clearTimeout(this._bgTaskWatchdog);
+    this._bgTaskWatchdog = setTimeout(() => {
+      // No task lifecycle activity for the whole window: the terminal notification
+      // was lost (cancelled/interrupted turn, dropped message) or the task is truly
+      // silent. Drop the stale tracking so a stale id can't re-assert 'working' on
+      // every future SDK idle, and settle if the foreground is idle.
+      this._activeTasks.clear();
+      this._settleIdle();
+    }, BG_TASK_WATCHDOG_MS);
   }
 
   async setMode(modeId) {
@@ -604,7 +656,7 @@ class AcpSession {
     this._pendingRun = true;         // until the SDK reports this turn 'running', gate out the prior turn's lagging 'idle'
     this._sdkIdle = false;
     clearTimeout(this._bgIdleTimer);
-    clearTimeout(this._taskSettleTimer);
+    clearTimeout(this._bgTaskWatchdog); // a fresh turn owns the status; the watchdog re-arms at its next idle if tasks are still outstanding
     this._openToolCalls.clear();
     this._setStatus('working');
     try {
@@ -639,6 +691,11 @@ class AcpSession {
   }
 
   cancel() {
+    // The user is interrupting the turn: any tasks we're tracking are being torn down
+    // with it, and their terminal notifications may never arrive. Drop the tracking
+    // and the watchdog so status can't wedge at 'working' after the cancel.
+    this._activeTasks.clear();
+    clearTimeout(this._bgTaskWatchdog);
     if (this._conn && this.acpSessionId) {
       Promise.resolve(this._conn.cancel({ sessionId: this.acpSessionId })).catch(() => {});
     }
@@ -650,7 +707,7 @@ class AcpSession {
     this.history = [];
     this._seq = 0;
     clearTimeout(this._bgIdleTimer);
-    clearTimeout(this._taskSettleTimer);
+    clearTimeout(this._bgTaskWatchdog);
     this._openToolCalls.clear();
     this._activeTasks.clear();
     this._sdkIdle = false;
@@ -914,6 +971,8 @@ class AcpSession {
   kill() {
     this.alive = false;
     clearTimeout(this._bgIdleTimer);
+    clearTimeout(this._bgTaskWatchdog);
+    this._activeTasks.clear();
     clearTimeout(this._titleDebounce);
     try { if (this._titleWatcher) this._titleWatcher.close(); } catch (_) {}
     this._titleWatcher = null;
