@@ -3,6 +3,7 @@ import type { ProjectInfo } from '../../../shared/types'
 import type { Selection, SelectHandler } from '../selection'
 import { FileTree } from './FileTree'
 import { GitPanel } from './GitPanel'
+import { SessionSkillsPanel } from './SessionSkillsPanel'
 
 interface Props {
   project: ProjectInfo | null
@@ -10,7 +11,7 @@ interface Props {
   onSelect: SelectHandler
 }
 
-type Tab = 'changes' | 'files'
+type Tab = 'changes' | 'files' | 'skills'
 
 // Imperative handle both trees expose so the shared header buttons
 // (refresh, collapse-all) can drive whichever panel is active.
@@ -59,24 +60,32 @@ export function RightPanel({ project, selection, onSelect }: Props) {
         >
           Files
         </button>
+        <button
+          className={`panel-tab ${tab === 'skills' ? 'active' : ''}`}
+          onClick={() => setTab('skills')}
+        >
+          Skills
+        </button>
         <span className="topbar-spacer" />
         <button
           className={`icon-button codicon codicon-search ${searching ? 'active' : ''}`}
           title="Search"
           onClick={toggleSearch}
         />
-        {tab === 'files' && (
+        {(tab === 'files' || tab === 'skills') && (
           <button
             className="icon-button codicon codicon-refresh"
             title="Refresh"
             onClick={() => treeRef.current?.refresh()}
           />
         )}
-        <button
-          className="icon-button codicon codicon-collapse-all"
-          title="Collapse All"
-          onClick={() => treeRef.current?.collapseAll()}
-        />
+        {tab !== 'skills' && (
+          <button
+            className="icon-button codicon codicon-collapse-all"
+            title="Collapse All"
+            onClick={() => treeRef.current?.collapseAll()}
+          />
+        )}
       </div>
       {searching && (
         <div className="panel-search">
@@ -85,7 +94,9 @@ export function RightPanel({ project, selection, onSelect }: Props) {
             ref={searchInputRef}
             className="panel-search-input"
             type="text"
-            placeholder={tab === 'changes' ? 'Filter changes' : 'Filter files'}
+            placeholder={
+              tab === 'changes' ? 'Filter changes' : tab === 'skills' ? 'Filter skills' : 'Filter files'
+            }
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
@@ -116,6 +127,8 @@ export function RightPanel({ project, selection, onSelect }: Props) {
             onSelect={onSelect}
             filter={query}
           />
+        ) : tab === 'skills' ? (
+          <SessionSkillsPanel key={projectKey(project)} ref={treeRef} project={project} filter={query} />
         ) : (
           <GitPanel
             key={projectKey(project)}

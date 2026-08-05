@@ -241,6 +241,22 @@ export function registerAcpIpc(getWindow: () => BrowserWindow | null): AcpHub {
     readSkillFiles(arg)
   )
 
+  // Skills available to one project/session on `host`: the host's personal
+  // skills (~/.claude/skills) plus the project-level skills under `cwd`. Backs
+  // the right panel's per-session Skills tab.
+  ipcMain.handle(
+    'skills:forProject',
+    async (_e, arg: { host: string | null; cwd: string }): Promise<SkillRef[]> => {
+      const key = arg.host ? `ssh:${arg.host}` : LOCAL_HOST_KEY
+      const engine = await connectHost(ensureHostConn(key))
+      const host = arg.host ?? null
+      const list = await engine.sm.listSkills()
+      return list
+        .filter((s) => s.scope === 'host' || (s.scope === 'project' && s.projectPath === arg.cwd))
+        .map((s) => ({ ...s, host, id: `${host ?? 'local'}:${s.id}` }))
+    }
+  )
+
   // Scan every connected host for skills and mirror any not-yet-collected ones
   // into the library. A per-source ledger means a source is pulled in at most
   // once, so a skill the user later deletes from the library won't reappear, and

@@ -171,7 +171,15 @@ const api = {
       scope: SkillScope
       dir: string
       name: string
-    }): Promise<SkillRef> => ipcRenderer.invoke('skills:import', arg)
+    }): Promise<SkillRef> => ipcRenderer.invoke('skills:import', arg),
+    /** Skills available to a project/session: the host's personal skills plus the
+     *  project-level skills under `cwd`. Backs the right panel's Skills tab. */
+    forProject: (arg: { host: string | null; cwd: string }): Promise<SkillRef[]> =>
+      ipcRenderer.invoke('skills:forProject', arg),
+    /** Inject a library skill (`sourceDir`) into an open project's .claude/skills.
+     *  Result-wrapped (routed through the workspace provider). */
+    inject: (wsId: string, sourceDir: string): Promise<Result<{ name: string }>> =>
+      ipcRenderer.invoke('skills:inject', wsId, sourceDir)
   },
 
   // Session links: enumerate the browsers installed on the host, and open a URL
