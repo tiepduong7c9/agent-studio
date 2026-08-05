@@ -1,5 +1,13 @@
 import { BrowserWindow, ipcMain } from 'electron'
-import type { Disposable, ProjectConversations, SessionMeta } from '../shared/acp'
+import type {
+  Disposable,
+  ProjectConversations,
+  SessionMeta,
+  SkillFiles,
+  SkillRef,
+  SkillScope,
+  SkillsListing
+} from '../shared/acp'
 import {
   getEngine,
   invalidateEngine,
@@ -7,6 +15,16 @@ import {
   LOCAL_HOST_KEY,
   type Engine
 } from './engine'
+import {
+  addCollectedKeys,
+  createLibrarySkill,
+  deleteLibrarySkill,
+  getCollectedKeys,
+  importIntoLibrary,
+  listLibrarySkills,
+  readLibrarySkill,
+  writeLibraryFile
+} from './skills-library'
 
 // Bridges the renderer's window.studio.acp calls to the engines' sessionManager
 // channels. Several hosts can be connected at once — the local daemon plus one
@@ -197,6 +215,103 @@ export function registerAcpIpc(getWindow: () => BrowserWindow | null): AcpHub {
     )
     return perHost.flat()
   })
+
+  // The managed collection: the app-owned library only. Skills discovered on
+  // hosts/projects are mirrored into the library by an explicit Scan (below), so
+  // listing itself is a cheap local read with no host round-trips or writes.
+  ipcMain.handle('skills:list', async (): Promise<SkillsListing> => {
+    const skills = await listLibrarySkills().catch(() => [] as SkillRef[])
+    return { skills, unreachable: [] }
+  })
+
+  // Read a single skill's files (SKILL.md + resources). Library skills read from
+  // the local store; host/project skills read on the owning host's engine.
+  const readSkillFiles = async (arg: {
+    host: string | null
+    scope: SkillScope
+    dir: string
+  }): Promise<SkillFiles> => {
+    if (arg.scope === 'library') return readLibrarySkill(arg.dir)
+    const key = arg.host ? `ssh:${arg.host}` : LOCAL_HOST_KEY
+    const engine = await connectHost(ensureHostConn(key))
+    return engine.sm.readSkill(arg.dir)
+  }
+
+  ipcMain.handle('skills:read', async (_e, arg: { host: string | null; scope: SkillScope; dir: string }) =>
+    readSkillFiles(arg)
+  )
+
+  // Scan every connected host for skills and mirror any not-yet-collected ones
+  // into the library. A per-source ledger means a source is pulled in at most
+  // once, so a skill the user later deletes from the library won't reappear, and
+  // library copies persist even after the source is removed from its host.
+  // Same-name collisions are treated as already-present (first source wins).
+  // Returns the refreshed library plus hosts that couldn't be scanned.
+  ipcMain.handle('skills:scan', async (): Promise<SkillsListing> => {
+    await ensureAll()
+    const unreachable: string[] = []
+    const discovered: SkillRef[] = []
+    await Promise.all(
+      [...hosts.values()].map(async (hc) => {
+        if (!hc.engine) {
+          unreachable.push(hc.key)
+          return
+        }
+        const host = hostFromKey(hc.key)
+        try {
+          const list = await hc.engine.sm.listSkills()
+          for (const s of list) discovered.push({ ...s, host, id: `${host ?? 'local'}:${s.id}` })
+        } catch {
+          unreachable.push(hc.key)
+        }
+      })
+    )
+
+    const collected = await getCollectedKeys()
+    const newlyCollected: string[] = []
+    for (const s of discovered) {
+      if (collected.has(s.id)) continue
+      newlyCollected.push(s.id)
+      try {
+        const files = await readSkillFiles({ host: s.host ?? null, scope: s.scope, dir: s.dir })
+        await importIntoLibrary(s.name, files.files)
+      } catch {
+        // Name already in the library (dedup) or a bad read — still mark the
+        // source collected so we don't reconsider it every scan.
+      }
+    }
+    await addCollectedKeys(newlyCollected)
+
+    const skills = await listLibrarySkills().catch(() => [] as SkillRef[])
+    return { skills, unreachable }
+  })
+
+  // Create a new, empty skill in the library.
+  ipcMain.handle('skills:create', async (_e, arg: { name: string; description?: string }) =>
+    createLibrarySkill(arg.name, arg.description)
+  )
+
+  // Overwrite one text file within a library skill (the inline editor's Save).
+  ipcMain.handle('skills:writeFile', async (_e, arg: { dir: string; rel: string; content: string }) => {
+    await writeLibraryFile(arg.dir, arg.rel, arg.content)
+  })
+
+  // Permanently delete a library skill.
+  ipcMain.handle('skills:delete', async (_e, arg: { dir: string }) => {
+    await deleteLibrarySkill(arg.dir)
+  })
+
+  // Copy a skill into the library under `name` — "Add to Library" from any
+  // host/project source, or "Duplicate" of an existing (library) skill. The
+  // source files are read wherever they live (local store or a host engine),
+  // then written into the local library.
+  ipcMain.handle(
+    'skills:import',
+    async (_e, arg: { host: string | null; scope: SkillScope; dir: string; name: string }) => {
+      const files = await readSkillFiles(arg)
+      return importIntoLibrary(arg.name, files.files)
+    }
+  )
 
   // Account + subscription usage for a host's Claude credentials (null host =
   // local). Fetched on the owning engine, so each host reports its own limits.

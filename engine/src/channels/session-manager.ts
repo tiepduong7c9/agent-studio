@@ -6,7 +6,7 @@
 import type { IChannel, IServerChannel } from '../net.js';
 import type { Event } from '../net.js';
 import type { SessionManager } from '../acp/session-manager.js';
-import type { AcpConversation, AcpEvent, AcpSnapshot, AcpUsageDetail, CreateSessionOptions, ProjectConversations, SessionMeta } from '../acp/types.js';
+import type { AcpConversation, AcpEvent, AcpSnapshot, AcpUsageDetail, CreateSessionOptions, ProjectConversations, SessionMeta, SkillFiles, SkillRef } from '../acp/types.js';
 
 export const SESSION_MANAGER_CHANNEL = 'sessionManager';
 
@@ -17,6 +17,8 @@ export class SessionManagerChannel implements IServerChannel {
     switch (command) {
       case 'list': return this.manager.list();
       case 'listProjects': return this.manager.listProjects();
+      case 'listSkills': return this.manager.listSkills();
+      case 'readSkill': return this.manager.readSkill(arg as string);
       case 'getUsage': return this.manager.getUsage();
       case 'create': return this.manager.create(arg as CreateSessionOptions);
       case 'snapshot': return this.manager.snapshot(arg as string);
@@ -51,6 +53,8 @@ export class SessionManagerChannel implements IServerChannel {
 export interface ISessionManagerClient {
   list(): Promise<SessionMeta[]>;
   listProjects(): Promise<ProjectConversations[]>;
+  listSkills(): Promise<SkillRef[]>;
+  readSkill(dir: string): Promise<SkillFiles>;
   getUsage(): Promise<AcpUsageDetail>;
   create(opts: CreateSessionOptions): Promise<SessionMeta>;
   snapshot(sid: string): Promise<AcpSnapshot | null>;
@@ -75,6 +79,8 @@ export function createSessionManagerClient(channel: IChannel): ISessionManagerCl
   return {
     list: () => channel.call('list'),
     listProjects: () => channel.call('listProjects'),
+    listSkills: () => channel.call('listSkills'),
+    readSkill: (dir) => channel.call('readSkill', dir),
     getUsage: () => channel.call('getUsage'),
     create: (opts) => channel.call('create', opts),
     snapshot: (sid) => channel.call('snapshot', sid),

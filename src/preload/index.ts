@@ -5,7 +5,11 @@ import type {
   AcpSnapshot,
   AcpUsageDetail,
   ProjectConversations,
-  SessionMeta
+  SessionMeta,
+  SkillFiles,
+  SkillRef,
+  SkillScope,
+  SkillsListing
 } from '../shared/acp'
 import type {
   BrowserChoice,
@@ -139,6 +143,36 @@ const api = {
   },
   windowControl: (action: 'minimize' | 'maximize' | 'close'): Promise<Result<boolean>> =>
     ipcRenderer.invoke('window:control', action),
+
+  // Skills: manage Claude Code skills across the app-owned library and every
+  // connected host/project. Like the acp calls these reject on error (no Result
+  // envelope) — the renderer store handles failures.
+  skills: {
+    /** The managed collection (the app-owned library only). Cheap local read. */
+    list: (): Promise<SkillsListing> => ipcRenderer.invoke('skills:list'),
+    /** Scan connected hosts and mirror newly-discovered skills into the library.
+     *  Returns the refreshed library plus hosts that couldn't be scanned. */
+    scan: (): Promise<SkillsListing> => ipcRenderer.invoke('skills:scan'),
+    /** A single skill's files (SKILL.md + resources) for the viewer/editor. */
+    read: (arg: { host: string | null; scope: SkillScope; dir: string }): Promise<SkillFiles> =>
+      ipcRenderer.invoke('skills:read', arg),
+    /** Create a new, empty skill in the app-owned library. */
+    create: (arg: { name: string; description?: string }): Promise<SkillRef> =>
+      ipcRenderer.invoke('skills:create', arg),
+    /** Overwrite one text file within a library skill (inline editor Save). */
+    writeFile: (arg: { dir: string; rel: string; content: string }): Promise<void> =>
+      ipcRenderer.invoke('skills:writeFile', arg),
+    /** Permanently delete a library skill. */
+    remove: (arg: { dir: string }): Promise<void> => ipcRenderer.invoke('skills:delete', arg),
+    /** Copy a skill (any source) into the library under `name` — Add to Library
+     *  / Duplicate. */
+    import: (arg: {
+      host: string | null
+      scope: SkillScope
+      dir: string
+      name: string
+    }): Promise<SkillRef> => ipcRenderer.invoke('skills:import', arg)
+  },
 
   // Session links: enumerate the browsers installed on the host, and open a URL
   // in a chosen one (or the system default). Opening in-app is handled entirely

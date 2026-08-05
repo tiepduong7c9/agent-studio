@@ -102,6 +102,55 @@ export interface AcpEventPayload {
   event: AcpEvent
 }
 
+// ── skills ────────────────────────────────────────────────────────────────────
+
+/** Where a skill lives. `library` is the app-owned store on the local machine;
+ *  `host`/`project` skills come from a host's engine. */
+export type SkillScope = 'library' | 'host' | 'project'
+
+/** A skill directory (SKILL.md + resources) discovered somewhere. Mirrors the
+ *  engine's SkillRef; the main process decorates `host` (null = local). */
+export interface SkillRef {
+  /** Stable id: `${host ?? 'local'}:${scope}:${dir}`. */
+  id: string
+  name: string
+  description: string
+  scope: SkillScope
+  /** "user@host" for ssh, null for the local machine / library. */
+  host?: string | null
+  /** Project root, when scope === 'project'. */
+  projectPath?: string
+  /** Absolute skill directory on its host. */
+  dir: string
+  resources: { rel: string; size: number }[]
+  mtime: number
+  invalid?: boolean
+}
+
+/** One file within a skill: `text` for text files, `base64` for binary ones. */
+export interface SkillFile {
+  rel: string
+  size: number
+  binary: boolean
+  text?: string
+  base64?: string
+  truncated?: boolean
+}
+
+/** A skill's files (SKILL.md first, then resources). */
+export interface SkillFiles {
+  files: SkillFile[]
+}
+
+/** Aggregated skills across the library and every connected host, plus which
+ *  hosts couldn't be scanned (disconnected/unreachable), so the UI can show them
+ *  greyed with a Reconnect action. */
+export interface SkillsListing {
+  skills: SkillRef[]
+  /** Host keys ("local" | "ssh:user@host") that failed to scan this pass. */
+  unreachable: string[]
+}
+
 // ── engine client module shape (dynamically imported in the main process) ─────
 
 export interface Disposable { dispose(): void }
@@ -110,6 +159,8 @@ export type EventFn<T> = (listener: (e: T) => void) => Disposable
 export interface ISessionManagerClient {
   list(): Promise<SessionMeta[]>
   listProjects(): Promise<ProjectConversations[]>
+  listSkills(): Promise<SkillRef[]>
+  readSkill(dir: string): Promise<SkillFiles>
   getUsage(): Promise<AcpUsageDetail>
   create(opts: { cwd: string; name?: string }): Promise<SessionMeta>
   snapshot(sid: string): Promise<AcpSnapshot | null>
