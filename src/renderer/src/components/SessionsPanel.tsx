@@ -128,6 +128,7 @@ function LiveRow({ s, active, pinned, hidden, done, doneAt, unread, onSelect, on
   const [confirming, setConfirming] = useState(false)
   const [editing, setEditing] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [restarting, setRestarting] = useState(false)
 
   const openMenu = (e: MouseEvent) => {
     e.preventDefault()
@@ -154,11 +155,11 @@ function LiveRow({ s, active, pinned, hidden, done, doneAt, unread, onSelect, on
   // added MCP servers); the conversation is reloaded, but any in-flight turn is
   // dropped.
   const restart = async () => {
-    setBusy(true)
+    setRestarting(true)
     try {
       await window.studio.acp.restart(s.id)
     } finally {
-      setBusy(false)
+      setRestarting(false)
     }
   }
 
@@ -167,8 +168,8 @@ function LiveRow({ s, active, pinned, hidden, done, doneAt, unread, onSelect, on
     { label: unread ? 'Mark as read' : 'Mark as unread', run: onToggleUnread },
     { separator: true },
     { label: 'Rename', run: () => setEditing(true) },
-    { label: 'Regenerate title', enabled: !busy, run: () => void regenerateTitle() },
-    { label: 'Restart session', enabled: !busy, run: () => void restart() },
+    { label: 'Regenerate title', enabled: !busy && !restarting, run: () => void regenerateTitle() },
+    { label: 'Restart session', enabled: !busy && !restarting, run: () => void restart() },
     { separator: true },
     { label: hidden ? 'Unhide' : 'Hide', run: hidden ? onUnhide : onHide },
     { label: 'Delete Session', run: () => setConfirming(true) }
@@ -201,7 +202,7 @@ function LiveRow({ s, active, pinned, hidden, done, doneAt, unread, onSelect, on
           <span className="acp-session-main">
             <span className="acp-session-name">{s.name}</span>
             <span className="acp-session-sub">
-              {busy ? 'generating title…' : `${displayStatus ?? s.status} · ${subTime}`}
+              {restarting ? 'restarting…' : busy ? 'generating title…' : `${displayStatus ?? s.status} · ${subTime}`}
             </span>
           </span>
         </button>

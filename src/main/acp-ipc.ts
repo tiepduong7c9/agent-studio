@@ -399,9 +399,25 @@ export function registerAcpIpc(getWindow: () => BrowserWindow | null): AcpHub {
     return hc.engine!.sm.kill(sid)
   })
   // Restart the session's adapter to pick up host-side config (e.g. new MCP
-  // servers). Unlike kill, the session lives on, so keep the event subscription
-  // in place — the adapter re-spawns and events keep flowing to the renderer.
-  ipcMain.handle('acp:restart', async (_e, sid: string) => (await smForSid(sid)).restart(sid))
+  // servers). The engine swaps in a brand-new adapter with a fresh listener
+  // set, so the event forwarder bound to the old adapter goes deaf. Re-attach
+  // it (as connectHost does on reconnect) so thread events — message chunks,
+  // tool calls, permission prompts — keep reaching the renderer, then push a
+  // resync snapshot (the resumed adapter streams its replayed history in).
+  ipcMain.handle('acp:restart', async (_e, sid: string) => {
+    const hc = await hcForSid(sid)
+    // Await the swap before re-forwarding: the client call resolves once the
+    // engine has replaced rec.acp, so the new forwarder binds to the fresh
+    // adapter's listener set rather than the discarded one.
+    const ok = await hc.engine!.sm.restart(sid)
+    if (hc.subs.has(sid)) {
+      hc.subs.get(sid)?.dispose()
+      hc.subs.set(sid, forward(hc.engine!.sm, sid))
+      const snapshot = await hc.engine!.sm.snapshot(sid).catch(() => null)
+      if (snapshot) send('acp:resync', { sid, snapshot })
+    }
+    return ok
+  })
 
   return {
     ensureHost: (key: string) => { connectHost(ensureHostConn(key)).catch(() => {}) },
