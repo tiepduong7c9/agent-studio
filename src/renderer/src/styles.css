@@ -368,9 +368,14 @@ body {
   cursor: pointer;
   user-select: none;
 }
-/* The first section needs no divider above it. */
+/* The first section sits right under the panel title — no divider above it and
+   a tighter top gap than the between-section spacing. */
+.sess-section:first-child {
+  margin-top: 0;
+}
 .sess-section:first-child .sess-section-header {
   border-top-color: transparent;
+  padding-top: 12px;
 }
 /* Pinned & Needs-you headers carry the accent text colour. */
 .sess-section-header.accent .sess-section-title {
@@ -385,6 +390,9 @@ body {
   color: var(--vscode-descriptionForeground);
 }
 .sess-section-rows {
+  /* Gap below the sticky header (which has a fixed, border-box height, so its
+     own padding can't create it) before the first row. */
+  padding-top: 6px;
   padding-bottom: 4px;
 }
 /* "Show N more / Show less" toggle beneath a capped section. */
@@ -466,14 +474,14 @@ body {
 }
 
 /* Live agent session rows — two lines: a title line and a metadata line.
-   Asymmetric padding (10 top / 6 bottom) yields a 16px between-row gap while the
-   two lines stay a tight 6px apart, so they read as one session. No per-row
-   dividers: whitespace alone encodes the boundary. */
+   Balanced padding (8 top / 8 bottom) yields a 16px between-row gap and reads
+   evenly within a row, while the two lines stay a tight 6px apart so they read
+   as one session. No per-row dividers: whitespace alone encodes the boundary. */
 .acp-session-row {
   display: flex;
   align-items: flex-start;
   width: 100%;
-  padding: 10px 12px 6px;
+  padding: 8px 12px;
   background: none;
   border: none;
   text-align: left;

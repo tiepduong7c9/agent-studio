@@ -86,6 +86,7 @@ export function SessionLinksButton({ sid, wsId }: { sid: string; wsId: string | 
 
   const openWindow = (url: string): void => {
     window.studio.links.openInWindow(url).catch(() => {})
+    setOpen(false)
   }
 
   const showTargetMenu = async (e: MouseEvent, url: string): Promise<void> => {
@@ -148,7 +149,7 @@ export function SessionLinksButton({ sid, wsId }: { sid: string; wsId: string | 
                     key={link.url}
                     className="acp-links-item"
                     title={link.url}
-                    onClick={() => openInApp(link.url)}
+                    onClick={() => openWindow(link.url)}
                     onContextMenu={(e) => showTargetMenu(e, link.url)}
                   >
                     <span

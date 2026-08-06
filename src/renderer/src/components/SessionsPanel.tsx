@@ -291,12 +291,9 @@ export function SessionsPanel({
   // Parked). Sorting: same-project rows sit adjacent, then most-recent first;
   // Needs-you additionally floats blocked (waiting) items above crashed & done.
   const buckets = useMemo(() => {
-    const cmp = (a: SessionMeta, b: SessionMeta): number => {
-      const pa = projectLabel(a.cwd)
-      const pb = projectLabel(b.cwd)
-      if (pa !== pb) return pa.localeCompare(pb)
-      return activity(b) - activity(a)
-    }
+    // Most-recent activity first, across projects (activity = lastAttachedAt ||
+    // createdAt).
+    const cmp = (a: SessionMeta, b: SessionMeta): number => activity(b) - activity(a)
     const needs: SessionMeta[] = []
     const working: SessionMeta[] = []
     const later: SessionMeta[] = []
