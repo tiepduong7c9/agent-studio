@@ -14,6 +14,7 @@ import { RemoteFolderPicker } from './components/RemoteFolderPicker'
 import { RightPanel } from './components/RightPanel'
 import { Sash } from './components/Sash'
 import { SessionsPanel } from './components/SessionsPanel'
+import { SessionSwitcher } from './components/SessionSwitcher'
 import { SshDialog } from './components/SshDialog'
 import { StatusBar } from './components/StatusBar'
 import { TitleBar } from './components/TitleBar'
@@ -56,6 +57,10 @@ export function App() {
   const [folderPickerHost, setFolderPickerHost] = useState<string | null>(null)
   const [quickOpen, setQuickOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  // Which step the command palette opens on: the sidebar + button jumps straight
+  // to the New Session picker; the keyboard shortcut opens the command list.
+  const [paletteStep, setPaletteStep] = useState<'commands' | 'targets'>('commands')
+  const [sessionSwitcherOpen, setSessionSwitcherOpen] = useState(false)
   // The untitled tab awaiting a save location (Ctrl/Cmd+S on a scratch buffer).
   const [saveAs, setSaveAs] = useState<Extract<EditorTab, { kind: 'file' }> | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -513,8 +518,14 @@ export function App() {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'p' || e.key === 'P')) {
         e.preventDefault()
-        if (e.shiftKey) setPaletteOpen((v) => !v)
-        else setQuickOpen((v) => !v)
+        if (e.shiftKey) {
+          setPaletteStep('commands')
+          setPaletteOpen((v) => !v)
+        } else setQuickOpen((v) => !v)
+      } else if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'e' || e.key === 'E')) {
+        // Ctrl/Cmd+E: jump to a session (VS Code-style quick-open).
+        e.preventDefault()
+        setSessionSwitcherOpen((v) => !v)
       }
     }
     window.addEventListener('keydown', onKey, { capture: true })
@@ -693,7 +704,6 @@ export function App() {
           <>
             <aside className="panel panel-left" style={{ width: leftWidth }}>
               <SessionsPanel
-                workspaces={workspaces}
                 sessions={sessions}
                 projects={projects}
                 remoteHosts={remoteHosts}
@@ -701,12 +711,13 @@ export function App() {
                 activeSid={activeSid}
                 onSelectSession={openChat}
                 onOpenConversation={openConversation}
-                onNewSession={newSession}
-                onCloseWorkspace={closeWorkspace}
+                onNewSessionFlow={() => {
+                  setPaletteStep('targets')
+                  setPaletteOpen(true)
+                }}
                 onDeleteSession={deleteSession}
                 onOpenLocal={openLocal}
                 onOpenSsh={() => setSshDialogOpen(true)}
-                onOpenRemoteFolder={(host) => setFolderPickerHost(host)}
                 onDisconnectRemote={disconnectRemote}
                 onReconnectRemote={reconnectRemote}
               />
@@ -771,7 +782,19 @@ export function App() {
           remoteHosts={remoteHosts}
           onCreateSession={newSessionAt}
           onBrowseLocal={browseLocalForSession}
+          onGoToSession={() => {
+            setPaletteOpen(false)
+            setSessionSwitcherOpen(true)
+          }}
+          initialStep={paletteStep}
           onClose={() => setPaletteOpen(false)}
+        />
+      )}
+      {sessionSwitcherOpen && (
+        <SessionSwitcher
+          sessions={sessions}
+          onSelect={openChat}
+          onClose={() => setSessionSwitcherOpen(false)}
         />
       )}
       {folderPickerHost !== null && (

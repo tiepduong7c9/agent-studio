@@ -4,6 +4,7 @@ import type { ProjectInfo } from '../../../shared/types'
 import { fuzzyMatch } from '../fuzzy'
 import { normRoot } from '../workspace'
 import { baseName } from './editors'
+import { highlightMatch } from './highlight'
 import { RemoteFolderPicker } from './RemoteFolderPicker'
 
 // VS Code-style command palette (Ctrl/Cmd+Shift+P). A small, extensible
@@ -32,6 +33,11 @@ interface Props {
   onCreateSession: (rootPath: string, host: string | null) => void
   /** Open the native folder picker on the local machine, then create a session. */
   onBrowseLocal: () => void
+  /** Open the session switcher (Ctrl/Cmd+E) to jump to an existing session. */
+  onGoToSession: () => void
+  /** Which step to open on: 'commands' (default) or straight into 'targets'
+   *  (the New Session project picker), e.g. from the sidebar's + button. */
+  initialStep?: 'commands' | 'targets'
   onClose: () => void
 }
 
@@ -45,11 +51,13 @@ export function CommandPalette({
   remoteHosts,
   onCreateSession,
   onBrowseLocal,
+  onGoToSession,
+  initialStep = 'commands',
   onClose
 }: Props) {
   // 'commands' → the top-level command list; 'targets' → pick where a New
   // Session runs. browseHost, when set, overlays the remote folder picker.
-  const [step, setStep] = useState<'commands' | 'targets'>('commands')
+  const [step, setStep] = useState<'commands' | 'targets'>(initialStep)
   const [browseHost, setBrowseHost] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
@@ -60,8 +68,8 @@ export function CommandPalette({
     setQuery('')
   }
 
-  const commands = useMemo<PaletteItem[]>(
-    () => [
+  const commands = useMemo<PaletteItem[]>(() => {
+    const items: PaletteItem[] = [
       {
         key: 'new-session',
         icon: 'add',
@@ -69,9 +77,18 @@ export function CommandPalette({
         detail: 'Create a Claude Code session',
         run: goTargets
       }
-    ],
-    []
-  )
+    ]
+    if (sessions.length > 0) {
+      items.push({
+        key: 'goto-session',
+        icon: 'robot',
+        label: 'Go to Session',
+        detail: 'Jump to an open session (Ctrl/Cmd+E)',
+        run: onGoToSession
+      })
+    }
+    return items
+  }, [sessions, onGoToSession])
 
   const targets = useMemo<PaletteItem[]>(() => {
     const items: PaletteItem[] = []
@@ -257,7 +274,7 @@ export function CommandPalette({
                 onClick={() => choose(item)}
               >
                 <span className={`codicon codicon-${item.icon} quick-open-icon`} />
-                <span className="quick-open-name">{highlight(item.label, positions)}</span>
+                <span className="quick-open-name">{highlightMatch(item.label, positions)}</span>
                 {item.detail && <span className="quick-open-path">{item.detail}</span>}
                 {item.badge && <span className="quick-open-ws">{item.badge}</span>}
               </div>
@@ -269,36 +286,3 @@ export function CommandPalette({
   )
 }
 
-/** Renders `text` with the characters at `positions` wrapped for highlighting. */
-function highlight(text: string, positions: number[]) {
-  if (positions.length === 0) return text
-  const set = new Set(positions)
-  const out: React.ReactNode[] = []
-  let run = ''
-  let hlRun = ''
-  const flush = () => {
-    if (run) {
-      out.push(run)
-      run = ''
-    }
-    if (hlRun) {
-      out.push(
-        <span key={out.length} className="quick-open-hl">
-          {hlRun}
-        </span>
-      )
-      hlRun = ''
-    }
-  }
-  for (let i = 0; i < text.length; i++) {
-    if (set.has(i)) {
-      if (run) flush()
-      hlRun += text[i]
-    } else {
-      if (hlRun) flush()
-      run += text[i]
-    }
-  }
-  flush()
-  return out
-}

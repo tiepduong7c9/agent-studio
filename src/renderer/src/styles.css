@@ -338,7 +338,70 @@ body {
   flex: 1;
   overflow-y: auto;
   min-height: 0;
-  padding: 4px 0;
+  padding: 0 0 8px;
+}
+
+/* ── Attention-state sections ──────────────────────────
+   Sessions group by attention state, not by project or host. Fixed order:
+   Pinned · Needs you · Working · Idle · Parked. */
+.sess-section {
+  margin-top: 6px;
+}
+/* Sticky header keeps the section label (and the meaning of the timestamp
+   column) visible while scrolling through its rows. A hairline divider sits
+   above it, attaching the header to the rows it labels. */
+.sess-section-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: baseline;
+  height: 24px;
+  padding: 12px 12px 6px;
+  background: var(--vscode-sideBar-background, var(--vscode-editor-background));
+  border-top: 0.5px solid var(--vscode-sideBar-border, var(--vscode-panel-border, transparent));
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--vscode-descriptionForeground);
+  cursor: pointer;
+  user-select: none;
+}
+/* The first section needs no divider above it. */
+.sess-section:first-child .sess-section-header {
+  border-top-color: transparent;
+}
+/* Pinned & Needs-you headers carry the accent text colour. */
+.sess-section-header.accent .sess-section-title {
+  color: var(--vscode-textLink-foreground, var(--vscode-charts-blue, #3794ff));
+}
+.sess-section-title {
+  white-space: nowrap;
+}
+.sess-section-count {
+  margin-left: 5px;
+  font-weight: 400;
+  color: var(--vscode-descriptionForeground);
+}
+.sess-section-rows {
+  padding-bottom: 4px;
+}
+/* "Show N more / Show less" toggle beneath a capped section. */
+.sess-more {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11.5px;
+  color: var(--vscode-textLink-foreground);
+  padding: 4px 12px 6px;
+}
+.sess-more:hover {
+  text-decoration: underline;
 }
 
 .sessions-search-wrap {
@@ -382,90 +445,6 @@ body {
   flex: 0 0 auto;
 }
 
-/* Scope chip: the project the search is locked to (Tab-selected) */
-.sessions-search-scope {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  flex: 0 0 auto;
-  max-width: 55%;
-  height: 18px;
-  padding: 0 4px 0 6px;
-  border-radius: 3px;
-  font-size: 11px;
-  background: var(--vscode-badge-background);
-  color: var(--vscode-badge-foreground);
-}
-.sessions-search-scope .codicon {
-  font-size: 11px;
-}
-.sessions-search-scope-name {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.sessions-search-scope-remove {
-  cursor: pointer;
-  opacity: 0.75;
-}
-.sessions-search-scope-remove:hover {
-  opacity: 1;
-}
-
-/* Project suggestions dropdown */
-.sessions-suggest {
-  position: absolute;
-  top: calc(100% + 2px);
-  left: 0;
-  right: 0;
-  z-index: 20;
-  margin: 0;
-  padding: 2px;
-  list-style: none;
-  max-height: 240px;
-  overflow-y: auto;
-  border: 1px solid var(--vscode-widget-border, var(--vscode-dropdown-border));
-  border-radius: 4px;
-  background: var(--vscode-dropdown-background, var(--vscode-editorWidget-background));
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.36);
-}
-.sessions-suggest-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 6px;
-  border-radius: 3px;
-  font-size: 12px;
-  color: var(--vscode-foreground);
-  cursor: pointer;
-}
-.sessions-suggest-item.active {
-  background: var(--vscode-list-activeSelectionBackground);
-  color: var(--vscode-list-activeSelectionForeground);
-}
-.sessions-suggest-remote {
-  font-size: 12px;
-  flex: 0 0 auto;
-}
-.sessions-suggest-name {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.sessions-suggest-host {
-  margin-left: auto;
-  padding-left: 8px;
-  font-size: 11px;
-  opacity: 0.7;
-  white-space: nowrap;
-}
-
-.sessions-group-label {
-  padding: 6px 12px;
-  font-size: 12px;
-  color: var(--vscode-descriptionForeground);
-}
-
 .sessions-empty {
   padding: 6px 12px 6px 24px;
   font-size: 12px;
@@ -486,153 +465,15 @@ body {
   text-align: center;
 }
 
-/* One group per open workspace, plus per-host "Other sessions" groups */
-.sessions-group {
-  margin-bottom: 4px;
-}
-.sessions-group-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 24px;
-  padding: 0 8px 0 6px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--vscode-descriptionForeground);
-  cursor: pointer;
-  user-select: none;
-}
-.sessions-group-header:hover {
-  color: var(--vscode-foreground);
-}
-.sessions-group-twistie {
-  font-size: 16px;
-  flex: 0 0 auto;
-  opacity: 0.8;
-}
-.sessions-group-header .icon-button {
-  opacity: 0;
-  font-size: 14px;
-}
-.sessions-group:hover .sessions-group-header .icon-button {
-  opacity: 0.85;
-}
-.sessions-group-remote {
-  font-size: 13px;
-  flex: 0 0 auto;
-}
-.sessions-group-name {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--vscode-foreground);
-}
-.sessions-group-host {
-  font-weight: 400;
-  text-transform: none;
-  letter-spacing: 0;
-  color: var(--vscode-descriptionForeground);
-  opacity: 0.7;
-  white-space: nowrap;
-}
-.sessions-group-other {
-  font-style: italic;
-}
-
-/* Focus-mode project headings are labels, not collapsible controls. */
-.sessions-focus-group {
-  margin-bottom: 6px;
-}
-.sessions-focus-group-header {
-  cursor: default;
-  padding-left: 8px;
-}
-.sessions-focus-group-header:hover {
-  color: var(--vscode-descriptionForeground);
-}
-.sessions-focus-group-icon {
-  font-size: 13px;
-  flex: 0 0 auto;
-  opacity: 0.85;
-}
-
-/* Connected SSH host section: a header with its projects nested beneath. */
-.sessions-host-section {
-  margin-bottom: 6px;
-}
-.sessions-host-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 26px;
-  padding: 0 8px 0 6px;
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--vscode-foreground);
-  user-select: none;
-  cursor: pointer;
-  border-bottom: 1px solid var(--vscode-panel-border, transparent);
-}
-.sessions-host-icon {
-  font-size: 14px;
-  flex: 0 0 auto;
-  opacity: 0.9;
-}
-.sessions-host-name {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.sessions-host-status {
-  font-weight: 400;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  font-size: 10px;
-  padding: 0 5px;
-  border-radius: 3px;
-  color: var(--vscode-descriptionForeground);
-}
-.sessions-host-status.reconnecting {
-  color: var(--vscode-editorWarning-foreground, #cca700);
-}
-.sessions-host-status.lost {
-  color: var(--vscode-errorForeground, #f14c4c);
-}
-/* A disconnected (lost) host reads as inactive: muted name/icon, but its
-   Reconnect/Forget actions stay visible (not hover-gated) so it's actionable. */
-.sessions-host-section.disconnected .sessions-host-name,
-.sessions-host-section.disconnected .sessions-host-icon {
-  opacity: 0.6;
-}
-.sessions-host-section.disconnected .sessions-host-header .icon-button {
-  opacity: 0.85;
-}
-.sessions-host-header .icon-button {
-  opacity: 0;
-  font-size: 14px;
-}
-.sessions-host-section:hover .sessions-host-header .icon-button {
-  opacity: 0.85;
-}
-/* Indent a host's project groups to show they belong to it. */
-.sessions-host-section .sessions-group-header {
-  padding-left: 18px;
-}
-.sessions-host-section .acp-session-row {
-  padding-left: 24px;
-}
-
-/* Live agent session rows */
+/* Live agent session rows — two lines: a title line and a metadata line.
+   Asymmetric padding (10 top / 6 bottom) yields a 16px between-row gap while the
+   two lines stay a tight 6px apart, so they read as one session. No per-row
+   dividers: whitespace alone encodes the boundary. */
 .acp-session-row {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  align-items: flex-start;
   width: 100%;
-  padding: 6px 12px;
+  padding: 10px 12px 6px;
   background: none;
   border: none;
   text-align: left;
@@ -640,16 +481,100 @@ body {
   color: var(--vscode-foreground);
 }
 .acp-session-row:hover { background: var(--vscode-list-hoverBackground); }
+/* Selection: a full-bleed tint spanning both lines (§7). No left bar — the tint
+   alone marks the open session. */
 .acp-session-row.active {
   background: var(--vscode-list-activeSelectionBackground);
   color: var(--vscode-list-activeSelectionForeground);
-  box-shadow: inset 3px 0 0 0 var(--vscode-focusBorder, var(--vscode-progressBar-background, #0078d4));
 }
-.acp-session-row.active .acp-session-name { font-weight: 700; }
-.acp-session-main { display: flex; flex-direction: column; min-width: 0; }
-.acp-session-name { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.acp-session-main { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1; }
+
+/* Line 1: lifecycle dot + title, with the unread-activity dot pinned right. */
+.acp-session-title-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.acp-session-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Inline PR / issue numbers read as identifiers, not prose. */
+.acp-session-pr { font-family: var(--vscode-editor-font-family, monospace); font-size: 12px; }
+/* Unread-activity indicator — its own channel, distinct from the lifecycle dot. */
+.acp-session-unread-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--vscode-charts-blue, #3794ff);
+}
+.acp-session-row.unread:not(.done) .acp-session-unread-dot {
+  background: var(--vscode-charts-purple, #b180d7);
+}
+/* Live indicator while a session is actively executing — a green pulsing dot in
+   the same title-line slot as the unread dot (a working row is never unread). */
+.acp-session-working-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  color: var(--vscode-charts-yellow, #cca700);
+  background: currentColor;
+  animation: acp-dot-pulse 1.4s ease-out infinite;
+}
+@keyframes acp-dot-pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 60%, transparent); }
+  70%, 100% { box-shadow: 0 0 0 5px transparent; }
+}
+
+/* Line 2: metadata. Timestamp is muted and right-aligned; an optional label
+   (Resume / disconnected) sits left and truncates before the timestamp. */
+.acp-session-meta-line {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--vscode-descriptionForeground);
+}
+.acp-session-meta-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Project reads before host and never truncates; host truncates first. Each is
+   prefixed by a 12px icon (folder; server for remote / desktop for local). */
+.acp-session-project {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  font-weight: 500;
+  color: var(--vscode-descriptionForeground);
+  white-space: nowrap;
+}
+.acp-session-host {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+  opacity: 0.75;
+}
+.acp-session-host-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acp-session-meta-icon { font-size: 12px; flex: 0 0 auto; opacity: 0.8; }
+.acp-session-time { margin-left: auto; padding-left: 4px; white-space: nowrap; flex-shrink: 0; }
+.acp-session-row.active .acp-session-meta-line { color: var(--vscode-list-activeSelectionForeground); opacity: 0.8; }
+
 /* Inline rename: the row swaps to a non-button container holding this input. */
-.acp-session-row.editing { cursor: default; }
+.acp-session-row.editing { cursor: default; align-items: center; gap: 8px; }
 .acp-session-name-edit {
   flex: 1 1 auto;
   min-width: 0;
@@ -662,84 +587,19 @@ body {
   padding: 1px 4px;
   outline: none;
 }
-.acp-session-sub { font-size: 11px; color: var(--vscode-descriptionForeground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.acp-session-row.active .acp-session-sub { color: var(--vscode-list-activeSelectionForeground); opacity: 0.8; }
-/* Past (resumable) conversations read slightly muted vs live sessions. */
-.acp-session-history .acp-status-dot { opacity: 0.45; }
+/* Past (resumable) conversations read slightly muted vs live sessions. Lifecycle
+   state is carried by the section a row sits in, so rows have no per-row status
+   dot — only the unread-activity dot on the title line (§7). */
 .acp-session-history .acp-session-name { color: var(--vscode-descriptionForeground); }
-.acp-status-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
-.acp-status-idle { background: var(--vscode-testing-iconPassed, #388a34); }
-/* "Running" is in-progress: a muted gold dot with a pulsing glow. */
-.acp-status-working {
-  background: var(--vscode-charts-yellow, #cca700);
-  animation: acp-working-pulse 1.4s ease-out infinite;
-}
-/* "Waiting" needs user attention: a bright magenta dot, blinking. */
-.acp-status-waiting {
-  background: #e30bcd;
-  animation: acp-waiting-blink 1s steps(1, end) infinite;
-}
-.acp-status-done { background: var(--vscode-charts-blue, #3794ff); }
-@keyframes acp-working-pulse {
-  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--vscode-charts-yellow, #cca700) 65%, transparent); }
-  70% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--vscode-charts-yellow, #cca700) 0%, transparent); }
-  100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--vscode-charts-yellow, #cca700) 0%, transparent); }
-}
-@keyframes acp-waiting-blink {
-  0%, 50% { opacity: 1; }
-  50.01%, 100% { opacity: 0.25; }
-}
-/* A pinned session whose host is offline: hollow, muted dot + dimmed row. */
-.acp-status-offline {
-  background: transparent;
-  border: 1.5px solid var(--vscode-descriptionForeground);
-  opacity: 0.7;
-}
+/* A pinned session whose host is offline reads as a dimmed row. */
 .acp-session-row.offline { opacity: 0.6; font-style: italic; }
 .acp-session-row.offline:hover { opacity: 0.85; }
-.acp-session-row.offline .acp-session-sub { color: var(--vscode-errorForeground, #f14c4c); }
+.acp-session-row.offline .acp-session-meta-label { color: var(--vscode-errorForeground, #f14c4c); }
 
-/* "Done" (unread-completion) rows draw the eye: an accent-tinted background with
-   a left bar, a bolder name, an accent label, and a pulsing/glowing dot. */
-.acp-session-row.done {
-  background: color-mix(in srgb, var(--vscode-charts-blue, #3794ff) 13%, transparent);
-  box-shadow: inset 2px 0 0 var(--vscode-charts-blue, #3794ff);
-}
-.acp-session-row.done:hover {
-  background: color-mix(in srgb, var(--vscode-charts-blue, #3794ff) 20%, transparent);
-}
-.acp-session-row.done .acp-session-name { font-weight: 600; }
-.acp-session-row.done .acp-session-sub {
-  color: var(--vscode-charts-blue, #3794ff);
-  font-weight: 600;
-  text-transform: capitalize;
-}
-
-/* "Waiting" (needs user input) rows draw the eye like "done" but with a magenta
-   accent: a tinted background, left bar, bolder name, and accent status label. */
-.acp-session-row.waiting {
-  background: color-mix(in srgb, #e30bcd 13%, transparent);
-  box-shadow: inset 2px 0 0 #e30bcd;
-}
-.acp-session-row.waiting:hover {
-  background: color-mix(in srgb, #e30bcd 20%, transparent);
-}
-.acp-session-row.waiting .acp-session-name { font-weight: 600; }
-.acp-session-row.waiting .acp-session-sub {
-  color: #e30bcd;
-  font-weight: 600;
-  text-transform: capitalize;
-}
-
-/* Manually flagged "unread / follow up later" rows: a persistent accent marker
-   (distinct purple hue from the blue "done" completion state) with a left bar
-   and a bolder name. Both can coexist; the transient "done" background wins. */
-.acp-session-row.unread:not(.done) {
-  box-shadow: inset 2px 0 0 var(--vscode-charts-purple, #b180d7);
-}
-.acp-session-row.unread .acp-session-name { font-weight: 600; }
-/* Recolour the single status dot instead of adding a second dot before the name. */
-.acp-session-row.unread:not(.done) .acp-status-dot { background: var(--vscode-charts-purple, #b180d7); }
+/* State (done / waiting / crashed) is conveyed by the section a row sits in and
+   its lifecycle dot colour — not a per-row tint, which would collide with the
+   selection channel (§7). Rows stay plain; the unread-activity dot on the title
+   line marks done / manually-flagged rows. */
 
 /* Live session row: actions live in a right-click context menu so the session
    summary text isn't crowded. Only a pinned marker sits inline, on the right. */
@@ -799,29 +659,6 @@ body {
 .sessions-show-hidden .codicon { font-size: 12px; }
 .sessions-show-hidden:hover,
 .sessions-show-hidden.active { color: var(--vscode-foreground); }
-.sessions-focus-empty { padding: 12px; line-height: 1.5; }
-
-/* "Show N more / Show less" toggle under a capped project group. */
-.sessions-more {
-  display: block;
-  width: 100%;
-  text-align: left;
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-family: inherit;
-  font-size: 11px;
-  color: var(--vscode-textLink-foreground);
-  padding: 4px 12px 6px 28px;
-}
-.sessions-more:hover {
-  background: var(--vscode-list-hoverBackground);
-  text-decoration: underline;
-}
-
-/* A hidden project group, surfaced only while "show hidden" is on. */
-.sessions-group.hidden > .sessions-group-header .sessions-group-name { opacity: 0.55; }
-.sessions-group.hidden .sessions-group-header .icon-button.codicon-eye { opacity: 0.85; }
 
 /* New-session composer textarea */
 .chat-input-textarea {
@@ -2093,6 +1930,68 @@ body {
   font-size: 12px;
   font-style: italic;
 }
+
+/* Inline "new folder" row while creating a folder in the picker. */
+.picker-new { cursor: default; }
+.picker-new:hover { background: transparent; }
+.picker-new-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--vscode-input-foreground, var(--vscode-foreground));
+  font-family: inherit;
+  font-size: 13px;
+}
+.picker-new-input::placeholder {
+  color: var(--vscode-input-placeholderForeground, var(--vscode-descriptionForeground));
+}
+
+/* ── Remote hosts management popup ─────────────────────── */
+.remote-hosts-dialog { min-width: 440px; }
+.remote-hosts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 6px 0 14px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.remote-host-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+}
+.remote-host-row:hover { background: var(--vscode-list-hoverBackground); }
+.remote-host-icon { flex: 0 0 auto; font-size: 15px; color: var(--vscode-icon-foreground); }
+.remote-host-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.remote-host-status {
+  flex: 0 0 auto;
+  margin-right: 4px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--vscode-descriptionForeground);
+}
+.remote-host-status.connected { color: var(--vscode-charts-green, #3fb950); }
+.remote-host-status.reconnecting { color: var(--vscode-editorWarning-foreground, #cca700); }
+.remote-host-status.lost { color: var(--vscode-errorForeground, #f14c4c); }
+.btn-slim { padding: 2px 8px; font-size: 12px; }
+.btn-slim .codicon { font-size: 13px; }
+/* Align an icon with the label inside a text button (distinct from .btn-icon,
+   which is an icon-only, transparent button). */
+.btn-with-icon { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.btn-with-icon .codicon { font-size: 15px; line-height: 1; }
 
 /* ── Scrollbars (VS Code style) ──────────────────────── */
 

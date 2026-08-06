@@ -43,6 +43,8 @@ const api = {
     ipcRenderer.invoke('project:connectSsh', opts),
   sshListDir: (host: string, dirPath: string): Promise<Result<RemoteDirListing>> =>
     ipcRenderer.invoke('ssh:listDir', host, dirPath),
+  sshMakeDir: (host: string, parentPath: string, name: string): Promise<Result<string>> =>
+    ipcRenderer.invoke('ssh:makeDir', host, parentPath, name),
   sshOpenRemote: (host: string, dirPath: string): Promise<Result<ProjectInfo>> =>
     ipcRenderer.invoke('ssh:openRemote', host, dirPath),
   sshDisconnect: (host: string): Promise<Result<void>> =>

@@ -124,6 +124,28 @@ export async function resolveRemoteDir(sftp: SFTPWrapper, dirPath: string): Prom
   return resolved.replace(/\/+$/, '') || '/'
 }
 
+// Create `name` inside `parentPath` on the remote host and return the new
+// directory's absolute path (so the picker can descend into it).
+export async function makeRemoteDir(
+  sftp: SFTPWrapper,
+  parentPath: string,
+  name: string
+): Promise<string> {
+  // Defensive: the new folder must be a single segment inside parentPath, so a
+  // name can't traverse out of (or below) the directory being browsed.
+  if (!name || name.includes('/') || name === '.' || name === '..') {
+    throw new Error(`Invalid folder name: ${name}`)
+  }
+  const parent = await new Promise<string>((resolve, reject) => {
+    sftp.realpath(parentPath, (err, p) => (err ? reject(err) : resolve(p)))
+  })
+  const target = joinPosix(parent, name)
+  await new Promise<void>((resolve, reject) => {
+    sftp.mkdir(target, (err) => (err ? reject(err) : resolve()))
+  })
+  return target
+}
+
 export class SshProjectProvider implements ProjectProvider {
   readonly info: ProjectInfo
 

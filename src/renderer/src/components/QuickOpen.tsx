@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ProjectInfo } from '../../../shared/types'
 import type { Selection } from '../selection'
 import { fuzzyMatch, type FuzzyMatch } from '../fuzzy'
+import { highlightMatch } from './highlight'
 
 // VS Code-style quick-open (Ctrl/Cmd+P): fuzzy-search every file in the open
 // workspaces and open the chosen one in a tab.
@@ -172,43 +173,10 @@ function QuickOpenRow({
       onClick={onClick}
     >
       <span className="codicon codicon-file quick-open-icon" />
-      <span className="quick-open-name">{highlight(name, namePos)}</span>
-      {dir && <span className="quick-open-path">{highlight(dir, dirPos)}</span>}
+      <span className="quick-open-name">{highlightMatch(name, namePos)}</span>
+      {dir && <span className="quick-open-path">{highlightMatch(dir, dirPos)}</span>}
       {showWorkspace && <span className="quick-open-ws">{entry.wsName}</span>}
     </div>
   )
 }
 
-/** Renders `text` with the characters at `positions` wrapped for highlighting. */
-function highlight(text: string, positions: number[]) {
-  if (positions.length === 0) return text
-  const set = new Set(positions)
-  const out: React.ReactNode[] = []
-  let run = ''
-  let hlRun = ''
-  const flush = () => {
-    if (run) {
-      out.push(run)
-      run = ''
-    }
-    if (hlRun) {
-      out.push(
-        <span key={out.length} className="quick-open-hl">
-          {hlRun}
-        </span>
-      )
-      hlRun = ''
-    }
-  }
-  for (let i = 0; i < text.length; i++) {
-    if (set.has(i)) {
-      if (run) flush()
-      hlRun += text[i]
-    } else {
-      if (hlRun) flush()
-      run += text[i]
-    }
-  }
-  flush()
-  return out
-}
