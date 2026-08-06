@@ -591,10 +591,6 @@ body {
    state is carried by the section a row sits in, so rows have no per-row status
    dot — only the unread-activity dot on the title line (§7). */
 .acp-session-history .acp-session-name { color: var(--vscode-descriptionForeground); }
-/* A pinned session whose host is offline reads as a dimmed row. */
-.acp-session-row.offline { opacity: 0.6; font-style: italic; }
-.acp-session-row.offline:hover { opacity: 0.85; }
-.acp-session-row.offline .acp-session-meta-label { color: var(--vscode-errorForeground, #f14c4c); }
 
 /* State (done / waiting / crashed) is conveyed by the section a row sits in and
    its lifecycle dot colour — not a per-row tint, which would collide with the
@@ -602,21 +598,11 @@ body {
    line marks done / manually-flagged rows. */
 
 /* Live session row: actions live in a right-click context menu so the session
-   summary text isn't crowded. Only a pinned marker sits inline, on the right. */
+   summary text isn't crowded. */
 .acp-session-row-wrap { position: relative; }
 .acp-session-row-wrap .acp-session-row { width: 100%; }
-.acp-session-row-wrap.hidden .acp-session-row { opacity: 0.5; }
-.acp-session-pin {
-  position: absolute;
-  top: 50%;
-  right: 8px;
-  transform: translateY(-50%);
-  font-size: 13px;
-  color: var(--vscode-textLink-foreground);
-  pointer-events: none;
-}
 
-/* All / Focus mode switch (in the Sessions header row) + show-hidden toggle */
+/* Segmented toggle (e.g. Git graph branch filter) */
 .seg-toggle {
   display: inline-flex;
   margin-left: 8px;
@@ -643,22 +629,6 @@ body {
   background: var(--vscode-button-background);
   color: var(--vscode-button-foreground);
 }
-.sessions-show-hidden {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  background: none;
-  border: none;
-  color: var(--vscode-descriptionForeground);
-  font-family: inherit;
-  font-size: 11px;
-  padding: 2px 4px;
-  cursor: pointer;
-  border-radius: 4px;
-}
-.sessions-show-hidden .codicon { font-size: 12px; }
-.sessions-show-hidden:hover,
-.sessions-show-hidden.active { color: var(--vscode-foreground); }
 
 /* New-session composer textarea */
 .chat-input-textarea {
