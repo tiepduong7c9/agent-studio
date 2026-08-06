@@ -9,6 +9,7 @@ import { LocalProjectProvider } from './providers/local'
 import {
   establishSshSession,
   listRemoteDirs,
+  makeRemoteDir,
   resolveRemoteDir,
   SshProjectProvider,
   type SshSession
@@ -150,7 +151,9 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, hub: 
     if (!win) throw new Error('No window')
     const result = await dialog.showOpenDialog(win, {
       title: 'Open Project Folder',
-      properties: ['openDirectory']
+      // createDirectory adds the native "New Folder" affordance so a folder can
+      // be created and opened in one step.
+      properties: ['openDirectory', 'createDirectory']
     })
     if (result.canceled || result.filePaths.length === 0) return null
     return addProvider(new LocalProjectProvider(result.filePaths[0])).info
@@ -192,6 +195,14 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, hub: 
     const session = sshHosts.get(host)
     if (!session) throw new Error(`Not connected to ${host}`)
     return listRemoteDirs(session.sftp, expandRemote(session, dirPath))
+  })
+
+  // Create a new folder `name` inside `parentPath` on a connected host; returns
+  // its absolute path so the folder picker can descend into it.
+  handle('ssh:makeDir', async (host: string, parentPath: string, name: string) => {
+    const session = sshHosts.get(host)
+    if (!session) throw new Error(`Not connected to ${host}`)
+    return makeRemoteDir(session.sftp, expandRemote(session, parentPath), name)
   })
 
   // Root a project at the chosen folder on a connected host, so it opens as a

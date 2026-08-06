@@ -20,6 +20,9 @@ export function RemoteFolderPicker({ host, initialPath = '~', onOpen, onCancel }
   const [loading, setLoading] = useState(false)
   const [opening, setOpening] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Inline "new folder" creation within the folder currently shown.
+  const [creating, setCreating] = useState(false)
+  const [newName, setNewName] = useState('')
 
   const navigate = useCallback(async (target: string) => {
     setLoading(true)
@@ -41,6 +44,29 @@ export function RemoteFolderPicker({ host, initialPath = '~', onOpen, onCancel }
     navigatedOnce.current = true
     navigate(initialPath)
   }, [initialPath, navigate])
+
+  const createFolder = async () => {
+    const name = newName.trim()
+    if (!name) {
+      setCreating(false)
+      return
+    }
+    // A single path segment only — reject separators and dot entries so the new
+    // folder lands inside the directory shown, not somewhere else.
+    if (name.includes('/') || name === '.' || name === '..') {
+      setError('Folder name can’t contain “/” or be “.” or “..”.')
+      return
+    }
+    setError(null)
+    const result = await window.studio.sshMakeDir(host, current, name)
+    if (result.ok) {
+      setCreating(false)
+      setNewName('')
+      navigate(result.data)
+    } else {
+      setError(result.error)
+    }
+  }
 
   const open = async () => {
     setOpening(true)
@@ -69,6 +95,14 @@ export function RemoteFolderPicker({ host, initialPath = '~', onOpen, onCancel }
           <button className="btn" onClick={() => navigate(pathInput.trim())} disabled={loading}>
             Go
           </button>
+          <button
+            className="btn"
+            title="New folder here"
+            onClick={() => setCreating(true)}
+            disabled={loading || creating}
+          >
+            <span className="codicon codicon-new-folder" />
+          </button>
         </div>
 
         <div className="picker-list">
@@ -76,6 +110,27 @@ export function RemoteFolderPicker({ host, initialPath = '~', onOpen, onCancel }
             <div className="picker-empty">Loading…</div>
           ) : (
             <>
+              {creating && (
+                <div className="picker-row picker-new">
+                  <span className="codicon codicon-new-folder" />
+                  <input
+                    className="picker-new-input"
+                    autoFocus
+                    spellCheck={false}
+                    placeholder="New folder name"
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') createFolder()
+                      else if (e.key === 'Escape') {
+                        setCreating(false)
+                        setNewName('')
+                      }
+                    }}
+                    onBlur={() => !newName.trim() && setCreating(false)}
+                  />
+                </div>
+              )}
               {listing?.parent && (
                 <button className="picker-row" onClick={() => navigate(listing.parent!)}>
                   <span className="codicon codicon-arrow-up" />

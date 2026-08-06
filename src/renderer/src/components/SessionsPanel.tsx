@@ -1,12 +1,12 @@
 import { type KeyboardEvent, type MouseEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { Info } from 'lucide-react'
 import type { AcpConversation, ProjectConversations, SessionMeta } from '../../../shared/acp'
-import { workspaceId, type ProjectInfo } from '../../../shared/types'
 import { useSessionsStore } from '../acp/sessions-store'
 import { useViewPrefsStore } from '../view-prefs-store'
-import { groupKey, normRoot, workspaceForSession } from '../workspace'
+import { hostLabel, projectLabel, sessionActivity as activity } from '../session-format'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { AboutDialog, ConfirmDialog } from './Dialogs'
+import { RemoteHostsDialog } from './RemoteHostsDialog'
 import { SkillsManager } from './SkillsManager'
 
 const CUSTOMIZATIONS = [
@@ -19,85 +19,76 @@ const CUSTOMIZATIONS = [
 ]
 
 interface Props {
-  workspaces: ProjectInfo[]
   sessions: SessionMeta[]
   projects: ProjectConversations[]
-  /** Connected SSH hosts ("user@host"), each rendered as its own host section. */
+  /** Connected SSH hosts ("user@host"), managed from the header hosts menu. */
   remoteHosts: string[]
   /** Transport health per host key ('local' | `ssh:<host>`); absent = connected. */
   engineStatus: Record<string, string>
   activeSid: string | null
   onSelectSession: (sid: string) => void
   onOpenConversation: (project: ProjectConversations, conv: AcpConversation) => void
-  onNewSession: (ws: ProjectInfo, opts?: { pin?: boolean }) => void
-  onCloseWorkspace: (wsId: string) => void
+  /** Start the New Session flow (opens the command palette at its project picker). */
+  onNewSessionFlow: () => void
   /** Permanently end (kill) a live session on the engine. */
   onDeleteSession: (sid: string) => void
   onOpenLocal: () => void
   onOpenSsh: () => void
-  /** Open the remote folder picker for a connected host. */
-  onOpenRemoteFolder: (host: string) => void
-  /** Disconnect a connected SSH host. */
+  /** Disconnect a connected SSH host (or forget a lost one). */
   onDisconnectRemote: (host: string) => void
   /** Reconnect a disconnected (saved) SSH host from its stored credentials. */
   onReconnectRemote: (host: string) => void
 }
 
+// Compact relative time — Working counts up (elapsed), the rest count time since
+// last active. Rendered tersely to fit the right edge of the metadata line.
 function relTime(ms: number): string {
   if (!ms || Number.isNaN(ms)) return ''
   const diff = Date.now() - ms
   const m = Math.floor(diff / 60000)
-  if (m < 1) return 'just now'
-  if (m < 60) return `${m} min${m === 1 ? '' : 's'} ago`
+  if (m < 1) return 'now'
+  if (m < 60) return `${m}m`
   const h = Math.floor(m / 60)
-  if (h < 24) return `${h}h ago`
+  if (h < 24) return `${h}h`
   const d = Math.floor(h / 24)
-  return `${d}d ago`
+  return `${d}d`
 }
 
-function statusClass(status?: string): string {
-  if (status === 'working') return 'acp-status-working'
-  if (status === 'waiting') return 'acp-status-waiting'
-  if (status === 'done') return 'acp-status-done'
-  return 'acp-status-idle'
+// Render a session title with inline PR/issue numbers (#1234) in the mono face,
+// so they read as identifiers rather than prose.
+function renderTitle(name: string) {
+  return name.split(/(#\d+)/g).map((part, i) =>
+    /^#\d+$/.test(part) ? (
+      <span key={i} className="acp-session-pr">
+        {part}
+      </span>
+    ) : (
+      part
+    )
+  )
 }
 
-const activity = (s: SessionMeta): number => Date.parse(s.lastAttachedAt || s.createdAt)
+// Max rows shown per section before a "Show N more" toggle.
+const ROW_LIMIT = 4
 
-// Max rows shown per project group / bucket before a "Show more" toggle.
-const ROW_LIMIT = 5
+// Attention-state sections, in fixed display order. "Pinned" and "Needs you"
+// carry the accent header colour.
+type SectionKey = 'pinned' | 'needs' | 'working' | 'later' | 'idle' | 'parked'
+const SECTIONS: { key: SectionKey; title: string; accent: boolean }[] = [
+  { key: 'pinned', title: 'Pinned', accent: true },
+  { key: 'needs', title: 'Needs you', accent: true },
+  { key: 'working', title: 'Working', accent: false },
+  { key: 'later', title: 'Later', accent: false },
+  { key: 'idle', title: 'Idle', accent: false },
+  { key: 'parked', title: 'Parked', accent: false }
+]
 
-// A row in a project group: either a live (running/suspended) session, or a
-// past conversation on disk that can be resumed on click.
+// A row in a section: a live session, a resumable past conversation, or a pinned
+// session whose host is offline (reconnect-on-click).
 type Row =
   | { kind: 'live'; s: SessionMeta }
   | { kind: 'conv'; project: ProjectConversations; conv: AcpConversation }
-
-interface Group {
-  key: string
-  cwd: string
-  name: string
-  host: string | null
-  /** Set when this project is an open workspace (gets + / close controls). */
-  workspace: ProjectInfo | null
-  project: ProjectConversations | null
-  live: SessionMeta[]
-}
-
-/** The project a "New Session" targets for a group — the open workspace if the
- *  group is one, else a project synthesized from its folder (discovered on-disk
- *  projects with no open workspace still get to start sessions). */
-function groupProject(g: Group): ProjectInfo {
-  if (g.workspace) return g.workspace
-  const kind = g.host ? 'ssh' : 'local'
-  return {
-    id: workspaceId({ kind, host: g.host ?? undefined, rootPath: g.cwd }),
-    kind,
-    name: g.name,
-    rootPath: g.cwd,
-    host: g.host ?? undefined
-  }
-}
+  | { kind: 'offline'; id: string; name: string; host: string }
 
 interface LiveRowProps {
   s: SessionMeta
@@ -111,14 +102,11 @@ interface LiveRowProps {
   /** User-flagged unread (follow up later) — a persistent manual marker. */
   unread: boolean
   onSelect: () => void
-  onTogglePin: () => void
   onToggleUnread: () => void
-  onHide: () => void
-  onUnhide: () => void
   onDelete: () => void
 }
 
-function LiveRow({ s, active, pinned, hidden, done, doneAt, unread, onSelect, onTogglePin, onToggleUnread, onHide, onUnhide, onDelete }: LiveRowProps) {
+function LiveRow({ s, active, pinned, hidden, done, doneAt, unread, onSelect, onToggleUnread, onDelete }: LiveRowProps) {
   // "done" only stands in when Claude is otherwise idle — a live working/waiting
   // status always wins (a new turn clears the marker anyway).
   const displayStatus = done && (!s.claudeStatus || s.claudeStatus === 'idle') ? 'done' : s.claudeStatus
@@ -164,22 +152,21 @@ function LiveRow({ s, active, pinned, hidden, done, doneAt, unread, onSelect, on
   }
 
   const items: MenuItem[] = [
-    { label: pinned ? 'Unpin' : 'Pin', run: onTogglePin },
     { label: unread ? 'Mark as read' : 'Mark as unread', run: onToggleUnread },
     { separator: true },
     { label: 'Rename', run: () => setEditing(true) },
     { label: 'Regenerate title', enabled: !busy && !restarting, run: () => void regenerateTitle() },
     { label: 'Restart session', enabled: !busy && !restarting, run: () => void restart() },
     { separator: true },
-    { label: hidden ? 'Unhide' : 'Hide', run: hidden ? onUnhide : onHide },
     { label: 'Delete Session', run: () => setConfirming(true) }
   ]
+
+  const showUnreadDot = unread || displayStatus === 'done'
 
   return (
     <div className={`acp-session-row-wrap ${hidden ? 'hidden' : ''}`}>
       {editing ? (
         <div className="acp-session-row editing">
-          <span className={`acp-status-dot ${statusClass(displayStatus)}`} />
           <input
             className="acp-session-name-edit"
             defaultValue={s.name}
@@ -198,11 +185,37 @@ function LiveRow({ s, active, pinned, hidden, done, doneAt, unread, onSelect, on
           onClick={onSelect}
           onContextMenu={openMenu}
         >
-          <span className={`acp-status-dot ${statusClass(displayStatus)}`} />
           <span className="acp-session-main">
-            <span className="acp-session-name">{s.name}</span>
-            <span className="acp-session-sub">
-              {restarting ? 'restarting…' : busy ? 'generating title…' : `${displayStatus ?? s.status} · ${subTime}`}
+            <span className="acp-session-title-line">
+              <span className="acp-session-name">{renderTitle(s.name)}</span>
+              {/* One indicator, right-aligned: a live green pulse while working,
+                  else the blue unread-activity dot. Mutually exclusive. */}
+              {displayStatus === 'working' ? (
+                <span className="acp-session-working-dot" title="Working" />
+              ) : (
+                showUnreadDot && <span className="acp-session-unread-dot" title="Unread activity" />
+              )}
+            </span>
+            <span className="acp-session-meta-line">
+              {restarting || busy ? (
+                <span className="acp-session-meta-label">
+                  {restarting ? 'restarting…' : 'generating title…'}
+                </span>
+              ) : (
+                <>
+                  <span className="acp-session-project">
+                    <span className="codicon codicon-folder acp-session-meta-icon" />
+                    {projectLabel(s.cwd)}
+                  </span>
+                  <span className="acp-session-host">
+                    <span
+                      className={`codicon ${s.host ? 'codicon-server' : 'codicon-device-desktop'} acp-session-meta-icon`}
+                    />
+                    <span className="acp-session-host-name">{hostLabel(s.host)}</span>
+                  </span>
+                  <span className="acp-session-time">{subTime}</span>
+                </>
+              )}
             </span>
           </span>
         </button>
@@ -226,22 +239,36 @@ function LiveRow({ s, active, pinned, hidden, done, doneAt, unread, onSelect, on
   )
 }
 
-function ConvRow({ conv, onOpen }: { conv: AcpConversation; onOpen: () => void }) {
+// A resumable past conversation on disk (no live session). Lives in "Parked".
+function ConvRow({ project, conv, onOpen }: { project: ProjectConversations; conv: AcpConversation; onOpen: () => void }) {
   return (
     <button className="acp-session-row acp-session-history" onClick={onOpen} title="Resume this conversation">
-      <span className="acp-status-dot acp-status-idle" />
       <span className="acp-session-main">
-        <span className="acp-session-name">{conv.title || 'Untitled conversation'}</span>
-        <span className="acp-session-sub">resume · {relTime(conv.mtime)}</span>
+        <span className="acp-session-title-line">
+          <span className="acp-session-name">{renderTitle(conv.title || 'Untitled conversation')}</span>
+        </span>
+        <span className="acp-session-meta-line">
+          <span className="acp-session-project">
+            <span className="codicon codicon-folder acp-session-meta-icon" />
+            {project.name}
+          </span>
+          <span className="acp-session-host">
+            <span
+              className={`codicon ${project.host ? 'codicon-server' : 'codicon-device-desktop'} acp-session-meta-icon`}
+            />
+            <span className="acp-session-host-name">{hostLabel(project.host)}</span>
+          </span>
+          <span className="acp-session-time">{relTime(conv.mtime)}</span>
+        </span>
       </span>
     </button>
   )
 }
 
 // A pinned session whose host is offline: no live data to attach to, so it's
-// rendered from cached metadata as a dimmed, non-active row that reconnects the
-// host on click (its session resurfaces once the host is back up).
-function OfflineRow({ name, onReconnect }: { name: string; onReconnect: () => void }) {
+// rendered from cached metadata as a dimmed row that reconnects the host on click
+// (its session resurfaces once the host is back up).
+function OfflineRow({ name, host, onReconnect }: { name: string; host: string; onReconnect: () => void }) {
   return (
     <div className="acp-session-row-wrap offline">
       <button
@@ -249,10 +276,17 @@ function OfflineRow({ name, onReconnect }: { name: string; onReconnect: () => vo
         onClick={onReconnect}
         title="Host disconnected — click to reconnect"
       >
-        <span className="acp-status-dot acp-status-offline" />
         <span className="acp-session-main">
-          <span className="acp-session-name">{name}</span>
-          <span className="acp-session-sub">disconnected · reconnect</span>
+          <span className="acp-session-title-line">
+            <span className="acp-session-name">{name}</span>
+          </span>
+          <span className="acp-session-meta-line">
+            <span className="acp-session-host">
+              <span className="codicon codicon-server acp-session-meta-icon" />
+              <span className="acp-session-host-name">{hostLabel(host)}</span>
+            </span>
+            <span className="acp-session-time">reconnect</span>
+          </span>
         </span>
       </button>
       <span className="acp-session-pin codicon codicon-pinned" title="Pinned" />
@@ -261,7 +295,6 @@ function OfflineRow({ name, onReconnect }: { name: string; onReconnect: () => vo
 }
 
 export function SessionsPanel({
-  workspaces,
   sessions,
   projects,
   remoteHosts,
@@ -269,12 +302,10 @@ export function SessionsPanel({
   activeSid,
   onSelectSession,
   onOpenConversation,
-  onNewSession,
-  onCloseWorkspace,
+  onNewSessionFlow,
   onDeleteSession,
   onOpenLocal,
   onOpenSsh,
-  onOpenRemoteFolder,
   onDisconnectRemote,
   onReconnectRemote
 }: Props) {
@@ -282,138 +313,185 @@ export function SessionsPanel({
   const pinnedSessions = useViewPrefsStore((s) => s.pinnedSessions)
   const pinnedMeta = useViewPrefsStore((s) => s.pinnedMeta)
   const hiddenSessions = useViewPrefsStore((s) => s.hiddenSessions)
-  const hiddenProjects = useViewPrefsStore((s) => s.hiddenProjects)
-  const focusMode = useViewPrefsStore((s) => s.focusMode)
   const showHidden = useViewPrefsStore((s) => s.showHidden)
   const unreadSessions = useViewPrefsStore((s) => s.unreadSessions)
-  const togglePin = useViewPrefsStore((s) => s.togglePin)
   const toggleUnread = useViewPrefsStore((s) => s.toggleUnread)
-  const hideSession = useViewPrefsStore((s) => s.hideSession)
-  const unhideSession = useViewPrefsStore((s) => s.unhideSession)
-  const hideProject = useViewPrefsStore((s) => s.hideProject)
-  const unhideProject = useViewPrefsStore((s) => s.unhideProject)
-  const setFocusMode = useViewPrefsStore((s) => s.setFocusMode)
   const setShowHidden = useViewPrefsStore((s) => s.setShowHidden)
 
-  // Merge open workspaces, the discovered on-disk history, and live sessions
-  // into one project-grouped list (VS Code Agent-window style). Sessions that
-  // don't fall under any known project land in a per-host "Other sessions" group.
-  const { groups, otherByHost, otherHosts } = useMemo(() => {
-    const groups = new Map<string, Group>()
+  // A slow tick so live timestamps (Working counts up, others age) refresh even
+  // without a session update.
+  const [, forceTick] = useState(0)
+  useEffect(() => {
+    const t = setInterval(() => forceTick((n) => n + 1), 30_000)
+    return () => clearInterval(t)
+  }, [])
 
-    // 1. Open workspaces first — they own the + / close controls and ordering.
-    for (const ws of workspaces) {
-      const key = groupKey(ws.host ?? null, ws.rootPath)
-      groups.set(key, {
-        key,
-        cwd: ws.rootPath,
-        name: ws.name,
-        host: ws.host ?? null,
-        workspace: ws,
-        project: null,
-        live: []
-      })
-    }
-
-    // 2. Discovered projects — merge into a matching workspace group or append.
-    for (const p of projects) {
-      const key = groupKey(p.host ?? null, p.cwd)
-      const existing = groups.get(key)
-      if (existing) existing.project = p
-      else
-        groups.set(key, {
-          key,
-          cwd: p.cwd,
-          name: p.name,
-          host: p.host ?? null,
-          workspace: null,
-          project: p,
-          live: []
-        })
-    }
-
-    // 3. Live sessions — attach to an exact project group, else the most specific
-    //    open workspace, else the per-host "Other sessions" bucket.
-    const otherByHost = new Map<string | null, SessionMeta[]>()
-    for (const s of sessions) {
-      const exact = groups.get(groupKey(s.host ?? null, s.cwd))
-      if (exact) {
-        exact.live.push(s)
-        continue
-      }
-      const ws = workspaceForSession(s, workspaces)
-      const wsGroup = ws ? groups.get(groupKey(ws.host ?? null, ws.rootPath)) : undefined
-      if (wsGroup) wsGroup.live.push(s)
-      else {
-        const host = s.host ?? null
-        const arr = otherByHost.get(host) ?? []
-        arr.push(s)
-        otherByHost.set(host, arr)
-      }
-    }
-
-    const otherHosts = [...otherByHost.keys()]
-    return { groups: [...groups.values()], otherByHost, otherHosts }
-  }, [workspaces, projects, sessions])
-
-  // Pinned sessions whose remote host isn't currently connected, drawn from the
-  // cached metadata. These are the pins that survive a restart/lost connection —
-  // the host pushes no live list, so without this they'd disappear. Skipped once
-  // the host is connected (a still-pinned id that's then absent from the live
-  // list is a genuinely-deleted session, handled by the prune pass). Local pins
-  // aren't included (the local engine is always up). Only known (remembered)
-  // hosts qualify, so a forgotten host's stale pins don't linger.
+  // Pinned sessions whose remote host isn't currently connected, drawn from
+  // cached metadata — the host pushes no live list, so without this they'd
+  // vanish. Only known, disconnected hosts qualify.
   const offlinePinned = useMemo(() => {
     const liveIds = new Set(sessions.map((s) => s.id))
     const knownHosts = new Set(remoteHosts)
-    const out: { id: string; name: string; cwd: string; host: string }[] = []
+    const out: { id: string; name: string; host: string }[] = []
     for (const [id, meta] of Object.entries(pinnedMeta)) {
       if (!pinnedSessions[id] || liveIds.has(id) || !meta.host) continue
       if (!knownHosts.has(meta.host) || engineStatus[`ssh:${meta.host}`] === 'connected') continue
-      out.push({ id, name: meta.name, cwd: meta.cwd, host: meta.host })
+      out.push({ id, name: meta.name, host: meta.host })
     }
     return out
   }, [sessions, pinnedMeta, pinnedSessions, engineStatus, remoteHosts])
 
-  // Pinned sessions sort ahead of the rest; ties break on recency.
-  const byPinThenActivity = (a: SessionMeta, b: SessionMeta): number => {
-    const pa = pinnedSessions[a.id] ? 1 : 0
-    const pb = pinnedSessions[b.id] ? 1 : 0
-    if (pa !== pb) return pb - pa
-    return activity(b) - activity(a)
-  }
-  const visibleLive = (list: SessionMeta[]): SessionMeta[] =>
-    list.filter((s) => showHidden || !hiddenSessions[s.id]).sort(byPinThenActivity)
+  // Classify every visible live session into an attention-state bucket, plus the
+  // resumable on-disk conversations that have no live session (folded into
+  // Parked). Sorting: same-project rows sit adjacent, then most-recent first;
+  // Needs-you additionally floats blocked (waiting) items above crashed & done.
+  const buckets = useMemo(() => {
+    const cmp = (a: SessionMeta, b: SessionMeta): number => {
+      const pa = projectLabel(a.cwd)
+      const pb = projectLabel(b.cwd)
+      if (pa !== pb) return pa.localeCompare(pb)
+      return activity(b) - activity(a)
+    }
+    const pinned: SessionMeta[] = []
+    const needs: SessionMeta[] = []
+    const working: SessionMeta[] = []
+    const later: SessionMeta[] = []
+    const idle: SessionMeta[] = []
+    const parked: SessionMeta[] = []
+    for (const s of sessions) {
+      if (!showHidden && hiddenSessions[s.id]) continue
+      if (pinnedSessions[s.id]) {
+        pinned.push(s)
+        continue
+      }
+      if (s.status === 'exited') needs.push(s)
+      else if (s.status === 'suspended') parked.push(s)
+      else if (s.claudeStatus === 'working') working.push(s)
+      else if (s.claudeStatus === 'waiting') needs.push(s)
+      else if (doneSessions[s.id]) needs.push(s)
+      // Manually flagged "follow up later" — an otherwise-idle session you
+      // bookmarked. Live/urgent states above keep their more-specific section.
+      else if (unreadSessions[s.id]) later.push(s)
+      else idle.push(s)
+    }
+    const needsRank = (s: SessionMeta): number =>
+      s.claudeStatus === 'waiting' ? 0 : s.status === 'exited' ? 1 : 2
+    needs.sort((a, b) => needsRank(a) - needsRank(b) || cmp(a, b))
+    working.sort(cmp)
+    later.sort(cmp)
+    idle.sort(cmp)
+    parked.sort(cmp)
+    pinned.sort((a, b) => activity(b) - activity(a))
 
-  // Build the display rows for a group: live sessions first (pinned first), then
-  // conversations not already represented by a live session (matched on acpSessionId).
-  const rowsFor = (g: Group): Row[] => {
-    const live = visibleLive(g.live)
-    const liveAcpIds = new Set(live.map((s) => s.acpSessionId).filter(Boolean) as string[])
-    const rows: Row[] = live.map((s) => ({ kind: 'live', s }))
-    if (g.project) {
-      for (const conv of g.project.conversations) {
-        if (liveAcpIds.has(conv.sessionId)) continue
-        rows.push({ kind: 'conv', project: g.project, conv })
+    // Resumable conversations: on-disk history not backed by a live session.
+    const liveAcp = new Set(sessions.map((s) => s.acpSessionId).filter(Boolean) as string[])
+    const convs: { project: ProjectConversations; conv: AcpConversation }[] = []
+    for (const p of projects) {
+      for (const c of p.conversations) {
+        if (!liveAcp.has(c.sessionId)) convs.push({ project: p, conv: c })
       }
     }
-    return rows
+    convs.sort((a, b) => b.conv.mtime - a.conv.mtime)
+
+    return { pinned, needs, working, later, idle, parked, convs }
+  }, [sessions, projects, pinnedSessions, hiddenSessions, showHidden, doneSessions, unreadSessions])
+
+  // Search: free-text across the whole list, matching title / project / host.
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (searchOpen) inputRef.current?.focus()
+  }, [searchOpen])
+  const q = query.trim().toLowerCase()
+  const searching = q.length > 0
+  const matchesSession = (s: SessionMeta): boolean =>
+    !searching ||
+    [s.name, projectLabel(s.cwd), hostLabel(s.host)].some((t) => t.toLowerCase().includes(q))
+  const matchesText = (...parts: (string | null | undefined)[]): boolean =>
+    !searching || parts.some((t) => !!t && t.toLowerCase().includes(q))
+  const toggleSearch = (): void => {
+    if (searchOpen) {
+      setQuery('')
+      setSearchOpen(false)
+    } else {
+      setSearchOpen(true)
+    }
   }
 
-  // Hidden project groups drop out entirely unless showHidden is on.
-  const isHiddenGroup = (g: Group): boolean => !!hiddenProjects[g.key]
-  const visibleGroups = groups.filter((g) => showHidden || !isHiddenGroup(g))
+  // Section collapse — Parked starts collapsed (header only). Searching forces
+  // every section open so matches stay visible.
+  const [collapsed, setCollapsed] = useState<Set<SectionKey>>(new Set<SectionKey>(['parked']))
+  const toggleCollapse = (key: SectionKey): void =>
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
 
-  const hiddenCount =
-    sessions.filter((s) => hiddenSessions[s.id]).length + groups.filter(isHiddenGroup).length
+  // Per-section "show more" (local to the section). Searching shows all.
+  const [expanded, setExpanded] = useState<Set<SectionKey>>(new Set())
+  const toggleExpand = (key: SectionKey): void =>
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
 
-  // Collapsed groups, keyed by group key ('other:<host>' for the fallback
-  // buckets). Groups are expanded by default; a key present here is collapsed.
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
-  const [customizationsCollapsed, setCustomizationsCollapsed] = useState(false)
+  const liveRowProps = (s: SessionMeta): LiveRowProps => ({
+    s,
+    active: s.id === activeSid,
+    pinned: !!pinnedSessions[s.id],
+    hidden: !!hiddenSessions[s.id],
+    done: !!doneSessions[s.id],
+    doneAt: doneSessions[s.id],
+    unread: !!unreadSessions[s.id],
+    onSelect: () => onSelectSession(s.id),
+    onToggleUnread: () => toggleUnread(s.id),
+    onDelete: () => onDeleteSession(s.id)
+  })
+
+  // Build the display rows for each section, applying the search filter.
+  const rowsByKey = useMemo(() => {
+    const live = (list: SessionMeta[]): Row[] =>
+      list.filter(matchesSession).map((s) => ({ kind: 'live', s }))
+    const pinnedRows: Row[] = [
+      ...live(buckets.pinned),
+      ...offlinePinned
+        .filter((o) => matchesText(o.name, hostLabel(o.host)))
+        .map((o) => ({ kind: 'offline', id: o.id, name: o.name, host: o.host }) as Row)
+    ]
+    const parkedRows: Row[] = [
+      ...live(buckets.parked),
+      ...buckets.convs
+        .filter(({ project, conv }) => matchesText(conv.title, project.name, hostLabel(project.host)))
+        .map(({ project, conv }) => ({ kind: 'conv', project, conv }) as Row)
+    ]
+    return {
+      pinned: pinnedRows,
+      needs: live(buckets.needs),
+      working: live(buckets.working),
+      later: live(buckets.later),
+      idle: live(buckets.idle),
+      parked: parkedRows
+    } as Record<SectionKey, Row[]>
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [buckets, offlinePinned, q, searching, activeSid, pinnedSessions, unreadSessions, hiddenSessions, doneSessions])
+
+  const totalRows = SECTIONS.reduce((n, s) => n + rowsByKey[s.key].length, 0)
+  const hiddenCount = sessions.filter((s) => hiddenSessions[s.id]).length
+  const nothing = sessions.length === 0 && projects.length === 0 && remoteHosts.length === 0
+
+  // Header "manage remote hosts" popup — the single place to connect a new SSH
+  // host and to manage each known one (open a folder, disconnect, reconnect,
+  // forget). Replaces the old separate hosts + connect buttons.
+  const [hostsOpen, setHostsOpen] = useState(false)
+
+  const [customizationsCollapsed, setCustomizationsCollapsed] = useState(true)
   const [aboutOpen, setAboutOpen] = useState(false)
   const [skillsOpen, setSkillsOpen] = useState(false)
-  // App version for the About dialog, fetched once from the main process.
   const [version, setVersion] = useState<string | null>(null)
   useEffect(() => {
     let cancelled = false
@@ -427,415 +505,58 @@ export function SessionsPanel({
       cancelled = true
     }
   }, [])
-  const toggle = (key: string) =>
-    setCollapsed((prev) => {
-      const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
 
-  // Per-group "show more": each group/bucket shows at most ROW_LIMIT rows until
-  // expanded. Searching/scoping force-expands so matches aren't hidden.
-  const [expanded, setExpanded] = useState<Set<string>>(new Set())
-  const toggleExpanded = (key: string) =>
-    setExpanded((prev) => {
-      const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
-
-  // Collapse All / Expand All toggle over every host section + project group +
-  // "other" bucket.
-  const allCollapsibleKeys = useMemo(() => {
-    const remoteHostSet = new Set<string>([
-      ...remoteHosts,
-      ...visibleGroups.map((g) => g.host).filter((h): h is string => !!h),
-      ...otherHosts.filter((h): h is string => !!h)
-    ])
-    const sectionKeys = ['host:local', ...[...remoteHostSet].map((h) => `host:${h}`)]
-    return [
-      ...sectionKeys,
-      ...visibleGroups.map((g) => g.key),
-      ...otherHosts.map((h) => `other:${h ?? 'local'}`)
-    ]
-  }, [visibleGroups, otherHosts, remoteHosts])
-  const allCollapsed =
-    allCollapsibleKeys.length > 0 && allCollapsibleKeys.every((k) => collapsed.has(k))
-  const toggleCollapseAll = () =>
-    setCollapsed(allCollapsed ? new Set() : new Set(allCollapsibleKeys))
-
-  // Search works in two stages. With no project scoped, typing offers project
-  // suggestions (Tab/Enter/click to scope) and also free-text filters the whole
-  // list. Once a project is scoped, the query filters sessions within it only.
-  const [query, setQuery] = useState('')
-  const [scope, setScope] = useState<{ key: string; name: string; host: string | null } | null>(null)
-  const [suggestOpen, setSuggestOpen] = useState(false)
-  const [highlight, setHighlight] = useState(0)
-  // The search box is hidden until toggled from the header. Focus it on open.
-  const [searchOpen, setSearchOpen] = useState(false)
-  const inputRef = useRef<HTMLInputElement>(null)
-
-  useEffect(() => {
-    if (searchOpen) inputRef.current?.focus()
-  }, [searchOpen])
-
-  const q = query.trim().toLowerCase()
-  const searching = q.length > 0
-  const matches = (t?: string | null): boolean => !!t && t.toLowerCase().includes(q)
-  const groupMatches = (g: Group): boolean => matches(g.name) || matches(g.host) || matches(g.cwd)
-
-  // Project suggestions while no scope is chosen: all projects, narrowed by the
-  // typed text. Empty query lists them all (a quick project picker).
-  const suggestions = scope ? [] : visibleGroups.filter((g) => !searching || groupMatches(g)).slice(0, 8)
-  const showSuggest = suggestOpen && !scope && suggestions.length > 0
-
-  const selectScope = (g: Group): void => {
-    setScope({ key: g.key, name: g.name, host: g.host })
-    setQuery('')
-    setSuggestOpen(false)
-    setHighlight(0)
-    inputRef.current?.focus()
-  }
-  const clearSearch = (): void => {
-    setScope(null)
-    setQuery('')
-    setSuggestOpen(false)
-  }
-  // Toggle the search box; closing it also clears any active query/scope so no
-  // filter stays applied while the box is hidden.
-  const toggleSearch = (): void => {
-    if (searchOpen) {
-      clearSearch()
-      setSearchOpen(false)
-    } else {
-      setSearchOpen(true)
-    }
+  const renderRow = (r: Row) => {
+    if (r.kind === 'live') return <LiveRow key={r.s.id} {...liveRowProps(r.s)} />
+    if (r.kind === 'conv')
+      return (
+        <ConvRow
+          key={r.conv.sessionId}
+          project={r.project}
+          conv={r.conv}
+          onOpen={() => onOpenConversation(r.project, r.conv)}
+        />
+      )
+    return <OfflineRow key={r.id} name={r.name} host={r.host} onReconnect={() => onReconnectRemote(r.host)} />
   }
 
-  const onSearchKeyDown = (e: KeyboardEvent<HTMLInputElement>): void => {
-    if (showSuggest) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault()
-        setHighlight((h) => (h + 1) % suggestions.length)
-        return
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault()
-        setHighlight((h) => (h - 1 + suggestions.length) % suggestions.length)
-        return
-      }
-      if (e.key === 'Tab' || e.key === 'Enter') {
-        e.preventDefault()
-        selectScope(suggestions[Math.min(highlight, suggestions.length - 1)])
-        return
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        setSuggestOpen(false)
-        return
-      }
-    }
-    // Backspace on an empty query pops the scope chip.
-    if (e.key === 'Backspace' && query === '' && scope) {
-      e.preventDefault()
-      setScope(null)
-      return
-    }
-    if (e.key === 'Escape') {
-      if (query) setQuery('')
-      else {
-        clearSearch()
-        setSearchOpen(false)
-      }
-    }
-  }
-
-  // Props shared by every rendered live session row.
-  const liveRowProps = (s: SessionMeta): LiveRowProps => ({
-    s,
-    active: s.id === activeSid,
-    pinned: !!pinnedSessions[s.id],
-    hidden: !!hiddenSessions[s.id],
-    done: !!doneSessions[s.id],
-    doneAt: doneSessions[s.id],
-    unread: !!unreadSessions[s.id],
-    onSelect: () => onSelectSession(s.id),
-    onTogglePin: () => togglePin(s.id),
-    onToggleUnread: () => toggleUnread(s.id),
-    onHide: () => hideSession(s.id),
-    onUnhide: () => unhideSession(s.id),
-    onDelete: () => onDeleteSession(s.id)
-  })
-
-  // Focus mode: a cross-project list of pinned sessions (most recent first),
-  // filtered by the search query. Scoping is bypassed.
-  const focusList = sessions
-    .filter((s) => pinnedSessions[s.id] && !hiddenSessions[s.id])
-    .filter((s) => !searching || matches(s.name))
-    .sort(byPinThenActivity)
-
-  // Group the focus list by project so each carries its host/project heading
-  // instead of a context-free flat list. Insertion order follows focusList, so
-  // the most recently active project's group leads. The display name comes from
-  // a matching project group when one exists, else the folder's basename.
-  const focusGroups = useMemo(() => {
-    const nameByKey = new Map(groups.map((g) => [g.key, g.name]))
-    type FG = {
-      key: string
-      name: string
-      host: string | null
-      cwd: string
-      list: SessionMeta[]
-      offline: { id: string; name: string }[]
-    }
-    const map = new Map<string, FG>()
-    const ensure = (host: string | null, cwd: string): FG => {
-      const key = groupKey(host, cwd)
-      let entry = map.get(key)
-      if (!entry) {
-        entry = {
-          key,
-          name: nameByKey.get(key) ?? normRoot(cwd).split('/').pop() ?? cwd,
-          host,
-          cwd,
-          list: [],
-          offline: []
-        }
-        map.set(key, entry)
-      }
-      return entry
-    }
-    for (const s of focusList) ensure(s.host ?? null, s.cwd).list.push(s)
-    // Pinned sessions on offline hosts still belong in Focus mode — append them
-    // as reconnectable rows under their project (honouring the search filter).
-    for (const o of offlinePinned) {
-      if (searching && !matches(o.name)) continue
-      ensure(o.host, o.cwd).offline.push({ id: o.id, name: o.name })
-    }
-    return [...map.values()]
-  }, [focusList, groups, offlinePinned, searching, q])
-
-  // The project a Focus-mode group starts new sessions in: the matching known
-  // group (so an open workspace keeps its controls/ordering), else one
-  // synthesized from the group's host + folder.
-  const focusGroupProject = (fg: { key: string; name: string; host: string | null; cwd: string }): ProjectInfo => {
-    const g = groups.find((x) => x.key === fg.key)
-    if (g) return groupProject(g)
-    const kind = fg.host ? 'ssh' : 'local'
-    return {
-      id: workspaceId({ kind, host: fg.host ?? undefined, rootPath: fg.cwd }),
-      kind,
-      name: fg.name,
-      rootPath: fg.cwd,
-      host: fg.host ?? undefined
-    }
-  }
-
-  // Groups to render. Scoped: just that project, its rows filtered by the query.
-  // Unscoped: free-text filter across every group (project name/host/path match
-  // keeps all rows, else only matching rows).
-  const shownGroups: { g: Group; rows: Row[] }[] = scope
-    ? visibleGroups
-        .filter((g) => g.key === scope.key)
-        .map((g) => {
-          const rows = rowsFor(g)
-          const visible = searching
-            ? rows.filter((r) => (r.kind === 'live' ? matches(r.s.name) : matches(r.conv.title)))
-            : rows
-          return { g, rows: visible }
-        })
-    : visibleGroups
-        .map((g) => {
-          const rows = rowsFor(g)
-          const hit = groupMatches(g)
-          const visible =
-            !searching || hit
-              ? rows
-              : rows.filter((r) => (r.kind === 'live' ? matches(r.s.name) : matches(r.conv.title)))
-          return { g, rows: visible, hit }
-        })
-        .filter(({ rows, hit }) => !searching || hit || rows.length > 0)
-
-  const shownOthers = scope
-    ? []
-    : otherHosts
-        .map((host) => {
-          const all = visibleLive(otherByHost.get(host) ?? [])
-          // Matching the host keeps the whole bucket; otherwise filter by name.
-          const list = !searching || matches(host) ? all : all.filter((s) => matches(s.name))
-          return { host, list }
-        })
-        .filter(({ host, list }) => !searching || matches(host) || list.length > 0)
-
-  const nothing = groups.length === 0 && otherHosts.length === 0 && remoteHosts.length === 0
-  const noResults = (searching || !!scope) && shownGroups.length === 0 && shownOthers.length === 0
-
-  // One project group: live sessions first, then resumable past conversations.
-  const renderGroup = ({ g, rows }: { g: Group; rows: Row[] }) => {
-    // Force-expand while searching or scoped so matches stay visible.
-    const isCollapsed = !searching && !scope && collapsed.has(g.key)
-    const groupHidden = isHiddenGroup(g)
-    // Cap to ROW_LIMIT rows unless expanded (or searching/scoped, which show all).
-    const showAll = searching || !!scope || expanded.has(g.key)
-    const shownRows = showAll ? rows : rows.slice(0, ROW_LIMIT)
-    return (
-      <div key={g.key} className={`sessions-group ${groupHidden ? 'hidden' : ''}`}>
-        <div
-          className="sessions-group-header"
-          onClick={() => toggle(g.key)}
-          role="button"
-          aria-expanded={!isCollapsed}
-        >
-          <span
-            className={`codicon ${isCollapsed ? 'codicon-chevron-right' : 'codicon-chevron-down'} sessions-group-twistie`}
-          />
-          <span className="sessions-group-name" title={g.host ? `${g.host}:${g.cwd}` : g.cwd}>
-            {g.name}
-          </span>
-          <span className="topbar-spacer" />
-          <button
-            className="icon-button codicon codicon-add"
-            title="New Session"
-            onClick={(e) => {
-              e.stopPropagation()
-              onNewSession(groupProject(g))
-            }}
-          />
-          {groupHidden ? (
-            <button
-              className="icon-button codicon codicon-eye"
-              title="Unhide Project"
-              onClick={(e) => {
-                e.stopPropagation()
-                unhideProject(g.key)
-              }}
-            />
-          ) : (
-            <button
-              className="icon-button codicon codicon-eye-closed"
-              title="Hide Project"
-              onClick={(e) => {
-                e.stopPropagation()
-                hideProject(g.key)
-              }}
-            />
-          )}
-          {g.workspace && (
-            <button
-              className="icon-button codicon codicon-close"
-              title="Close Folder"
-              onClick={(e) => {
-                e.stopPropagation()
-                onCloseWorkspace(g.workspace!.id)
-              }}
-            />
-          )}
-        </div>
-        {!isCollapsed &&
-          (rows.length > 0 ? (
-            <>
-              {shownRows.map((r) =>
-                r.kind === 'live' ? (
-                  <LiveRow key={r.s.id} {...liveRowProps(r.s)} />
-                ) : (
-                  <ConvRow
-                    key={r.conv.sessionId}
-                    conv={r.conv}
-                    onOpen={() => onOpenConversation(r.project, r.conv)}
-                  />
-                )
-              )}
-              {!searching && !scope && rows.length > ROW_LIMIT && (
-                <button className="sessions-more" onClick={() => toggleExpanded(g.key)}>
-                  {expanded.has(g.key) ? 'Show less' : `Show ${rows.length - ROW_LIMIT} more`}
-                </button>
-              )}
-            </>
-          ) : (
-            <div className="sessions-empty">No sessions yet</div>
-          ))}
-      </div>
-    )
-  }
-
-  // A per-host "Other sessions" bucket (sessions under no known project).
-  const renderOther = ({ host, list }: { host: string | null; list: SessionMeta[] }) => {
-    const key = `other:${host ?? 'local'}`
+  const renderSection = ({ key, title, accent }: { key: SectionKey; title: string; accent: boolean }) => {
+    const rows = rowsByKey[key]
+    if (rows.length === 0) return null
     const isCollapsed = !searching && collapsed.has(key)
     const showAll = searching || expanded.has(key)
-    const shownList = showAll ? list : list.slice(0, ROW_LIMIT)
+    const shown = showAll ? rows : rows.slice(0, ROW_LIMIT)
     return (
-      <div key={key} className="sessions-group">
+      <div className="sess-section" key={key}>
         <div
-          className="sessions-group-header"
-          onClick={() => toggle(key)}
+          className={`sess-section-header ${accent ? 'accent' : ''}`}
+          onClick={() => toggleCollapse(key)}
           role="button"
           aria-expanded={!isCollapsed}
         >
-          <span
-            className={`codicon ${isCollapsed ? 'codicon-chevron-right' : 'codicon-chevron-down'} sessions-group-twistie`}
-          />
-          <span className="sessions-group-name sessions-group-other">Other sessions</span>
+          <span className="sess-section-title">{title}</span>
+          <span className="sess-section-count">{rows.length}</span>
         </div>
         {!isCollapsed && (
-          <>
-            {shownList.map((s) => <LiveRow key={s.id} {...liveRowProps(s)} />)}
-            {!searching && list.length > ROW_LIMIT && (
-              <button className="sessions-more" onClick={() => toggleExpanded(key)}>
-                {expanded.has(key) ? 'Show less' : `Show ${list.length - ROW_LIMIT} more`}
+          <div className="sess-section-rows">
+            {shown.map(renderRow)}
+            {!searching && rows.length > ROW_LIMIT && (
+              <button className="sess-more" onClick={() => toggleExpand(key)}>
+                {expanded.has(key) ? 'Show less' : `Show ${rows.length - ROW_LIMIT} more`}
               </button>
             )}
-          </>
+          </div>
         )}
       </div>
     )
   }
-
-  // Sectioning: local groups render flat; each connected remote host gets a
-  // header (with open-folder / disconnect controls) above its own groups. While
-  // scoped to one project, sectioning is skipped (that single group is shown).
-  const localGroups = shownGroups.filter(({ g }) => (g.host ?? null) === null)
-  const localOthers = shownOthers.filter(({ host }) => host === null)
-  const remoteSectionHosts = [
-    ...new Set<string>([
-      ...remoteHosts,
-      ...shownGroups.map(({ g }) => g.host).filter((h): h is string => !!h),
-      ...shownOthers.map(({ host }) => host).filter((h): h is string => !!h)
-    ])
-  ].sort((a, b) => a.localeCompare(b))
-
-  const statusFor = (host: string): string | undefined => {
-    const st = engineStatus[`ssh:${host}`]
-    return st && st !== 'connected' ? st : undefined
-  }
-
-  // Host sections collapse too (via the header twistie or Collapse All), but stay
-  // expanded while searching so matches remain visible.
-  const isSectionCollapsed = (key: string): boolean => !searching && collapsed.has(key)
 
   return (
     <div className="sessions-panel agent-sessions-workbench">
       <div className="sessions-header">
         <span className="sessions-title">Sessions</span>
-        {!nothing && (
-          <div className="seg-toggle">
-            <button className={`seg ${!focusMode ? 'active' : ''}`} onClick={() => setFocusMode(false)}>
-              All
-            </button>
-            <button
-              className={`seg ${focusMode ? 'active' : ''}`}
-              title="Show only pinned sessions"
-              onClick={() => setFocusMode(true)}
-            >
-              <span className="codicon codicon-pinned" />
-              Focus
-            </button>
-          </div>
-        )}
         <span className="topbar-spacer" />
-        {!focusMode && hiddenCount > 0 && (
+        {hiddenCount > 0 && (
           <button
             className={`sessions-show-hidden ${showHidden ? 'active' : ''}`}
             onClick={() => setShowHidden(!showHidden)}
@@ -852,87 +573,40 @@ export function SessionsPanel({
             onClick={toggleSearch}
           />
         )}
-        {!focusMode && (
-          <button
-            className={`icon-button codicon ${allCollapsed ? 'codicon-expand-all' : 'codicon-collapse-all'}`}
-            title={allCollapsed ? 'Expand All' : 'Collapse All'}
-            onClick={toggleCollapseAll}
-          />
-        )}
-        <button className="icon-button codicon codicon-new-folder" title="Open Folder" onClick={onOpenLocal} />
-        <button className="icon-button codicon codicon-remote" title="Connect SSH" onClick={onOpenSsh} />
+        <button className="icon-button codicon codicon-add" title="New Session" onClick={onNewSessionFlow} />
+        <button
+          className={`icon-button codicon codicon-server ${hostsOpen ? 'active' : ''}`}
+          title="Manage remote hosts"
+          onClick={() => setHostsOpen(true)}
+        />
       </div>
-      {!nothing && searchOpen && (
+      {searchOpen && !nothing && (
         <div className="sessions-search-wrap">
           <div className="sessions-search">
             <span className="codicon codicon-search sessions-search-icon" />
-            {scope && !focusMode && (
-              <span className="sessions-search-scope" title={scope.host ? `${scope.host}` : undefined}>
-                {scope.host && <span className="codicon codicon-remote" />}
-                <span className="sessions-search-scope-name">{scope.name}</span>
-                <span
-                  className="codicon codicon-close sessions-search-scope-remove"
-                  role="button"
-                  title="Remove project filter"
-                  onClick={() => {
-                    setScope(null)
-                    inputRef.current?.focus()
-                  }}
-                />
-              </span>
-            )}
             <input
               ref={inputRef}
               className="sessions-search-input"
               type="text"
-              placeholder={
-                focusMode
-                  ? 'Search pinned sessions'
-                  : scope
-                    ? `Search in ${scope.name}`
-                    : 'Search projects, sessions, hosts'
-              }
+              placeholder="Search sessions, projects, hosts"
               value={query}
-              onChange={(e) => {
-                setQuery(e.target.value)
-                setSuggestOpen(true)
-                setHighlight(0)
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
+                if (e.key === 'Escape') {
+                  if (query) setQuery('')
+                  else toggleSearch()
+                }
               }}
-              onFocus={() => !scope && !focusMode && setSuggestOpen(true)}
-              onBlur={() => setSuggestOpen(false)}
-              onKeyDown={onSearchKeyDown}
               spellCheck={false}
             />
-            {(query || scope) && (
+            {query && (
               <button
                 className="icon-button codicon codicon-close sessions-search-clear"
                 title="Clear"
-                onClick={clearSearch}
+                onClick={() => setQuery('')}
               />
             )}
           </div>
-          {showSuggest && !focusMode && (
-            <ul className="sessions-suggest" role="listbox">
-              {suggestions.map((g, i) => (
-                <li
-                  key={g.key}
-                  role="option"
-                  aria-selected={i === highlight}
-                  className={`sessions-suggest-item ${i === highlight ? 'active' : ''}`}
-                  // mouseDown fires before the input blur, so the click registers.
-                  onMouseDown={(e) => {
-                    e.preventDefault()
-                    selectScope(g)
-                  }}
-                  onMouseEnter={() => setHighlight(i)}
-                >
-                  {g.host && <span className="codicon codicon-remote sessions-suggest-remote" />}
-                  <span className="sessions-suggest-name">{g.name}</span>
-                  {g.host && <span className="sessions-suggest-host">{g.host}</span>}
-                </li>
-              ))}
-            </ul>
-          )}
         </div>
       )}
       <div className="sessions-body pane-body">
@@ -942,198 +616,10 @@ export function SessionsPanel({
             <button className="btn btn-primary" onClick={onOpenLocal}>Open Folder</button>
             <button className="btn" onClick={onOpenSsh}>Connect SSH…</button>
           </div>
-        ) : focusMode ? (
-          // Focus mode — pinned sessions grouped under their host/project heading.
-          focusGroups.length > 0 ? (
-            focusGroups.map((fg) => (
-              <div key={fg.key} className="sessions-group sessions-focus-group">
-                <div
-                  className="sessions-group-header sessions-focus-group-header"
-                  title={fg.host ? `${fg.host}:${fg.cwd}` : fg.cwd}
-                >
-                  <span
-                    className={`codicon ${fg.host ? 'codicon-server' : 'codicon-device-desktop'} sessions-focus-group-icon`}
-                  />
-                  <span className="sessions-group-name">{fg.name}</span>
-                  {fg.host && (
-                    <span className="sessions-group-host">{fg.host.slice(fg.host.lastIndexOf('@') + 1)}</span>
-                  )}
-                  <span className="topbar-spacer" />
-                  {/* A group with only offline pins sits on a disconnected host —
-                      creating a session there would fail, so offer Reconnect. */}
-                  {fg.list.length === 0 && fg.offline.length > 0 && fg.host ? (
-                    <button
-                      className="icon-button codicon codicon-debug-restart"
-                      title="Reconnect host"
-                      onClick={() => onReconnectRemote(fg.host!)}
-                    />
-                  ) : (
-                    <button
-                      className="icon-button codicon codicon-add"
-                      title="New pinned session"
-                      onClick={() => onNewSession(focusGroupProject(fg), { pin: true })}
-                    />
-                  )}
-                </div>
-                {fg.list.map((s) => (
-                  <LiveRow key={s.id} {...liveRowProps(s)} />
-                ))}
-                {fg.offline.map((o) => (
-                  <OfflineRow
-                    key={o.id}
-                    name={o.name}
-                    onReconnect={() => fg.host && onReconnectRemote(fg.host)}
-                  />
-                ))}
-              </div>
-            ))
-          ) : (
-            <div className="sessions-empty sessions-focus-empty">
-              {searching
-                ? 'No pinned sessions match.'
-                : 'No pinned sessions yet. Pin a session (hover a row → pin) to focus on it here.'}
-            </div>
-          )
-        ) : noResults ? (
+        ) : searching && totalRows === 0 ? (
           <div className="sessions-empty">No matching sessions</div>
-        ) : scope ? (
-          // Scoped to a single project — render it flat, no host section.
-          <>{shownGroups.map(renderGroup)}</>
         ) : (
-          <>
-            {(!searching || localGroups.length > 0 || localOthers.length > 0) &&
-              (() => {
-                const collapsedSection = isSectionCollapsed('host:local')
-                return (
-                  <div className="sessions-host-section">
-                    <div
-                      className="sessions-host-header"
-                      onClick={() => toggle('host:local')}
-                      role="button"
-                      aria-expanded={!collapsedSection}
-                    >
-                      <span
-                        className={`codicon ${collapsedSection ? 'codicon-chevron-right' : 'codicon-chevron-down'} sessions-group-twistie`}
-                      />
-                      <span className="codicon codicon-device-desktop sessions-host-icon" />
-                      <span className="sessions-host-name">Local</span>
-                      <span className="topbar-spacer" />
-                      <button
-                        className="icon-button codicon codicon-new-folder"
-                        title="Open Folder"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          onOpenLocal()
-                        }}
-                      />
-                    </div>
-                    {!collapsedSection &&
-                      (localGroups.length > 0 || localOthers.length > 0 ? (
-                        <>
-                          {localGroups.map(renderGroup)}
-                          {localOthers.map(renderOther)}
-                        </>
-                      ) : (
-                        <div className="sessions-empty">No projects yet</div>
-                      ))}
-                  </div>
-                )
-              })()}
-            {remoteSectionHosts.map((host) => {
-              const hostGroups = shownGroups.filter(({ g }) => g.host === host)
-              const hostOthers = shownOthers.filter((o) => o.host === host)
-              const hostOffline = offlinePinned.filter(
-                (o) => o.host === host && (!searching || matches(o.name))
-              )
-              // While searching, hide a host with no matches so results stay tight.
-              if (searching && hostGroups.length === 0 && hostOthers.length === 0 && hostOffline.length === 0)
-                return null
-              const status = statusFor(host)
-              // 'lost' = reconnection was given up (failed restart reconnect, or a
-              // dead SSH connection): offer a manual Reconnect. 'reconnecting' is
-              // still auto-retrying, so it just shows the badge.
-              const disconnected = status === 'lost'
-              const collapsedSection = isSectionCollapsed(`host:${host}`)
-              return (
-                <div
-                  key={`host:${host}`}
-                  className={`sessions-host-section ${disconnected ? 'disconnected' : ''}`}
-                >
-                  <div
-                    className="sessions-host-header"
-                    onClick={() => toggle(`host:${host}`)}
-                    role="button"
-                    aria-expanded={!collapsedSection}
-                  >
-                    <span
-                      className={`codicon ${collapsedSection ? 'codicon-chevron-right' : 'codicon-chevron-down'} sessions-group-twistie`}
-                    />
-                    <span
-                      className={`codicon ${disconnected ? 'codicon-vm-outline' : 'codicon-server'} sessions-host-icon`}
-                    />
-                    <span className="sessions-host-name" title={host}>
-                      {host.slice(host.lastIndexOf('@') + 1)}
-                    </span>
-                    {status && <span className={`sessions-host-status ${status}`}>{status}</span>}
-                    <span className="topbar-spacer" />
-                    {disconnected ? (
-                      <>
-                        <button
-                          className="icon-button codicon codicon-debug-restart"
-                          title="Reconnect"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            onReconnectRemote(host)
-                          }}
-                        />
-                        <button
-                          className="icon-button codicon codicon-trash"
-                          title="Forget host"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            onDisconnectRemote(host)
-                          }}
-                        />
-                      </>
-                    ) : (
-                      <>
-                        <button
-                          className="icon-button codicon codicon-new-folder"
-                          title="Open Remote Folder"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            onOpenRemoteFolder(host)
-                          }}
-                        />
-                        <button
-                          className="icon-button codicon codicon-debug-disconnect"
-                          title="Disconnect"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            onDisconnectRemote(host)
-                          }}
-                        />
-                      </>
-                    )}
-                  </div>
-                  {!collapsedSection &&
-                    (hostGroups.length > 0 || hostOthers.length > 0 || hostOffline.length > 0 ? (
-                      <>
-                        {hostGroups.map(renderGroup)}
-                        {hostOthers.map(renderOther)}
-                        {hostOffline.map((o) => (
-                          <OfflineRow key={o.id} name={o.name} onReconnect={() => onReconnectRemote(host)} />
-                        ))}
-                      </>
-                    ) : (
-                      <div className="sessions-empty">
-                        {disconnected ? 'Disconnected' : 'No projects yet'}
-                      </div>
-                    ))}
-                </div>
-              )
-            })}
-          </>
+          SECTIONS.map(renderSection)
         )}
       </div>
       <div className="customizations">
@@ -1164,17 +650,23 @@ export function SessionsPanel({
                 </div>
               )
             })}
-            <div
-              className="customization-row"
-              role="button"
-              onClick={() => setAboutOpen(true)}
-            >
+            <div className="customization-row" role="button" onClick={() => setAboutOpen(true)}>
               <Info size={16} className="customization-icon" />
               <span className="customization-name">About</span>
             </div>
           </>
         )}
       </div>
+      {hostsOpen && (
+        <RemoteHostsDialog
+          hosts={remoteHosts}
+          engineStatus={engineStatus}
+          onConnectNew={onOpenSsh}
+          onDisconnect={onDisconnectRemote}
+          onReconnect={onReconnectRemote}
+          onClose={() => setHostsOpen(false)}
+        />
+      )}
       {aboutOpen && <AboutDialog version={version} onClose={() => setAboutOpen(false)} />}
       {skillsOpen && (
         <SkillsManager
