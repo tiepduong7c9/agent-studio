@@ -73,9 +73,8 @@ const ROW_LIMIT = 4
 
 // Attention-state sections, in fixed display order. "Pinned" and "Needs you"
 // carry the accent header colour.
-type SectionKey = 'pinned' | 'needs' | 'working' | 'later' | 'idle' | 'parked'
+type SectionKey = 'needs' | 'working' | 'later' | 'idle' | 'parked'
 const SECTIONS: { key: SectionKey; title: string; accent: boolean }[] = [
-  { key: 'pinned', title: 'Pinned', accent: true },
   { key: 'needs', title: 'Needs you', accent: true },
   { key: 'working', title: 'Working', accent: false },
   { key: 'later', title: 'Later', accent: false },
@@ -83,18 +82,14 @@ const SECTIONS: { key: SectionKey; title: string; accent: boolean }[] = [
   { key: 'parked', title: 'Parked', accent: false }
 ]
 
-// A row in a section: a live session, a resumable past conversation, or a pinned
-// session whose host is offline (reconnect-on-click).
+// A row in a section: a live session or a resumable past conversation.
 type Row =
   | { kind: 'live'; s: SessionMeta }
   | { kind: 'conv'; project: ProjectConversations; conv: AcpConversation }
-  | { kind: 'offline'; id: string; name: string; host: string }
 
 interface LiveRowProps {
   s: SessionMeta
   active: boolean
-  pinned: boolean
-  hidden: boolean
   /** Finished a turn while unwatched — shown as a "done" status until viewed. */
   done: boolean
   /** When that turn finished (ms epoch); shown as the row time on a done row. */
@@ -106,7 +101,7 @@ interface LiveRowProps {
   onDelete: () => void
 }
 
-function LiveRow({ s, active, pinned, hidden, done, doneAt, unread, onSelect, onToggleUnread, onDelete }: LiveRowProps) {
+function LiveRow({ s, active, done, doneAt, unread, onSelect, onToggleUnread, onDelete }: LiveRowProps) {
   // "done" only stands in when Claude is otherwise idle — a live working/waiting
   // status always wins (a new turn clears the marker anyway).
   const displayStatus = done && (!s.claudeStatus || s.claudeStatus === 'idle') ? 'done' : s.claudeStatus
@@ -164,7 +159,7 @@ function LiveRow({ s, active, pinned, hidden, done, doneAt, unread, onSelect, on
   const showUnreadDot = unread || displayStatus === 'done'
 
   return (
-    <div className={`acp-session-row-wrap ${hidden ? 'hidden' : ''}`}>
+    <div className="acp-session-row-wrap">
       {editing ? (
         <div className="acp-session-row editing">
           <input
@@ -220,7 +215,6 @@ function LiveRow({ s, active, pinned, hidden, done, doneAt, unread, onSelect, on
           </span>
         </button>
       )}
-      {pinned && <span className="acp-session-pin codicon codicon-pinned" title="Pinned" />}
       {menu && <ContextMenu x={menu.x} y={menu.y} items={items} onClose={() => setMenu(null)} />}
       {confirming && (
         <ConfirmDialog
@@ -265,35 +259,6 @@ function ConvRow({ project, conv, onOpen }: { project: ProjectConversations; con
   )
 }
 
-// A pinned session whose host is offline: no live data to attach to, so it's
-// rendered from cached metadata as a dimmed row that reconnects the host on click
-// (its session resurfaces once the host is back up).
-function OfflineRow({ name, host, onReconnect }: { name: string; host: string; onReconnect: () => void }) {
-  return (
-    <div className="acp-session-row-wrap offline">
-      <button
-        className="acp-session-row offline"
-        onClick={onReconnect}
-        title="Host disconnected — click to reconnect"
-      >
-        <span className="acp-session-main">
-          <span className="acp-session-title-line">
-            <span className="acp-session-name">{name}</span>
-          </span>
-          <span className="acp-session-meta-line">
-            <span className="acp-session-host">
-              <span className="codicon codicon-server acp-session-meta-icon" />
-              <span className="acp-session-host-name">{hostLabel(host)}</span>
-            </span>
-            <span className="acp-session-time">reconnect</span>
-          </span>
-        </span>
-      </button>
-      <span className="acp-session-pin codicon codicon-pinned" title="Pinned" />
-    </div>
-  )
-}
-
 export function SessionsPanel({
   sessions,
   projects,
@@ -310,13 +275,8 @@ export function SessionsPanel({
   onReconnectRemote
 }: Props) {
   const doneSessions = useSessionsStore((s) => s.doneSessions)
-  const pinnedSessions = useViewPrefsStore((s) => s.pinnedSessions)
-  const pinnedMeta = useViewPrefsStore((s) => s.pinnedMeta)
-  const hiddenSessions = useViewPrefsStore((s) => s.hiddenSessions)
-  const showHidden = useViewPrefsStore((s) => s.showHidden)
   const unreadSessions = useViewPrefsStore((s) => s.unreadSessions)
   const toggleUnread = useViewPrefsStore((s) => s.toggleUnread)
-  const setShowHidden = useViewPrefsStore((s) => s.setShowHidden)
 
   // A slow tick so live timestamps (Working counts up, others age) refresh even
   // without a session update.
@@ -325,21 +285,6 @@ export function SessionsPanel({
     const t = setInterval(() => forceTick((n) => n + 1), 30_000)
     return () => clearInterval(t)
   }, [])
-
-  // Pinned sessions whose remote host isn't currently connected, drawn from
-  // cached metadata — the host pushes no live list, so without this they'd
-  // vanish. Only known, disconnected hosts qualify.
-  const offlinePinned = useMemo(() => {
-    const liveIds = new Set(sessions.map((s) => s.id))
-    const knownHosts = new Set(remoteHosts)
-    const out: { id: string; name: string; host: string }[] = []
-    for (const [id, meta] of Object.entries(pinnedMeta)) {
-      if (!pinnedSessions[id] || liveIds.has(id) || !meta.host) continue
-      if (!knownHosts.has(meta.host) || engineStatus[`ssh:${meta.host}`] === 'connected') continue
-      out.push({ id, name: meta.name, host: meta.host })
-    }
-    return out
-  }, [sessions, pinnedMeta, pinnedSessions, engineStatus, remoteHosts])
 
   // Classify every visible live session into an attention-state bucket, plus the
   // resumable on-disk conversations that have no live session (folded into
@@ -352,18 +297,12 @@ export function SessionsPanel({
       if (pa !== pb) return pa.localeCompare(pb)
       return activity(b) - activity(a)
     }
-    const pinned: SessionMeta[] = []
     const needs: SessionMeta[] = []
     const working: SessionMeta[] = []
     const later: SessionMeta[] = []
     const idle: SessionMeta[] = []
     const parked: SessionMeta[] = []
     for (const s of sessions) {
-      if (!showHidden && hiddenSessions[s.id]) continue
-      if (pinnedSessions[s.id]) {
-        pinned.push(s)
-        continue
-      }
       if (s.status === 'exited') needs.push(s)
       else if (s.status === 'suspended') parked.push(s)
       else if (s.claudeStatus === 'working') working.push(s)
@@ -381,7 +320,6 @@ export function SessionsPanel({
     later.sort(cmp)
     idle.sort(cmp)
     parked.sort(cmp)
-    pinned.sort((a, b) => activity(b) - activity(a))
 
     // Resumable conversations: on-disk history not backed by a live session.
     const liveAcp = new Set(sessions.map((s) => s.acpSessionId).filter(Boolean) as string[])
@@ -393,8 +331,8 @@ export function SessionsPanel({
     }
     convs.sort((a, b) => b.conv.mtime - a.conv.mtime)
 
-    return { pinned, needs, working, later, idle, parked, convs }
-  }, [sessions, projects, pinnedSessions, hiddenSessions, showHidden, doneSessions, unreadSessions])
+    return { needs, working, later, idle, parked, convs }
+  }, [sessions, projects, doneSessions, unreadSessions])
 
   // Search: free-text across the whole list, matching title / project / host.
   const [searchOpen, setSearchOpen] = useState(false)
@@ -443,8 +381,6 @@ export function SessionsPanel({
   const liveRowProps = (s: SessionMeta): LiveRowProps => ({
     s,
     active: s.id === activeSid,
-    pinned: !!pinnedSessions[s.id],
-    hidden: !!hiddenSessions[s.id],
     done: !!doneSessions[s.id],
     doneAt: doneSessions[s.id],
     unread: !!unreadSessions[s.id],
@@ -457,12 +393,6 @@ export function SessionsPanel({
   const rowsByKey = useMemo(() => {
     const live = (list: SessionMeta[]): Row[] =>
       list.filter(matchesSession).map((s) => ({ kind: 'live', s }))
-    const pinnedRows: Row[] = [
-      ...live(buckets.pinned),
-      ...offlinePinned
-        .filter((o) => matchesText(o.name, hostLabel(o.host)))
-        .map((o) => ({ kind: 'offline', id: o.id, name: o.name, host: o.host }) as Row)
-    ]
     const parkedRows: Row[] = [
       ...live(buckets.parked),
       ...buckets.convs
@@ -470,7 +400,6 @@ export function SessionsPanel({
         .map(({ project, conv }) => ({ kind: 'conv', project, conv }) as Row)
     ]
     return {
-      pinned: pinnedRows,
       needs: live(buckets.needs),
       working: live(buckets.working),
       later: live(buckets.later),
@@ -478,10 +407,9 @@ export function SessionsPanel({
       parked: parkedRows
     } as Record<SectionKey, Row[]>
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [buckets, offlinePinned, q, searching, activeSid, pinnedSessions, unreadSessions, hiddenSessions, doneSessions])
+  }, [buckets, q, searching])
 
   const totalRows = SECTIONS.reduce((n, s) => n + rowsByKey[s.key].length, 0)
-  const hiddenCount = sessions.filter((s) => hiddenSessions[s.id]).length
   const nothing = sessions.length === 0 && projects.length === 0 && remoteHosts.length === 0
 
   // Header "manage remote hosts" popup — the single place to connect a new SSH
@@ -508,16 +436,14 @@ export function SessionsPanel({
 
   const renderRow = (r: Row) => {
     if (r.kind === 'live') return <LiveRow key={r.s.id} {...liveRowProps(r.s)} />
-    if (r.kind === 'conv')
-      return (
-        <ConvRow
-          key={r.conv.sessionId}
-          project={r.project}
-          conv={r.conv}
-          onOpen={() => onOpenConversation(r.project, r.conv)}
-        />
-      )
-    return <OfflineRow key={r.id} name={r.name} host={r.host} onReconnect={() => onReconnectRemote(r.host)} />
+    return (
+      <ConvRow
+        key={r.conv.sessionId}
+        project={r.project}
+        conv={r.conv}
+        onOpen={() => onOpenConversation(r.project, r.conv)}
+      />
+    )
   }
 
   const renderSection = ({ key, title, accent }: { key: SectionKey; title: string; accent: boolean }) => {
@@ -556,16 +482,6 @@ export function SessionsPanel({
       <div className="sessions-header">
         <span className="sessions-title">Sessions</span>
         <span className="topbar-spacer" />
-        {hiddenCount > 0 && (
-          <button
-            className={`sessions-show-hidden ${showHidden ? 'active' : ''}`}
-            onClick={() => setShowHidden(!showHidden)}
-            title={showHidden ? 'Stop showing hidden items' : `Show ${hiddenCount} hidden item(s)`}
-          >
-            <span className={`codicon ${showHidden ? 'codicon-eye' : 'codicon-eye-closed'}`} />
-            {hiddenCount}
-          </button>
-        )}
         {!nothing && (
           <button
             className={`icon-button codicon codicon-search ${searchOpen ? 'active' : ''}`}
