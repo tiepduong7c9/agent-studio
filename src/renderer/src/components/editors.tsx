@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm'
 import type { GitFileChange, ProjectInfo } from '../../../shared/types'
 import { imageMimeType } from '../../../shared/imageTypes'
 import { videoMimeType } from '../../../shared/videoTypes'
+import { pdfMimeType } from '../../../shared/pdfTypes'
 import { monaco } from '../monaco'
 import { useMarkdownViewStore } from '../markdown-view-store'
 import { isSideBySide, useDiffViewStore } from '../diff-view-store'
@@ -33,6 +34,7 @@ export function FileView({
   if (videoMimeType(path)) return <VideoView wsId={wsId} path={path} />
   const mimeType = imageMimeType(path)
   if (mimeType) return <ImageView wsId={wsId} path={path} mimeType={mimeType} />
+  if (pdfMimeType(path)) return <PdfView wsId={wsId} path={path} />
   if (isMarkdown(path)) return <MarkdownFileView wsId={wsId} path={path} tabId={tabId} />
   return <TextFileView wsId={wsId} path={path} tabId={tabId} />
 }
@@ -71,6 +73,21 @@ function VideoView({ wsId, path }: { wsId: string; path: string }) {
   return (
     <div className="video-viewer">
       <video src={src} controls preload="metadata" />
+    </div>
+  )
+}
+
+/**
+ * Streams a PDF via the studio-media:// protocol into Chromium's built-in PDF
+ * viewer (an <iframe>, which gives the full toolbar: zoom, page nav, print).
+ * The renderer never loads the bytes itself — the protocol handles range
+ * requests so large PDFs page in on demand.
+ */
+function PdfView({ wsId, path }: { wsId: string; path: string }) {
+  const src = `studio-media://stream/?ws=${encodeURIComponent(wsId)}&p=${encodeURIComponent(path)}`
+  return (
+    <div className="pdf-viewer">
+      <iframe src={src} title={baseName(path)} />
     </div>
   )
 }
@@ -403,6 +420,10 @@ function MonacoEditor({
       renderWhitespace: 'none',
       scrollBeyondLastLine: false
     })
+    // A fresh scratch buffer (Ctrl/Cmd+N) should be ready to type into without a
+    // click. Existing files aren't auto-focused, so single-click tree previews
+    // keep focus in the explorer for arrow-key navigation.
+    if (untitled) editor.focus()
     const sub = model.onDidChangeContent(() =>
       useEditorBufferStore.getState().setContent(tabId, model.getValue())
     )

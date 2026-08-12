@@ -40,7 +40,10 @@ function createWindow(): void {
       sandbox: true,
       // Enable <webview> for the in-app browser tab (opened from a session's
       // links list). The guest page runs in its own isolated process.
-      webviewTag: true
+      webviewTag: true,
+      // Chromium's built-in PDF viewer (used by the file preview's <iframe>) is
+      // gated behind the plugins flag.
+      plugins: true
     }
   })
 

@@ -1122,6 +1122,20 @@ body {
   max-height: 100%;
 }
 
+/* ── PDF viewer (Chromium's built-in viewer in an iframe) ────────────── */
+
+.pdf-viewer {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.pdf-viewer iframe {
+  flex: 1;
+  border: none;
+  background: #525659;
+}
+
 /* ── Image viewer (inline preview of image files) ────────────────────── */
 
 .image-editor {

@@ -32,7 +32,7 @@ type Dialog =
   | { kind: 'error'; message: string }
 
 export const FileTree = forwardRef<PanelHandle, Props>(function FileTree(
-  { project, onSelect, filter = '' },
+  { project, selection, onSelect, filter = '' },
   ref
 ) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -41,6 +41,9 @@ export const FileTree = forwardRef<PanelHandle, Props>(function FileTree(
   const [dialog, setDialog] = useState<Dialog | null>(null)
   const onSelectRef = useRef(onSelect)
   onSelectRef.current = onSelect
+  // Set while we programmatically select a node (revealing the open file), so
+  // the selection listener doesn't echo it back through onSelect.
+  const suppressSelectRef = useRef(false)
   const pushToast = useToastStore((s) => s.push)
   // The tree's filter callback reads the live (lowercased) query from here.
   const filterRef = useRef('')
@@ -52,6 +55,73 @@ export const FileTree = forwardRef<PanelHandle, Props>(function FileTree(
     const update = tree.updateChildren ?? tree._updateChildren
     update?.call(tree)?.catch?.(() => {})
   }, [])
+
+  // Expand the ancestor folders of `targetPath`, then select, focus and scroll
+  // it into view — VS Code's "reveal in explorer". Walks down from the project
+  // root: each level's real node objects only exist once its parent is
+  // expanded, so we expand level-by-level, matching each segment by path. The
+  // async data tree keys nodes by object identity (not our path id), so we can't
+  // shortcut with a reconstructed node — the walk is what gives us the live refs.
+  const revealPath = useCallback(
+    async (targetPath: string) => {
+      const tree = treeRef.current
+      if (!tree) return
+      const root = project.rootPath.replace(/\/+$/, '')
+      if (targetPath !== root && !targetPath.startsWith(root + '/')) return
+
+      try {
+        await tree.expand(project)
+      } catch {
+        return
+      }
+      if (treeRef.current !== tree) return // project switched mid-reveal
+
+      const rel = targetPath.slice(root.length).replace(/^\/+/, '')
+      const segments = rel ? rel.split('/') : []
+      let parent: TreeNode = project
+      let accum = root
+      let target: TreeNode | null = segments.length === 0 ? project : null
+
+      for (let i = 0; i < segments.length; i++) {
+        accum = `${accum}/${segments[i]}`
+        let node: any
+        try {
+          node = tree.getNode(parent)
+        } catch {
+          return
+        }
+        const childWrap = node.children?.find((c: any) => {
+          const el = c.element as TreeNode
+          return !isProject(el) && el.path === accum
+        })
+        // Not loaded/visible (e.g. filtered out) — give up rather than guess.
+        if (!childWrap) return
+        const el = childWrap.element as TreeNode
+        if (i === segments.length - 1) {
+          target = el
+        } else {
+          try {
+            await tree.expand(el)
+          } catch {
+            return
+          }
+          if (treeRef.current !== tree) return
+          parent = el
+        }
+      }
+
+      if (!target) return
+      suppressSelectRef.current = true
+      try {
+        tree.setSelection([target])
+        tree.setFocus([target])
+        tree.reveal(target)
+      } finally {
+        suppressSelectRef.current = false
+      }
+    },
+    [project]
+  )
 
   const runOp = useCallback(
     async (op: Promise<Result<void>>) => {
@@ -315,6 +385,7 @@ export const FileTree = forwardRef<PanelHandle, Props>(function FileTree(
     // Single click previews the file in the transient tab; it's kept permanent
     // via the tab's right-click menu ("Keep Open").
     const openListener = tree.onDidChangeSelection((e: any) => {
+      if (suppressSelectRef.current) return
       const el: TreeNode | undefined = e.elements?.[0]
       if (el && !isProject(el) && el.kind !== 'dir') {
         onSelectRef.current({ kind: 'file', wsId: project.id, path: el.path, name: el.name }, { preview: true })
@@ -418,6 +489,18 @@ export const FileTree = forwardRef<PanelHandle, Props>(function FileTree(
     const inner = (treeRef.current as any)?.tree
     inner?.refilter?.()
   }, [filter])
+
+  // Reveal (expand + select + scroll to) the file backing the active editor tab
+  // whenever it changes, so the tree tracks what's open — including files opened
+  // from search, links, or restored on launch, not just tree clicks. Only the
+  // path matters; App hands us a fresh selection object each render.
+  const lastRevealedRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!selection || selection.kind !== 'file' || selection.wsId !== project.id) return
+    if (lastRevealedRef.current === selection.path) return
+    lastRevealedRef.current = selection.path
+    revealPath(selection.path)
+  }, [selection, project.id, revealPath])
 
   // Reload when something outside the tree changes this workspace's files (e.g.
   // saving a new untitled file). Only react to bumps after mount and for our
