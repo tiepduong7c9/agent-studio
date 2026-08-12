@@ -14,6 +14,7 @@ import { baseName, Breadcrumbs, DiffView, FileView, isMarkdown, relativeToRoot }
 import { useMarkdownViewStore } from '../markdown-view-store'
 import { isSideBySide, useDiffViewStore } from '../diff-view-store'
 import { useSessionsStore } from '../acp/sessions-store'
+import { useToastStore } from '../toast-store'
 import { sessionInWorkspace, workspaceForSession } from '../workspace'
 import letterpress from '../assets/letterpress-light.svg'
 
@@ -78,6 +79,7 @@ export function EditorArea({ workspaces, sessionWorkspaces, onCreateSession, onP
   const keepTab = useTabsStore((s) => s.keep)
   const toggleMarkdownSource = useMarkdownViewStore((s) => s.toggle)
   const toggleSideBySide = useDiffViewStore((s) => s.toggleSideBySide)
+  const pushToast = useToastStore((s) => s.push)
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null)
   // Tabs with unsaved edits, so the strip can show a dirty dot and warn on close.
   const dirty = useEditorBufferStore((s) => s.dirty)
@@ -118,6 +120,8 @@ export function EditorArea({ workspaces, sessionWorkspaces, onCreateSession, onP
     }
     return [...workspaces, ...sessionWorkspaces].find((w) => w.id === t.wsId) ?? null
   }
+  // A saved (non-scratch) file tab, so the strip can offer a quick download.
+  const fileTab = active?.kind === 'file' && !active.untitled ? active : null
   const markdownTab = active?.kind === 'file' && isMarkdown(active.path) ? active : null
   const markdownSource = useMarkdownViewStore((s) => (markdownTab ? !!s.sourceMode[markdownTab.id] : false))
   const diffTab = active?.kind === 'diff' ? active : null
@@ -146,6 +150,16 @@ export function EditorArea({ workspaces, sessionWorkspaces, onCreateSession, onP
       },
       { preview: false }
     )
+  }
+
+  // Save the open file to a local path chosen via a native dialog.
+  const downloadFile = async (tab: Extract<EditorTab, { kind: 'file' }>) => {
+    const res = await window.studio.downloadPath(tab.wsId, tab.path, 'file')
+    if (!res.ok) {
+      pushToast('danger', res.error)
+      return
+    }
+    if (res.data.saved) pushToast('info', `Downloaded to ${res.data.path}`)
   }
 
   const onCloseTab = (e: MouseEvent, id: string) => {
@@ -231,6 +245,13 @@ export function EditorArea({ workspaces, sessionWorkspaces, onCreateSession, onP
                 )}
                 <span className="tab-actions-sep" />
               </>
+            )}
+            {fileTab && (
+              <button
+                className="icon-button codicon codicon-cloud-download"
+                title="Download"
+                onClick={() => downloadFile(fileTab)}
+              />
             )}
             <button
               className={`icon-button codicon ${maximized ? 'codicon-screen-normal' : 'codicon-screen-full'}`}
