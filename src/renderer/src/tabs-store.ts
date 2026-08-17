@@ -24,6 +24,11 @@ export type EditorTab =
   | { id: string; kind: 'file'; title: string; path: string; name: string; wsId: string; ownerSid: string | null; preview?: boolean; untitled?: boolean }
   | { id: string; kind: 'diff'; title: string; change: GitFileChange; wsId: string; ownerSid: string | null; preview?: boolean }
   | { id: string; kind: 'git-graph'; title: string; wsId: string; ownerSid: string | null }
+  // A read-only markdown view of a plan surfaced in an ExitPlanMode ("Ready to
+  // code?") permission, opened from the permission card so long plans get the
+  // full editor width instead of the card's cramped scroll box. `text` is the
+  // plan markdown, held in memory (there is no file on disk).
+  | { id: string; kind: 'plan'; title: string; text: string; wsId: string; ownerSid: string | null }
   // An in-app browser showing `url`, opened from a session's links popover.
   | { id: string; kind: 'browser'; title: string; url: string; wsId: string; ownerSid: string | null }
   | {
@@ -76,6 +81,12 @@ export function fileTabId(ownerSid: string | null, wsId: string, path: string): 
 
 export function diffTabId(ownerSid: string | null, wsId: string, change: GitFileChange): string {
   return `diff:${ownerSid ?? ''}:${wsId}:${change.path}:${change.index}${change.worktree}`
+}
+
+// Plan tabs are keyed by the permission request that surfaced them, so the same
+// plan reuses its tab and each session keeps its own.
+export function planTabId(ownerSid: string | null, requestId: string): string {
+  return `plan:${ownerSid ?? ''}:${requestId}`
 }
 
 /** One git-graph tab per (session, workspace). */

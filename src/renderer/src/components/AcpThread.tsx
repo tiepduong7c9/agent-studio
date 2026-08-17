@@ -4,7 +4,7 @@ import remarkGfm from 'remark-gfm'
 import {
   AlertTriangle, BrainCircuit, Check, ChevronDown, ChevronRight, CircleHelp, CircleSlash,
   Clock, Copy, Cpu, FileText, FolderTree, Gauge, Globe, ListTodo, Loader2, Mail, MailOpen, Pencil, Search,
-  ShieldQuestion, SquarePen, Square, Terminal, Trash2, Wrench, X, ArrowUp, Zap
+  ShieldQuestion, SquarePen, Square, SquareArrowOutUpRight, Terminal, Trash2, Wrench, X, ArrowUp, Zap
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { AcpConversation } from '../../../shared/acp'
@@ -19,7 +19,7 @@ import type {
 import { ASK_OPTION_META_KEY } from '../acp/protocol'
 import { useCommandHistory } from '../acp/command-history'
 import { useDrafts } from '../acp/drafts-store'
-import { fileTabId, useTabsStore } from '../tabs-store'
+import { fileTabId, planTabId, useTabsStore } from '../tabs-store'
 import type { ProjectInfo } from '../../../shared/types'
 import { SessionLinksButton } from './SessionLinksButton'
 import './AcpThread.css'
@@ -531,12 +531,13 @@ function ElicitationForm({ request, onSubmit, onSkip }: {
 }
 
 const MessageList = memo(function MessageList({
-  items, working, onAnswerPermission, onAnswerElicitation,
+  items, working, onAnswerPermission, onAnswerElicitation, onOpenPlan,
 }: {
   items: ThreadItem[]
   working: boolean
   onAnswerPermission: (requestId: string, optionId: string | null) => void
   onAnswerElicitation: (requestId: string, response: AcpElicitationResponse) => void
+  onOpenPlan: (requestId: string, text: string) => void
 }) {
   if (items.length === 0) {
     return (
@@ -596,10 +597,28 @@ const MessageList = memo(function MessageList({
                 </ul>
               </div>
             ); break
-          case 'permission':
+          case 'permission': {
+            // Plan markdown surfaced in an ExitPlanMode ("Ready to code?")
+            // permission, joined across content blocks so it can also open as a
+            // full-width tab (the inline box stays cramped for long plans).
+            const planText = (item.request.toolCall?.content ?? [])
+              .map((c: AcpToolContent) => textOf(c.content))
+              .filter(Boolean)
+              .join('\n\n')
             content = (
               <div className="acp-permission">
-                <div className="acp-permission-title"><ShieldQuestion size={15} /> Permission required</div>
+                <div className="acp-permission-title">
+                  <ShieldQuestion size={15} /> Permission required
+                  {planText && (
+                    <button
+                      className="acp-permission-open"
+                      title="Open plan in a tab"
+                      onClick={() => onOpenPlan(item.requestId, planText)}
+                    >
+                      <SquareArrowOutUpRight size={13} /> Open in tab
+                    </button>
+                  )}
+                </div>
                 {item.request.toolCall?.title && <div style={{ fontSize: 12, marginBottom: 8, opacity: 0.75 }}>{item.request.toolCall.title}</div>}
                 {item.request.toolCall?.content?.map((c: AcpToolContent, i) => {
                   const t = textOf(c.content)
@@ -621,6 +640,7 @@ const MessageList = memo(function MessageList({
                 )}
               </div>
             ); break
+          }
           case 'elicitation':
             content = (
               <div className="acp-permission">
@@ -998,6 +1018,19 @@ export function AcpThread({ sid, workspace = null, visible = true }: { sid: stri
     acp().elicitationResponse(sid, requestId, response)
     resolveElicitationLocal(sid, requestId, response)
   }, [sid, resolveElicitationLocal])
+  // Open a plan permission's markdown as a full-width, session-scoped tab. The
+  // permission card (and its action buttons) stays in the thread — this is just
+  // a roomier read for long plans.
+  const openPlan = useCallback((requestId: string, text: string) => {
+    useTabsStore.getState().open({
+      id: planTabId(sid, requestId),
+      kind: 'plan',
+      title: 'Plan',
+      text,
+      wsId: workspace?.id ?? wsId ?? '',
+      ownerSid: sid
+    })
+  }, [sid, workspace?.id, wsId])
 
   const selectMode = (id: string) => { acp().setMode(sid, id); setModeLocal(sid, id) }
   const selectModel = (id: string) => { acp().setModel(sid, id); setModelLocal(sid, id) }
@@ -1016,7 +1049,7 @@ export function AcpThread({ sid, workspace = null, visible = true }: { sid: stri
       <div className="acp-body">
         <div ref={scrollRef} className="acp-scroll" onScroll={onScroll}>
           <FileRefContext.Provider value={fileCtx}>
-            <MessageList items={items} working={working} onAnswerPermission={answerPermission} onAnswerElicitation={answerElicitation} />
+            <MessageList items={items} working={working} onAnswerPermission={answerPermission} onAnswerElicitation={answerElicitation} onOpenPlan={openPlan} />
           </FileRefContext.Provider>
         </div>
         {resuming && (
