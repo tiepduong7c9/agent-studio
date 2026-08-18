@@ -71,10 +71,17 @@ function renderTitle(name: string) {
 // Max rows shown per section before a "Show N more" toggle.
 const ROW_LIMIT = 4
 
+// How many of the most-recently-active items surface in "Recent" — a quick-
+// access shortcut so recently-worked sessions stay one click away, whether
+// they're live or resumable, without hunting through the state sections.
+const RECENT_CAP = 10
+
 // Attention-state sections, in fixed display order. "Pinned" and "Needs you"
 // carry the accent header colour.
-type SectionKey = 'needs' | 'working' | 'later' | 'idle' | 'parked'
+type SectionKey = 'pinned' | 'recent' | 'needs' | 'working' | 'later' | 'idle' | 'parked'
 const SECTIONS: { key: SectionKey; title: string; accent: boolean }[] = [
+  { key: 'pinned', title: 'Pinned', accent: true },
+  { key: 'recent', title: 'Recent', accent: false },
   { key: 'needs', title: 'Needs you', accent: true },
   { key: 'working', title: 'Working', accent: false },
   { key: 'later', title: 'Later', accent: false },
@@ -82,14 +89,18 @@ const SECTIONS: { key: SectionKey; title: string; accent: boolean }[] = [
   { key: 'parked', title: 'Parked', accent: false }
 ]
 
-// A row in a section: a live session or a resumable past conversation.
+// A row in a section: a live session, a resumable past conversation, or a pinned
+// session whose remote host is offline (rendered from cached metadata).
 type Row =
   | { kind: 'live'; s: SessionMeta }
   | { kind: 'conv'; project: ProjectConversations; conv: AcpConversation }
+  | { kind: 'offline'; id: string; name: string; host: string }
 
 interface LiveRowProps {
   s: SessionMeta
   active: boolean
+  /** Pinned — floats to the "Pinned" section; drives the Pin/Unpin menu label. */
+  pinned: boolean
   /** Finished a turn while unwatched — shown as a "done" status until viewed. */
   done: boolean
   /** When that turn finished (ms epoch); shown as the row time on a done row. */
@@ -97,11 +108,12 @@ interface LiveRowProps {
   /** User-flagged unread (follow up later) — a persistent manual marker. */
   unread: boolean
   onSelect: () => void
+  onTogglePin: () => void
   onToggleUnread: () => void
   onDelete: () => void
 }
 
-function LiveRow({ s, active, done, doneAt, unread, onSelect, onToggleUnread, onDelete }: LiveRowProps) {
+function LiveRow({ s, active, pinned, done, doneAt, unread, onSelect, onTogglePin, onToggleUnread, onDelete }: LiveRowProps) {
   // "done" only stands in when Claude is otherwise idle — a live working/waiting
   // status always wins (a new turn clears the marker anyway).
   const displayStatus = done && (!s.claudeStatus || s.claudeStatus === 'idle') ? 'done' : s.claudeStatus
@@ -147,6 +159,7 @@ function LiveRow({ s, active, done, doneAt, unread, onSelect, onToggleUnread, on
   }
 
   const items: MenuItem[] = [
+    { label: pinned ? 'Unpin' : 'Pin', run: onTogglePin },
     { label: unread ? 'Mark as read' : 'Mark as unread', run: onToggleUnread },
     { separator: true },
     { label: 'Rename', run: () => setEditing(true) },
@@ -156,7 +169,9 @@ function LiveRow({ s, active, done, doneAt, unread, onSelect, onToggleUnread, on
     { label: 'Delete Session', run: () => setConfirming(true) }
   ]
 
-  const showUnreadDot = unread || displayStatus === 'done'
+  // Blue attention dot: a session blocked on a question/permission ('waiting')
+  // needs you just as much as a done or manually-flagged one.
+  const showUnreadDot = unread || displayStatus === 'done' || displayStatus === 'waiting'
 
   return (
     <div className="acp-session-row-wrap">
@@ -259,6 +274,33 @@ function ConvRow({ project, conv, onOpen }: { project: ProjectConversations; con
   )
 }
 
+// A pinned session whose host is offline: no live data to attach to, so it's
+// rendered from cached metadata as a dimmed, click-to-reconnect row.
+function OfflineRow({ name, host, onReconnect }: { name: string; host: string; onReconnect: () => void }) {
+  return (
+    <div className="acp-session-row-wrap offline">
+      <button
+        className="acp-session-row offline"
+        onClick={onReconnect}
+        title="Host disconnected — click to reconnect"
+      >
+        <span className="acp-session-main">
+          <span className="acp-session-title-line">
+            <span className="acp-session-name">{name}</span>
+          </span>
+          <span className="acp-session-meta-line">
+            <span className="acp-session-host">
+              <span className="codicon codicon-server acp-session-meta-icon" />
+              <span className="acp-session-host-name">{hostLabel(host)}</span>
+            </span>
+            <span className="acp-session-time">reconnect</span>
+          </span>
+        </span>
+      </button>
+    </div>
+  )
+}
+
 export function SessionsPanel({
   sessions,
   projects,
@@ -277,6 +319,9 @@ export function SessionsPanel({
   const doneSessions = useSessionsStore((s) => s.doneSessions)
   const unreadSessions = useViewPrefsStore((s) => s.unreadSessions)
   const toggleUnread = useViewPrefsStore((s) => s.toggleUnread)
+  const pinnedSessions = useViewPrefsStore((s) => s.pinnedSessions)
+  const pinnedMeta = useViewPrefsStore((s) => s.pinnedMeta)
+  const togglePin = useViewPrefsStore((s) => s.togglePin)
 
   // A slow tick so live timestamps (Working counts up, others age) refresh even
   // without a session update.
@@ -286,20 +331,42 @@ export function SessionsPanel({
     return () => clearInterval(t)
   }, [])
 
+  // Pinned sessions whose remote host isn't currently connected, drawn from
+  // cached metadata — the host pushes no live list, so without this they'd
+  // vanish. Only known, disconnected hosts qualify.
+  const offlinePinned = useMemo(() => {
+    const liveIds = new Set(sessions.map((s) => s.id))
+    const knownHosts = new Set(remoteHosts)
+    const out: { id: string; name: string; host: string }[] = []
+    for (const [id, meta] of Object.entries(pinnedMeta)) {
+      if (!pinnedSessions[id] || liveIds.has(id) || !meta.host) continue
+      if (!knownHosts.has(meta.host) || engineStatus[`ssh:${meta.host}`] === 'connected') continue
+      out.push({ id, name: meta.name, host: meta.host })
+    }
+    return out
+  }, [sessions, pinnedMeta, pinnedSessions, engineStatus, remoteHosts])
+
   // Classify every visible live session into an attention-state bucket, plus the
-  // resumable on-disk conversations that have no live session (folded into
-  // Parked). Sorting: same-project rows sit adjacent, then most-recent first;
-  // Needs-you additionally floats blocked (waiting) items above crashed & done.
+  // resumable on-disk conversations that have no live session. Pinned sessions
+  // are pulled out first (they float regardless of state). Suspended sessions +
+  // on-disk conversations form the resumable pool that "Recent"/"Parked" split.
+  // Sorting: most-recent activity first; Needs-you floats blocked (waiting) items
+  // above crashed & done.
   const buckets = useMemo(() => {
     // Most-recent activity first, across projects (activity = lastAttachedAt ||
     // createdAt).
     const cmp = (a: SessionMeta, b: SessionMeta): number => activity(b) - activity(a)
+    const pinned: SessionMeta[] = []
     const needs: SessionMeta[] = []
     const working: SessionMeta[] = []
     const later: SessionMeta[] = []
     const idle: SessionMeta[] = []
     const parked: SessionMeta[] = []
     for (const s of sessions) {
+      if (pinnedSessions[s.id]) {
+        pinned.push(s)
+        continue
+      }
       if (s.status === 'exited') needs.push(s)
       else if (s.status === 'suspended') parked.push(s)
       else if (s.claudeStatus === 'working') working.push(s)
@@ -317,6 +384,7 @@ export function SessionsPanel({
     later.sort(cmp)
     idle.sort(cmp)
     parked.sort(cmp)
+    pinned.sort(cmp)
 
     // Resumable conversations: on-disk history not backed by a live session.
     const liveAcp = new Set(sessions.map((s) => s.acpSessionId).filter(Boolean) as string[])
@@ -328,8 +396,8 @@ export function SessionsPanel({
     }
     convs.sort((a, b) => b.conv.mtime - a.conv.mtime)
 
-    return { needs, working, later, idle, parked, convs }
-  }, [sessions, projects, doneSessions, unreadSessions])
+    return { pinned, needs, working, later, idle, parked, convs }
+  }, [sessions, projects, pinnedSessions, doneSessions, unreadSessions])
 
   // Search: free-text across the whole list, matching title / project / host.
   const [searchOpen, setSearchOpen] = useState(false)
@@ -378,10 +446,12 @@ export function SessionsPanel({
   const liveRowProps = (s: SessionMeta): LiveRowProps => ({
     s,
     active: s.id === activeSid,
+    pinned: !!pinnedSessions[s.id],
     done: !!doneSessions[s.id],
     doneAt: doneSessions[s.id],
     unread: !!unreadSessions[s.id],
     onSelect: () => onSelectSession(s.id),
+    onTogglePin: () => togglePin(s.id),
     onToggleUnread: () => toggleUnread(s.id),
     onDelete: () => onDeleteSession(s.id)
   })
@@ -390,13 +460,44 @@ export function SessionsPanel({
   const rowsByKey = useMemo(() => {
     const live = (list: SessionMeta[]): Row[] =>
       list.filter(matchesSession).map((s) => ({ kind: 'live', s }))
+    const matchesRow = (r: Row): boolean =>
+      r.kind === 'live'
+        ? matchesSession(r.s)
+        : r.kind === 'conv'
+          ? matchesText(r.conv.title, r.project.name, hostLabel(r.project.host))
+          : matchesText(r.name, hostLabel(r.host))
+
+    // Pinned live sessions + offline-pinned placeholders (host disconnected).
+    const pinnedRows: Row[] = [
+      ...live(buckets.pinned),
+      ...offlinePinned.map((o) => ({ kind: 'offline', id: o.id, name: o.name, host: o.host }) as Row)
+    ].filter(matchesRow)
+
+    // Recent — the most-recently-active items across every (non-pinned) state,
+    // live and resumable alike, newest first, capped at RECENT_CAP. A quick-
+    // access shortcut: rows here also appear in their own state section below.
+    const recentPool: { row: Row; ts: number }[] = [
+      ...[...buckets.needs, ...buckets.working, ...buckets.later, ...buckets.idle, ...buckets.parked].map(
+        (s) => ({ row: { kind: 'live', s } as Row, ts: activity(s) })
+      ),
+      ...buckets.convs.map(({ project, conv }) => ({
+        row: { kind: 'conv', project, conv } as Row,
+        ts: conv.mtime
+      }))
+    ].sort((a, b) => b.ts - a.ts)
+    // Filter before slicing so search finds the newest *matching* items, not
+    // only matches that happen to fall in the 10 most-recent overall.
+    const recentRows = recentPool.map((r) => r.row).filter(matchesRow).slice(0, RECENT_CAP)
+
+    // Parked — the full resumable archive: suspended sessions + on-disk history.
     const parkedRows: Row[] = [
-      ...live(buckets.parked),
-      ...buckets.convs
-        .filter(({ project, conv }) => matchesText(conv.title, project.name, hostLabel(project.host)))
-        .map(({ project, conv }) => ({ kind: 'conv', project, conv }) as Row)
-    ]
+      ...buckets.parked.map((s) => ({ kind: 'live', s }) as Row),
+      ...buckets.convs.map(({ project, conv }) => ({ kind: 'conv', project, conv }) as Row)
+    ].filter(matchesRow)
+
     return {
+      pinned: pinnedRows,
+      recent: recentRows,
       needs: live(buckets.needs),
       working: live(buckets.working),
       later: live(buckets.later),
@@ -404,7 +505,7 @@ export function SessionsPanel({
       parked: parkedRows
     } as Record<SectionKey, Row[]>
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [buckets, q, searching])
+  }, [buckets, offlinePinned, q, searching])
 
   const totalRows = SECTIONS.reduce((n, s) => n + rowsByKey[s.key].length, 0)
   const nothing = sessions.length === 0 && projects.length === 0 && remoteHosts.length === 0
@@ -433,6 +534,8 @@ export function SessionsPanel({
 
   const renderRow = (r: Row) => {
     if (r.kind === 'live') return <LiveRow key={r.s.id} {...liveRowProps(r.s)} />
+    if (r.kind === 'offline')
+      return <OfflineRow key={r.id} name={r.name} host={r.host} onReconnect={() => onReconnectRemote(r.host)} />
     return (
       <ConvRow
         key={r.conv.sessionId}
@@ -448,7 +551,10 @@ export function SessionsPanel({
     if (rows.length === 0) return null
     const isCollapsed = !searching && collapsed.has(key)
     const showAll = searching || expanded.has(key)
-    const shown = showAll ? rows : rows.slice(0, ROW_LIMIT)
+    // Recent already holds at most RECENT_CAP rows — show them all rather than
+    // clipping to the tighter global ROW_LIMIT used by the other sections.
+    const limit = key === 'recent' ? RECENT_CAP : ROW_LIMIT
+    const shown = showAll ? rows : rows.slice(0, limit)
     return (
       <div className="sess-section" key={key}>
         <div
@@ -463,9 +569,9 @@ export function SessionsPanel({
         {!isCollapsed && (
           <div className="sess-section-rows">
             {shown.map(renderRow)}
-            {!searching && rows.length > ROW_LIMIT && (
+            {!searching && rows.length > limit && (
               <button className="sess-more" onClick={() => toggleExpand(key)}>
-                {expanded.has(key) ? 'Show less' : `Show ${rows.length - ROW_LIMIT} more`}
+                {expanded.has(key) ? 'Show less' : `Show ${rows.length - limit} more`}
               </button>
             )}
           </div>
