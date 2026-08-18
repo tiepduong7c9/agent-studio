@@ -378,6 +378,22 @@
 .acp-plan li { display: flex; gap: 8px; font-size: 12px; }
 .acp-plan-done { text-decoration: line-through; color: var(--vscode-descriptionForeground); }
 .acp-perm-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+/* "Open in tab" affordance on a plan permission — pushed to the title's right edge. */
+.acp-permission-open {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--vscode-textLink-foreground);
+  background: transparent;
+  border: 1px solid var(--vscode-sideBar-border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.acp-permission-open:hover { background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.12)); }
 /* Plan markdown surfaced in an ExitPlanMode ("Ready to code?") permission. */
 .acp-permission-plan { margin: 4px 0 10px; padding: 10px 12px; max-height: 420px; overflow-y: auto; font-size: 13px; background: var(--vscode-textCodeBlock-background, rgba(127,127,127,.1)); border: 1px solid var(--vscode-sideBar-border); border-radius: 4px; }
 .acp-permission-plan > :first-child { margin-top: 0; }

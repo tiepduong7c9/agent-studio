@@ -164,6 +164,22 @@ function markdownComponents(wsId: string, fileDir: string) {
 }
 
 /**
+ * Renders an in-memory markdown string as a rendered preview (no file on disk),
+ * reusing the same element overrides as the file preview. Used by the plan tab
+ * to give an ExitPlanMode plan the full editor width.
+ */
+export function MarkdownTextView({ text, wsId, dir }: { text: string; wsId: string; dir: string }) {
+  const components = useMemo(() => markdownComponents(wsId, dir), [wsId, dir])
+  return (
+    <div className="markdown-preview">
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+        {text}
+      </ReactMarkdown>
+    </div>
+  )
+}
+
+/**
  * Markdown files open in a rendered preview by default. The preview/source
  * toggle lives in the tab strip (see EditorArea) so it costs no editor space;
  * this reads the resulting mode from the shared store, keyed by tab id.

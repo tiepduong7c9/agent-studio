@@ -10,7 +10,7 @@ import { GitGraphView } from './GitGraphView'
 import { TerminalView } from './TerminalView'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { ErrorBoundary } from './ErrorBoundary'
-import { baseName, Breadcrumbs, DiffView, FileView, isMarkdown, relativeToRoot } from './editors'
+import { baseName, Breadcrumbs, DiffView, FileView, isMarkdown, MarkdownTextView, relativeToRoot } from './editors'
 import { useMarkdownViewStore } from '../markdown-view-store'
 import { isSideBySide, useDiffViewStore } from '../diff-view-store'
 import { useSessionsStore } from '../acp/sessions-store'
@@ -45,6 +45,8 @@ function tabIcon(tab: EditorTab): string {
       return 'codicon-git-compare'
     case 'git-graph':
       return 'codicon-git-commit'
+    case 'plan':
+      return 'codicon-checklist'
     case 'browser':
       return 'codicon-globe'
     case 'terminal':
@@ -354,6 +356,14 @@ function TabContent({
       return <AcpThread key={tab.id} sid={tab.sid} workspace={workspace} />
     case 'git-graph':
       return <GitGraphView key={tab.id} wsId={tab.wsId} />
+    case 'plan':
+      return (
+        <div className="editor-pane">
+          <div className="editor-pane-body">
+            <MarkdownTextView key={tab.id} text={tab.text} wsId={tab.wsId} dir={workspace?.rootPath ?? ''} />
+          </div>
+        </div>
+      )
     case 'file':
       return (
         <div className="editor-pane">
