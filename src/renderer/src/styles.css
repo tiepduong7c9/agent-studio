@@ -599,6 +599,9 @@ body {
    state is carried by the section a row sits in, so rows have no per-row status
    dot — only the unread-activity dot on the title line (§7). */
 .acp-session-history .acp-session-name { color: var(--vscode-descriptionForeground); }
+/* A pinned session whose host is offline reads as a dimmed row. */
+.acp-session-row.offline { opacity: 0.6; font-style: italic; }
+.acp-session-row.offline:hover { opacity: 0.85; }
 
 /* State (done / waiting / crashed) is conveyed by the section a row sits in and
    its lifecycle dot colour — not a per-row tint, which would collide with the
@@ -606,7 +609,8 @@ body {
    line marks done / manually-flagged rows. */
 
 /* Live session row: actions live in a right-click context menu so the session
-   summary text isn't crowded. */
+   summary text isn't crowded. Pinned rows are grouped in their own section, so
+   no per-row pin marker is needed. */
 .acp-session-row-wrap { position: relative; }
 .acp-session-row-wrap .acp-session-row { width: 100%; }
 

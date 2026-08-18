@@ -167,17 +167,16 @@ export const useViewPrefsStore = create<ViewPrefsState>()(
     }),
     {
       name: 'agent-studio.view-prefs',
-      // Pinning and hiding were removed from the sidebar; drop the state older
-      // builds persisted so the (now-absent) Pinned section and show-hidden
-      // toggle can't resurface from storage.
-      version: 1,
+      // Pinning is supported again, so pinnedSessions/pinnedMeta are preserved.
+      // Hiding is still not surfaced in the sidebar; drop any hide state older
+      // builds persisted so the (absent) show-hidden toggle can't resurface.
+      version: 2,
       migrate: (state) => {
         if (state && typeof state === 'object') {
           const s = state as Partial<ViewPrefsState>
-          delete s.pinnedSessions
-          delete s.pinnedMeta
           delete s.hiddenSessions
           delete s.hiddenProjects
+          delete s.showHidden
         }
         return state as ViewPrefsState
       }
