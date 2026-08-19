@@ -10,8 +10,7 @@ import { RemoteFolderPicker } from './RemoteFolderPicker'
 // VS Code-style command palette (Ctrl/Cmd+Shift+P). A small, extensible
 // multi-step quick pick. Today it drives one command — New Session — where you
 // pick an existing project/workspace across any connected host, or browse the
-// host's filesystem for a new folder. Whether the new session is pinned is
-// decided by the caller (pinned when the sidebar is in Focus mode).
+// host's filesystem for a new folder.
 
 const MAX_RESULTS = 200
 

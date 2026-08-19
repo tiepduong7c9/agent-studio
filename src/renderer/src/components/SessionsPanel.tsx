@@ -306,13 +306,33 @@ function ConvRow({ project, conv, onOpen }: { project: ProjectConversations; con
 }
 
 // A pinned session whose host is offline: no live data to attach to, so it's
-// rendered from cached metadata as a dimmed, click-to-reconnect row.
-function OfflineRow({ name, host, onReconnect }: { name: string; host: string; onReconnect: () => void }) {
+// rendered from cached metadata as a dimmed, click-to-reconnect row. Pin state
+// lives locally, so unpinning stays available via the context menu even while
+// the host is unreachable.
+function OfflineRow({
+  name,
+  host,
+  onReconnect,
+  onUnpin
+}: {
+  name: string
+  host: string
+  onReconnect: () => void
+  onUnpin: () => void
+}) {
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  const openMenu = (e: MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setMenu({ x: e.clientX, y: e.clientY })
+  }
+  const items: MenuItem[] = [{ label: 'Unpin', run: onUnpin }]
   return (
     <div className="acp-session-row-wrap offline">
       <button
         className="acp-session-row offline"
         onClick={onReconnect}
+        onContextMenu={openMenu}
         title="Host disconnected — click to reconnect"
       >
         <span className="acp-session-main">
@@ -328,6 +348,7 @@ function OfflineRow({ name, host, onReconnect }: { name: string; host: string; o
           </span>
         </span>
       </button>
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={items} onClose={() => setMenu(null)} />}
     </div>
   )
 }
@@ -574,7 +595,15 @@ export function SessionsPanel({
   const renderRow = (r: Row) => {
     if (r.kind === 'live') return <LiveRow key={r.s.id} {...liveRowProps(r.s)} />
     if (r.kind === 'offline')
-      return <OfflineRow key={r.id} name={r.name} host={r.host} onReconnect={() => onReconnectRemote(r.host)} />
+      return (
+        <OfflineRow
+          key={r.id}
+          name={r.name}
+          host={r.host}
+          onReconnect={() => onReconnectRemote(r.host)}
+          onUnpin={() => togglePin(r.id)}
+        />
+      )
     return (
       <ConvRow
         key={r.conv.sessionId}
