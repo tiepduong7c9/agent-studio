@@ -1,11 +1,13 @@
 import { type KeyboardEvent, type MouseEvent, useEffect, useMemo, useRef, useState } from 'react'
-import { Info } from 'lucide-react'
+import { Info, Tag } from 'lucide-react'
 import type { AcpConversation, ProjectConversations, SessionMeta } from '../../../shared/acp'
 import { useSessionsStore } from '../acp/sessions-store'
 import { useViewPrefsStore } from '../view-prefs-store'
+import { useCaptureStore, type Capture } from '../capture-store'
 import { hostLabel, projectLabel, sessionActivity as activity } from '../session-format'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { AboutDialog, ConfirmDialog } from './Dialogs'
+import { CapturePatternsDialog } from './CapturePatternsDialog'
 import { RemoteHostsDialog } from './RemoteHostsDialog'
 import { SkillsManager } from './SkillsManager'
 
@@ -68,6 +70,32 @@ function renderTitle(name: string) {
   )
 }
 
+// Clickable PR / ticket badges captured from the session's conversation. Each
+// opens its source URL; clicks are stopped so they don't select/rename the row.
+function CaptureBadges({ captures }: { captures: Capture[] }) {
+  if (captures.length === 0) return null
+  const open = (e: MouseEvent, url: string): void => {
+    e.preventDefault()
+    e.stopPropagation()
+    window.studio.links.openInWindow(url).catch(() => {})
+  }
+  return (
+    <span className="acp-session-badges">
+      {captures.map((c) => (
+        <span
+          key={`${c.patternId}:${c.id}`}
+          className={`acp-session-badge acp-session-badge-${c.kind}`}
+          title={c.url}
+          role="link"
+          onClick={(e) => open(e, c.url)}
+        >
+          {c.label}
+        </span>
+      ))}
+    </span>
+  )
+}
+
 // Max rows shown per section before a "Show N more" toggle.
 const ROW_LIMIT = 4
 
@@ -98,6 +126,8 @@ type Row =
 
 interface LiveRowProps {
   s: SessionMeta
+  /** PR / ticket badges captured from this session's conversation. */
+  captures: Capture[]
   active: boolean
   /** Pinned — floats to the "Pinned" section; drives the Pin/Unpin menu label. */
   pinned: boolean
@@ -113,7 +143,7 @@ interface LiveRowProps {
   onDelete: () => void
 }
 
-function LiveRow({ s, active, pinned, done, doneAt, unread, onSelect, onTogglePin, onToggleUnread, onDelete }: LiveRowProps) {
+function LiveRow({ s, captures, active, pinned, done, doneAt, unread, onSelect, onTogglePin, onToggleUnread, onDelete }: LiveRowProps) {
   // "done" only stands in when Claude is otherwise idle — a live working/waiting
   // status always wins (a new turn clears the marker anyway).
   const displayStatus = done && (!s.claudeStatus || s.claudeStatus === 'idle') ? 'done' : s.claudeStatus
@@ -198,6 +228,7 @@ function LiveRow({ s, active, pinned, done, doneAt, unread, onSelect, onTogglePi
           <span className="acp-session-main">
             <span className="acp-session-title-line">
               <span className="acp-session-name">{renderTitle(s.name)}</span>
+              <CaptureBadges captures={captures} />
               {/* One indicator, right-aligned: a live green pulse while working,
                   else the blue unread-activity dot. Mutually exclusive. */}
               {displayStatus === 'working' ? (
@@ -322,6 +353,9 @@ export function SessionsPanel({
   const pinnedSessions = useViewPrefsStore((s) => s.pinnedSessions)
   const pinnedMeta = useViewPrefsStore((s) => s.pinnedMeta)
   const togglePin = useViewPrefsStore((s) => s.togglePin)
+  const capturesBySid = useCaptureStore((s) => s.capturesBySid)
+  const NO_CAPTURES: Capture[] = []
+  const capturesFor = (sid: string): Capture[] => capturesBySid[sid] ?? NO_CAPTURES
 
   // A slow tick so live timestamps (Working counts up, others age) refresh even
   // without a session update.
@@ -410,7 +444,10 @@ export function SessionsPanel({
   const searching = q.length > 0
   const matchesSession = (s: SessionMeta): boolean =>
     !searching ||
-    [s.name, projectLabel(s.cwd), hostLabel(s.host)].some((t) => t.toLowerCase().includes(q))
+    [s.name, projectLabel(s.cwd), hostLabel(s.host)].some((t) => t.toLowerCase().includes(q)) ||
+    // Captured PR / ticket ids and their badge labels are searchable too, so a
+    // session can be found by "123", "#123", or "WOLF-45".
+    capturesFor(s.id).some((c) => c.id.toLowerCase().includes(q) || c.label.toLowerCase().includes(q))
   const matchesText = (...parts: (string | null | undefined)[]): boolean =>
     !searching || parts.some((t) => !!t && t.toLowerCase().includes(q))
   const toggleSearch = (): void => {
@@ -445,6 +482,7 @@ export function SessionsPanel({
 
   const liveRowProps = (s: SessionMeta): LiveRowProps => ({
     s,
+    captures: capturesFor(s.id),
     active: s.id === activeSid,
     pinned: !!pinnedSessions[s.id],
     done: !!doneSessions[s.id],
@@ -505,7 +543,7 @@ export function SessionsPanel({
       parked: parkedRows
     } as Record<SectionKey, Row[]>
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [buckets, offlinePinned, q, searching])
+  }, [buckets, offlinePinned, q, searching, capturesBySid])
 
   const totalRows = SECTIONS.reduce((n, s) => n + rowsByKey[s.key].length, 0)
   const nothing = sessions.length === 0 && projects.length === 0 && remoteHosts.length === 0
@@ -518,6 +556,7 @@ export function SessionsPanel({
   const [customizationsCollapsed, setCustomizationsCollapsed] = useState(true)
   const [aboutOpen, setAboutOpen] = useState(false)
   const [skillsOpen, setSkillsOpen] = useState(false)
+  const [patternsOpen, setPatternsOpen] = useState(false)
   const [version, setVersion] = useState<string | null>(null)
   useEffect(() => {
     let cancelled = false
@@ -669,6 +708,10 @@ export function SessionsPanel({
                 </div>
               )
             })}
+            <div className="customization-row" role="button" onClick={() => setPatternsOpen(true)}>
+              <Tag size={16} className="customization-icon" />
+              <span className="customization-name">Ticket Patterns</span>
+            </div>
             <div className="customization-row" role="button" onClick={() => setAboutOpen(true)}>
               <Info size={16} className="customization-icon" />
               <span className="customization-name">About</span>
@@ -687,6 +730,7 @@ export function SessionsPanel({
         />
       )}
       {aboutOpen && <AboutDialog version={version} onClose={() => setAboutOpen(false)} />}
+      {patternsOpen && <CapturePatternsDialog onClose={() => setPatternsOpen(false)} />}
       {skillsOpen && (
         <SkillsManager
           remoteHosts={remoteHosts}

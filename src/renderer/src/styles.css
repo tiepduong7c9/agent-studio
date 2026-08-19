@@ -509,6 +509,24 @@ body {
 }
 /* Inline PR / issue numbers read as identifiers, not prose. */
 .acp-session-pr { font-family: var(--vscode-editor-font-family, monospace); font-size: 12px; }
+/* Captured PR / ticket badges — clickable identifiers pinned near the title's
+   right edge, before the status dot. They never shrink; the name truncates. */
+.acp-session-badges { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.acp-session-badge {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 10.5px;
+  line-height: 1.5;
+  padding: 0 5px;
+  border-radius: 4px;
+  white-space: nowrap;
+  cursor: pointer;
+  border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+.acp-session-badge:hover { text-decoration: underline; }
+.acp-session-badge-pr { color: var(--vscode-charts-green, #89d185); }
+.acp-session-badge-ticket { color: var(--vscode-charts-blue, #3794ff); }
+.acp-session-row.active .acp-session-badge { color: var(--vscode-list-activeSelectionForeground); }
 /* Unread-activity indicator — its own channel, distinct from the lifecycle dot. */
 .acp-session-unread-dot {
   width: 7px;
@@ -2148,6 +2166,52 @@ body {
   color: var(--vscode-errorForeground);
   vertical-align: text-bottom;
 }
+
+/* ── Ticket Patterns dialog ──────────────────────────────────────────── */
+.capture-dialog { width: 560px; }
+.capture-title { display: flex; align-items: center; gap: 6px; }
+.capture-dialog .modal-detail code {
+  font-family: var(--vscode-editor-font-family, monospace);
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  border-radius: 3px;
+  padding: 0 3px;
+}
+.capture-list {
+  margin-top: 12px;
+  max-height: 52vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.capture-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--vscode-widget-border);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--vscode-foreground) 3%, transparent);
+}
+/* Both rows (fields + regex) share this column, so their left and right edges
+   line up; the remove/lock action sits outside it, spanning to the card edge. */
+.capture-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.capture-row-fields { display: flex; align-items: center; gap: 6px; }
+/* Uniform control height across text inputs and the (natively taller) select. */
+.capture-row .dialog-input { height: 30px; box-sizing: border-box; }
+.capture-row-fields .capture-name { flex: 1; min-width: 0; }
+.capture-row-fields .capture-kind { width: 92px; flex-shrink: 0; }
+.capture-row-fields .capture-label { width: 110px; flex-shrink: 0; }
+.capture-regex { width: 100%; font-family: var(--vscode-editor-font-family, monospace); font-size: 12px; }
+.capture-regex.invalid { border-color: var(--vscode-errorForeground); }
+.capture-row-action { flex-shrink: 0; display: flex; align-items: center; height: 30px; }
+.capture-builtin { display: inline-flex; align-items: center; color: var(--vscode-descriptionForeground); padding: 0 4px; }
+.capture-hint { font-size: 11.5px; }
+.capture-hint.error { color: var(--vscode-errorForeground); }
+.capture-hint.warn { color: var(--vscode-descriptionForeground); }
+.capture-actions { display: flex; align-items: center; margin-top: 14px; }
+/* Center the leading icon (e.g. + on Add pattern) with the button label. */
+.capture-actions .btn { display: inline-flex; align-items: center; gap: 5px; }
 
 /* file icon at contents start with a blank 16px twistie gutter for leaves —
    the exact VS Code Explorer layout, so indent guides never cross icons */
