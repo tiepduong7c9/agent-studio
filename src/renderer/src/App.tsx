@@ -28,7 +28,10 @@ import { useFilesRefreshStore } from './files-refresh-store'
 import { PromptDialog } from './components/Dialogs'
 import { useTransferStore } from './transfer-store'
 import { useViewPrefsStore } from './view-prefs-store'
+import { useCaptureStore } from './capture-store'
+import { extractCaptures } from './session-links'
 import { workspaceForSession } from './workspace'
+import type { AcpEvent } from './acp/protocol'
 
 const MIN_PANEL_WIDTH = 170
 
@@ -41,6 +44,36 @@ const normRoot = (p: string): string => p.replace(/\/+$/, '') || '/'
 /** A workspace rooted exactly at a session's own cwd/host. */
 function matchesSessionDir(w: ProjectInfo, s: SessionMeta): boolean {
   return (w.host ?? null) === (s.host ?? null) && normRoot(w.rootPath) === normRoot(s.cwd)
+}
+
+// Keep the persisted PR/ticket capture cache warm from loaded threads. The
+// per-session event stream only flows for sessions attached this run, so this is
+// the one place captures get (re)computed; the cache then feeds the sidebar for
+// every previously-opened session, surviving restarts. Recompute a session only
+// when its events reference changes, or when the patterns themselves change.
+function useCaptureSync(): void {
+  const threads = useAcpStore((s) => s.threads)
+  const patterns = useCaptureStore((s) => s.patterns)
+  const lastEvents = useRef<Map<string, AcpEvent[]>>(new Map())
+  const lastPatterns = useRef(patterns)
+  useEffect(() => {
+    const { setCaptures } = useCaptureStore.getState()
+    const patternsChanged = lastPatterns.current !== patterns
+    lastPatterns.current = patterns
+    for (const [sid, thread] of threads) {
+      if (!patternsChanged && lastEvents.current.get(sid) === thread.events) continue
+      // Don't re-scan mid-turn: the events array is replaced every frame while
+      // streaming, and URLs only land in settled messages. Leave lastEvents
+      // untouched so the scan runs once the turn goes idle. (extractLinks over
+      // the whole thread each frame would be O(n²) across a long turn.)
+      if (thread.claudeStatus === 'working') continue
+      lastEvents.current.set(sid, thread.events)
+      setCaptures(sid, extractCaptures(thread.events, patterns))
+    }
+    for (const sid of [...lastEvents.current.keys()]) {
+      if (!threads.has(sid)) lastEvents.current.delete(sid)
+    }
+  }, [threads, patterns])
 }
 
 export function App() {
@@ -286,6 +319,9 @@ export function App() {
   // Pop a toast when any host's usage crosses 50% / 75%.
   useUsageWarnings()
 
+  // Derive PR/ticket badges from loaded conversations into the persisted cache.
+  useCaptureSync()
+
   // Route engine push events into the stores, and seed the session list.
   useEffect(() => {
     // Coalesce incoming events per animation frame: a resumed conversation
@@ -355,6 +391,7 @@ export function App() {
     pruneChats(live)
     useViewPrefsStore.getState().pruneSessions(live)
     useDrafts.getState().prune(live)
+    useCaptureStore.getState().pruneCaptures(live)
   }, [sessions, pruneChats, remoteHosts, engineStatus, savedHostsResolved])
 
   // Keep a cached snapshot of each pinned session's metadata (name/cwd/host)
