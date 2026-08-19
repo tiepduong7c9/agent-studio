@@ -449,7 +449,7 @@ export function App() {
   }, [])
 
   const newSession = useCallback(
-    async (ws: ProjectInfo, opts?: { pin?: boolean }) => {
+    async (ws: ProjectInfo) => {
       try {
         // Open workspaces already resolve in the panels. For a discovered project
         // with no open folder, root a provider at its directory (and register it)
@@ -462,8 +462,6 @@ export function App() {
         }
         // Spin up the live session and open its chat tab straight away.
         const meta = await window.studio.acp.createSession(ws.rootPath, ws.host ?? null)
-        // Pin on request (e.g. started from Focus mode) so it surfaces there.
-        if (opts?.pin) useViewPrefsStore.getState().togglePin(meta.id)
         openTab({ id: chatTabId(meta.id), kind: 'chat', title: 'Claude Code', sid: meta.id, wsId: ws.id })
       } catch (err: any) {
         setError(err?.message || String(err))
@@ -474,8 +472,7 @@ export function App() {
 
   // Start a session at an arbitrary folder/host chosen from the command palette.
   // Reuse an already-open workspace when the folder matches one; otherwise build
-  // a provider descriptor for it and let newSession root it. Pin the session
-  // when the sidebar is in Focus mode, so it surfaces there straight away.
+  // a provider descriptor for it and let newSession root it.
   const newSessionAt = useCallback(
     (rootPath: string, host: string | null) => {
       const kind: ProjectKind = host ? 'ssh' : 'local'
@@ -483,7 +480,7 @@ export function App() {
       const ws =
         [...workspaces, ...sessionWorkspaces].find((w) => w.id === id) ??
         ({ id, kind, name: baseName(rootPath), rootPath, host: host ?? undefined } as ProjectInfo)
-      void newSession(ws, { pin: useViewPrefsStore.getState().focusMode })
+      void newSession(ws)
     },
     [workspaces, sessionWorkspaces, newSession]
   )
@@ -494,7 +491,7 @@ export function App() {
     if (!result.ok) return setError(result.error)
     if (result.data) {
       addWorkspace(result.data)
-      void newSession(result.data, { pin: useViewPrefsStore.getState().focusMode })
+      void newSession(result.data)
     }
   }, [addWorkspace, newSession])
 
