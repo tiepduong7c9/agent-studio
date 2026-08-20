@@ -526,6 +526,9 @@ body {
 .acp-session-badge:hover { text-decoration: underline; }
 .acp-session-badge-pr { color: var(--vscode-charts-green, #89d185); }
 .acp-session-badge-ticket { color: var(--vscode-charts-blue, #3794ff); }
+/* Overflow count for captures beyond MAX_BADGES — muted, not a link. */
+.acp-session-badge-more { color: var(--vscode-descriptionForeground); cursor: default; }
+.acp-session-badge-more:hover { text-decoration: none; }
 .acp-session-row.active .acp-session-badge { color: var(--vscode-list-activeSelectionForeground); }
 /* Unread-activity indicator — its own channel, distinct from the lifecycle dot. */
 .acp-session-unread-dot {

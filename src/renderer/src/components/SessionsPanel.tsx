@@ -70,8 +70,15 @@ function renderTitle(name: string) {
   )
 }
 
+// Max badges rendered inline before collapsing the rest into a "+N" chip. Keeps
+// the strip's width bounded so the session name always keeps room, however many
+// PRs / tickets a long conversation captures.
+const MAX_BADGES = 3
+
 // Clickable PR / ticket badges captured from the session's conversation. Each
 // opens its source URL; clicks are stopped so they don't select/rename the row.
+// Beyond MAX_BADGES the overflow collapses into a "+N" chip whose tooltip lists
+// the hidden identifiers.
 function CaptureBadges({ captures }: { captures: Capture[] }) {
   if (captures.length === 0) return null
   const open = (e: MouseEvent, url: string): void => {
@@ -79,9 +86,11 @@ function CaptureBadges({ captures }: { captures: Capture[] }) {
     e.stopPropagation()
     window.studio.links.openInWindow(url).catch(() => {})
   }
+  const shown = captures.slice(0, MAX_BADGES)
+  const hidden = captures.slice(MAX_BADGES)
   return (
     <span className="acp-session-badges">
-      {captures.map((c) => (
+      {shown.map((c) => (
         <span
           key={`${c.patternId}:${c.id}`}
           className={`acp-session-badge acp-session-badge-${c.kind}`}
@@ -92,6 +101,14 @@ function CaptureBadges({ captures }: { captures: Capture[] }) {
           {c.label}
         </span>
       ))}
+      {hidden.length > 0 && (
+        <span
+          className="acp-session-badge acp-session-badge-more"
+          title={hidden.map((c) => c.label).join(', ')}
+        >
+          +{hidden.length}
+        </span>
+      )}
     </span>
   )
 }
@@ -108,10 +125,10 @@ const RECENT_CAP = 10
 // carry the accent header colour.
 type SectionKey = 'pinned' | 'recent' | 'needs' | 'working' | 'later' | 'idle' | 'parked'
 const SECTIONS: { key: SectionKey; title: string; accent: boolean }[] = [
-  { key: 'pinned', title: 'Pinned', accent: true },
-  { key: 'recent', title: 'Recent', accent: false },
   { key: 'needs', title: 'Needs you', accent: true },
   { key: 'working', title: 'Working', accent: false },
+  { key: 'pinned', title: 'Pinned', accent: true },
+  { key: 'recent', title: 'Recent', accent: false },
   { key: 'later', title: 'Later', accent: false },
   { key: 'idle', title: 'Idle', accent: false },
   { key: 'parked', title: 'Parked', accent: false }
