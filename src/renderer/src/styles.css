@@ -1342,6 +1342,28 @@ body {
   margin: 24px 0;
 }
 
+/* Rendered mermaid diagram (shared by chat + preview). Centred; the SVG scales
+   to the container width. The pre fallback shows the source while a streamed
+   diagram is still incomplete or fails to parse. */
+.mermaid-diagram {
+  display: flex;
+  justify-content: center;
+  padding: 12px 14px;
+  background: var(--vscode-textCodeBlock-background, rgba(127, 127, 127, 0.1));
+  border-radius: 6px;
+  overflow-x: auto;
+}
+.mermaid-diagram svg { max-width: 100%; height: auto; }
+.mermaid-source {
+  margin: 0;
+  padding: 12px 14px;
+  background: var(--vscode-textCodeBlock-background, rgba(127, 127, 127, 0.1));
+  border-radius: 6px;
+  overflow-x: auto;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 0.9em;
+}
+
 .markdown-preview img { max-width: 100%; }
 
 .markdown-preview table {
