@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { AcpConversation } from '../../../shared/acp'
+import { Mermaid, mermaidSource } from './Mermaid'
 import { useAcpStore } from '../acp/store'
 import { useSessionsStore } from '../acp/sessions-store'
 import { useViewPrefsStore } from '../view-prefs-store'
@@ -174,9 +175,20 @@ function CopyButton({ getText, className }: { getText: () => string; className?:
   )
 }
 
-// Fenced code block in assistant markdown, wrapped with a copy button.
+// Fenced code block in assistant markdown, wrapped with a copy button. A
+// ```mermaid block renders as a diagram instead; the copy button still yields
+// its source.
 function CodeBlock({ children }: React.ComponentPropsWithoutRef<'pre'>) {
   const ref = useRef<HTMLPreElement>(null)
+  const mermaid = mermaidSource(children)
+  if (mermaid != null) {
+    return (
+      <div className="acp-code">
+        <CopyButton getText={() => mermaid} />
+        <Mermaid code={mermaid} />
+      </div>
+    )
+  }
   return (
     <div className="acp-code">
       <CopyButton getText={() => ref.current?.textContent ?? ''} />

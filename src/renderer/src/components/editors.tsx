@@ -10,6 +10,7 @@ import { useMarkdownViewStore } from '../markdown-view-store'
 import { isSideBySide, useDiffViewStore } from '../diff-view-store'
 import { useEditorBufferStore } from '../editor-buffer-store'
 import { fileIconStyle } from './FileIcon'
+import { Mermaid, mermaidSource } from './Mermaid'
 
 // File and diff viewers backed by Monaco. The tabbed editor area mounts one
 // per open file/diff tab. Text/markdown files open in an editable Monaco whose
@@ -99,12 +100,14 @@ function TextFileView({ wsId, path, tabId }: { wsId: string; path: string; tabId
   return <MonacoEditor tabId={tabId} path={path} untitled={false} fallback={content} />
 }
 
-// Fenced code block in the preview, wrapped with a hover copy button.
+// Fenced code block in the preview, wrapped with a hover copy button. A
+// ```mermaid block renders as a diagram; the copy button still yields its source.
 function MarkdownCodeBlock({ children }: React.ComponentPropsWithoutRef<'pre'>) {
   const ref = useRef<HTMLPreElement>(null)
   const [copied, setCopied] = useState(false)
+  const mermaid = mermaidSource(children)
   const onCopy = () => {
-    const text = ref.current?.textContent ?? ''
+    const text = mermaid ?? ref.current?.textContent ?? ''
     if (!text) return
     navigator.clipboard
       ?.writeText(text)
@@ -122,7 +125,7 @@ function MarkdownCodeBlock({ children }: React.ComponentPropsWithoutRef<'pre'>) 
         title="Copy"
         onClick={onCopy}
       />
-      <pre ref={ref}>{children}</pre>
+      {mermaid != null ? <Mermaid code={mermaid} /> : <pre ref={ref}>{children}</pre>}
     </div>
   )
 }
