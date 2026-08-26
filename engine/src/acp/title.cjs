@@ -10,6 +10,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { readOAuthToken } = require('./claude-auth.cjs');
 
 // OAuth requests to /v1/messages are rejected unless the first system block is
 // exactly this identity string — this is Claude Code's own credential path.
@@ -82,12 +83,7 @@ async function generateTitle({ cwd, acpSessionId }) {
   const transcript = await _readTranscript(cwd, acpSessionId);
   if (!transcript) return null;
 
-  let token;
-  try {
-    const credPath = path.join(os.homedir(), '.claude', '.credentials.json');
-    const cred = JSON.parse(fs.readFileSync(credPath, 'utf8'));
-    token = cred.claudeAiOauth && cred.claudeAiOauth.accessToken;
-  } catch (_) { return null; }
+  const token = readOAuthToken(process.env);
   if (!token) return null;
 
   const body = {

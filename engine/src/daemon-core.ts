@@ -6,6 +6,7 @@ import { serve } from './net.js'
 import { PingChannel, PING_CHANNEL } from './channels/ping.js'
 import { SessionManagerChannel, SESSION_MANAGER_CHANNEL } from './channels/session-manager.js'
 import { SessionManager } from './acp/session-manager.js'
+import { fetchModelCatalog } from './acp/model-catalog.cjs'
 import { STATE_DIR, SOCKET_PATH, PID_FILE } from './constants.js'
 
 export async function startDaemon(): Promise<void> {
@@ -14,6 +15,11 @@ export async function startDaemon(): Promise<void> {
   try { fs.unlinkSync(SOCKET_PATH) } catch { /* not there — fine */ }
 
   const manager = new SessionManager()
+
+  // Warm the model catalog cache at startup (fire-and-forget) so the first
+  // session's adapter spawn hits a warm cache instead of blocking on the
+  // /v1/models fetch. Best-effort — failures are swallowed and retried lazily.
+  void fetchModelCatalog(process.env).catch(() => {})
 
   const server = await serve(SOCKET_PATH)
   server.registerChannel(PING_CHANNEL, new PingChannel())
