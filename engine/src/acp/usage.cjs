@@ -10,10 +10,8 @@
 //  - Usage   : GET https://api.anthropic.com/api/oauth/usage with the OAuth
 //              access token from ~/.claude/.credentials.json
 
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
 const { execFile } = require('child_process');
+const { readOAuthToken } = require('./claude-auth.cjs');
 
 function getAccount() {
   return new Promise((resolve) => {
@@ -26,9 +24,7 @@ function getAccount() {
 
 async function getUsage() {
   try {
-    const credPath = path.join(os.homedir(), '.claude', '.credentials.json');
-    const cred = JSON.parse(fs.readFileSync(credPath, 'utf8'));
-    const token = cred.claudeAiOauth && cred.claudeAiOauth.accessToken;
+    const token = readOAuthToken(process.env);
     if (!token) return null;
     const res = await fetch('https://api.anthropic.com/api/oauth/usage', {
       headers: {

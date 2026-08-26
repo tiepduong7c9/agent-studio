@@ -15,7 +15,7 @@ import { useViewPrefsStore } from '../view-prefs-store'
 import { buildThread, modelLabel, recapOf, textOf, type ThreadItem } from '../acp/buildThread'
 import type {
   AcpCommand, AcpEffortState, AcpElicitationRequest, AcpElicitationResponse, AcpElicitationValue,
-  AcpEnumOption, AcpModeState, AcpModelState, AcpToolContent
+  AcpEnumOption, AcpModeState, AcpModelInfo, AcpModelState, AcpToolContent
 } from '../acp/protocol'
 import { ASK_OPTION_META_KEY } from '../acp/protocol'
 import { useCommandHistory } from '../acp/command-history'
@@ -447,7 +447,7 @@ function ThoughtBlock({ item, live }: { item: Extract<ThreadItem, { kind: 'thoug
   )
 }
 
-function Dropdown({ label, icon, children, align = 'left' }: { label: React.ReactNode; icon?: React.ReactNode; children: (close: () => void) => React.ReactNode; align?: 'left' | 'right' }) {
+function Dropdown({ label, icon, children, align = 'left', menuClassName = '' }: { label: React.ReactNode; icon?: React.ReactNode; children: (close: () => void) => React.ReactNode; align?: 'left' | 'right'; menuClassName?: string }) {
   const [open, setOpen] = useState(false)
   const ref = useOutsideClose(open, () => setOpen(false))
   return (
@@ -455,7 +455,7 @@ function Dropdown({ label, icon, children, align = 'left' }: { label: React.Reac
       <button className="acp-btn" onClick={() => setOpen((o) => !o)}>
         {icon}<span>{label}</span><ChevronDown size={11} style={{ transform: open ? 'rotate(180deg)' : undefined, transition: 'transform .1s' }} />
       </button>
-      {open && <div className={`acp-menu ${align === 'right' ? 'right' : ''}`}>{children(() => setOpen(false))}</div>}
+      {open && <div className={`acp-menu ${align === 'right' ? 'right' : ''} ${menuClassName}`}>{children(() => setOpen(false))}</div>}
     </div>
   )
 }
@@ -1136,13 +1136,22 @@ export function AcpThread({ sid, workspace = null, visible = true }: { sid: stri
               }}
             />
             <div className="acp-input-row">
+              {/* While the adapter is still initializing (no mode/model info yet)
+                  show disabled placeholders so the toolbar keeps a stable layout
+                  and reads as loading instead of popping in a moment later. */}
+              {!modeState && !modelState && !model && (
+                <>
+                  <span className="acp-btn acp-btn-loading" aria-hidden="true"><Zap size={13} /><span>Mode</span></span>
+                  <span className="acp-btn acp-btn-loading" aria-hidden="true"><Cpu size={12} /><span>Model</span></span>
+                </>
+              )}
               {modeState && (
                 <Dropdown label={modeState.availableModes.find((m) => m.id === modeState.currentModeId)?.name ?? modeState.currentModeId} icon={<Zap size={13} />}>
                   {(close) => <ModeMenu modeState={modeState} onSelect={(id) => { selectMode(id); close() }} />}
                 </Dropdown>
               )}
               {modelState && modelState.availableModels.length > 0 ? (
-                <Dropdown label={modelState.availableModels.find((m) => m.id === modelState.currentModelId)?.name ?? model ?? 'Model'} icon={<Cpu size={12} />}>
+                <Dropdown label={modelState.availableModels.find((m) => m.id === modelState.currentModelId)?.name ?? model ?? 'Model'} icon={<Cpu size={12} />} menuClassName="acp-menu--flyout-host">
                   {(close) => <ModelMenu modelState={modelState} onSelect={(id) => { selectModel(id); close() }} />}
                 </Dropdown>
               ) : (model && <span className="acp-pill"><Cpu size={12} /> {model}</span>)}
@@ -1196,16 +1205,57 @@ function ModeMenu({ modeState, onSelect }: { modeState: AcpModeState; onSelect: 
   )
 }
 
+// A legacy model is a full, version-pinned family id (e.g. claude-opus-4-6,
+// claude-sonnet-4-5-...) rather than a rolling alias (opus[1m], sonnet, haiku)
+// or the latest generation. These get tucked under a "More models" submenu so
+// the top of the picker stays the current lineup, matching the web app.
+function isLegacyModel(id: string): boolean {
+  return /^claude-(opus|sonnet|haiku)-\d/i.test(id) && !/\[1m\]$/i.test(id)
+}
+
+function ModelMenuItem({ m, current, onSelect }: { m: AcpModelInfo; current: boolean; onSelect: (id: string) => void }) {
+  return (
+    <button className={`acp-menu-item ${current ? 'active' : ''}`} onClick={() => onSelect(m.id)}>
+      {m.name}{current && <Check size={12} style={{ marginLeft: 6 }} />}
+      {m.description && <div className="acp-menu-desc">{m.description}</div>}
+    </button>
+  )
+}
+
 function ModelMenu({ modelState, onSelect }: { modelState: AcpModelState; onSelect: (id: string) => void }) {
+  const primary = modelState.availableModels.filter((m) => !isLegacyModel(m.id))
+  const legacy = modelState.availableModels.filter((m) => isLegacyModel(m.id))
+  const currentIsLegacy = legacy.some((m) => m.id === modelState.currentModelId)
+  // Open state is controlled (not CSS :hover only) so keyboard and touch users
+  // can open the flyout too. Start open when the active model lives inside it so
+  // its selection checkmark is visible without hovering.
+  const [showMore, setShowMore] = useState(currentIsLegacy)
   return (
     <>
       <div className="acp-menu-label">Model</div>
-      {modelState.availableModels.map((m) => (
-        <button key={m.id} className={`acp-menu-item ${m.id === modelState.currentModelId ? 'active' : ''}`} onClick={() => onSelect(m.id)}>
-          {m.name}{m.id === modelState.currentModelId && <Check size={12} style={{ marginLeft: 6 }} />}
-          {m.description && <div className="acp-menu-desc">{m.description}</div>}
-        </button>
+      {primary.map((m) => (
+        <ModelMenuItem key={m.id} m={m} current={m.id === modelState.currentModelId} onSelect={onSelect} />
       ))}
+      {legacy.length > 0 && (
+        <div className="acp-submenu-host" onMouseEnter={() => setShowMore(true)} onMouseLeave={() => setShowMore(false)}>
+          <button
+            className={`acp-menu-item acp-menu-item-toggle ${currentIsLegacy ? 'active' : ''}`}
+            onClick={() => setShowMore((v) => !v)}
+            aria-haspopup="menu"
+            aria-expanded={showMore}
+          >
+            <span>More models</span>
+            <ChevronRight size={12} />
+          </button>
+          {showMore && (
+            <div className="acp-submenu" role="menu">
+              {legacy.map((m) => (
+                <ModelMenuItem key={m.id} m={m} current={m.id === modelState.currentModelId} onSelect={onSelect} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </>
   )
 }

@@ -24,6 +24,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { nanoid } = require('nanoid');
+const { peekModelCatalog } = require('./model-catalog.cjs');
 
 const MAX_HISTORY = 5000; // cap retained thread events for replay
 
@@ -157,12 +158,47 @@ class AcpSession {
     return this._ready || Promise.reject(new Error('ACP session not started'));
   }
 
+  // Env for the adapter subprocess. On top of the caller's env we expand the
+  // model picker to every model this account can run (fetched live from
+  // /v1/models) via CLAUDE_MODEL_CONFIG.availableModels. The adapter otherwise
+  // gates model selection to a curated few, so without this the older models
+  // can't be picked. Aliases (opus/sonnet/haiku/fable) are preserved by the
+  // adapter; the extra IDs surface the legacy versions. Best-effort: a
+  // user-provided CLAUDE_MODEL_CONFIG is respected untouched, and if the catalog
+  // can't be fetched we spawn with the unmodified env (adapter's default list).
+  _spawnEnv() {
+    const env = { ...this._env };
+    // Respect a user-provided config: if it already pins an allowlist, leave it
+    // alone; if it's malformed, don't touch it; otherwise merge our catalog in
+    // (below) so an unrelated CLAUDE_MODEL_CONFIG key doesn't disable the feature.
+    let existing;
+    if (env.CLAUDE_MODEL_CONFIG) {
+      try { existing = JSON.parse(env.CLAUDE_MODEL_CONFIG); }
+      catch (_) { return env; }
+      if (existing && existing.availableModels !== undefined) return env;
+    }
+    // Non-blocking: read the cached catalog synchronously so expanding the model
+    // list never delays session spawn. The daemon warms this at startup (and the
+    // peek warms it in the background on a miss), so it's normally ready; the
+    // only cost of a cold miss is that this one session shows the adapter's
+    // built-in list until the cache fills for the next session.
+    try {
+      const models = peekModelCatalog(env);
+      if (models && models.length) {
+        const cfg = (existing && typeof existing === 'object') ? existing : {};
+        cfg.availableModels = models.map((m) => m.id);
+        env.CLAUDE_MODEL_CONFIG = JSON.stringify(cfg);
+      }
+    } catch (_) { /* fall back to the adapter's built-in list */ }
+    return env;
+  }
+
   async _start({ resumeSessionId }) {
     const { ClientSideConnection, ndJsonStream } = await loadSdk();
 
     const child = spawn(process.execPath, [adapterEntry()], {
       cwd: this.cwd,
-      env: this._env,
+      env: this._spawnEnv(),
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     this._child = child;
