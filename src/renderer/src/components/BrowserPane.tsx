@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 
-/** The methods/events we drive on the Electron webview guest element. */
-interface WebviewEl extends HTMLElement {
+/** The methods/events we drive on the Electron webview guest element. Shared
+ *  with the HTML file preview, which mounts a webview of its own. */
+export interface WebviewEl extends HTMLElement {
   src: string
   canGoBack(): boolean
   canGoForward(): boolean
