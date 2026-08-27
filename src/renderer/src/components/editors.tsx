@@ -5,26 +5,33 @@ import type { GitFileChange, ProjectInfo } from '../../../shared/types'
 import { imageMimeType } from '../../../shared/imageTypes'
 import { videoMimeType } from '../../../shared/videoTypes'
 import { pdfMimeType } from '../../../shared/pdfTypes'
+import { isHtml, PREVIEW_PARTITION } from '../../../shared/webTypes'
+import { mediaSiteUrl, mediaStreamUrl } from '../../../shared/mediaUrl'
 import { monaco } from '../monaco'
-import { useMarkdownViewStore } from '../markdown-view-store'
+import { usePreviewViewStore } from '../preview-view-store'
 import { isSideBySide, useDiffViewStore } from '../diff-view-store'
 import { useEditorBufferStore } from '../editor-buffer-store'
 import { fileIconStyle } from './FileIcon'
 import { Mermaid, mermaidSource } from './Mermaid'
+import type { WebviewEl } from './BrowserPane'
 
 // File and diff viewers backed by Monaco. The tabbed editor area mounts one
 // per open file/diff tab. Text/markdown files open in an editable Monaco whose
 // working content lives in the editor-buffer store (so edits survive tab
 // switches); diffs stay read-only.
 
-/** Routes video/image/markdown files to their inline viewers; everything else to Monaco. */
+/** Routes video/image/markdown/HTML files to their inline viewers; everything else to Monaco. */
 export function FileView({
   wsId,
+  rootPath,
   path,
   tabId,
   untitled
 }: {
   wsId: string
+  /** Project root — the HTML preview is served from it, so root-relative asset
+   *  paths in a previewed page resolve the way they would on a web server. */
+  rootPath: string
   path: string
   tabId: string
   untitled?: boolean
@@ -37,6 +44,7 @@ export function FileView({
   if (mimeType) return <ImageView wsId={wsId} path={path} mimeType={mimeType} />
   if (pdfMimeType(path)) return <PdfView wsId={wsId} path={path} />
   if (isMarkdown(path)) return <MarkdownFileView wsId={wsId} path={path} tabId={tabId} />
+  if (isHtml(path)) return <HtmlFileView wsId={wsId} rootPath={rootPath} path={path} tabId={tabId} />
   return <TextFileView wsId={wsId} path={path} tabId={tabId} />
 }
 
@@ -70,7 +78,7 @@ function useFileContent(wsId: string, path: string) {
 
 /** Streams a video via the studio-media:// protocol (see main/media-protocol.ts). */
 function VideoView({ wsId, path }: { wsId: string; path: string }) {
-  const src = `studio-media://stream/?ws=${encodeURIComponent(wsId)}&p=${encodeURIComponent(path)}`
+  const src = mediaStreamUrl(wsId, path)
   return (
     <div className="video-viewer">
       <video src={src} controls preload="metadata" />
@@ -85,7 +93,7 @@ function VideoView({ wsId, path }: { wsId: string; path: string }) {
  * requests so large PDFs page in on demand.
  */
 function PdfView({ wsId, path }: { wsId: string; path: string }) {
-  const src = `studio-media://stream/?ws=${encodeURIComponent(wsId)}&p=${encodeURIComponent(path)}`
+  const src = mediaStreamUrl(wsId, path)
   return (
     <div className="pdf-viewer">
       <iframe src={src} title={baseName(path)} />
@@ -146,7 +154,7 @@ function resolveMarkdownImageSrc(
   // protocol-relative URL is left as-is.
   if (/^[a-z][a-z0-9+.-]*:/i.test(src) || src.startsWith('//')) return src
   const abs = normalizePath(src.startsWith('/') ? src : joinPath(fileDir, src))
-  return `studio-media://stream/?ws=${encodeURIComponent(wsId)}&p=${encodeURIComponent(abs)}`
+  return mediaStreamUrl(wsId, abs)
 }
 
 /** Builds the markdown preview's element overrides, bound to the file's location. */
@@ -189,7 +197,7 @@ export function MarkdownTextView({ text, wsId, dir }: { text: string; wsId: stri
  */
 function MarkdownFileView({ wsId, path, tabId }: { wsId: string; path: string; tabId: string }) {
   const { content, error } = useFileContent(wsId, path)
-  const sourceMode = useMarkdownViewStore((s) => !!s.sourceMode[tabId])
+  const sourceMode = usePreviewViewStore((s) => !!s.sourceMode[tabId])
   // Once the file has been edited in source mode the preview should reflect the
   // unsaved working copy, not the stale on-disk content.
   const edited = useEditorBufferStore((s) => s.buffers[tabId]?.content)
@@ -205,6 +213,94 @@ function MarkdownFileView({ wsId, path, tabId }: { wsId: string; path: string; t
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
         {edited ?? content}
       </ReactMarkdown>
+    </div>
+  )
+}
+
+/**
+ * HTML files open in a live preview by default, with the same preview/source
+ * toggle markdown gets (see the tab strip in EditorArea).
+ */
+function HtmlFileView({
+  wsId,
+  rootPath,
+  path,
+  tabId
+}: {
+  wsId: string
+  rootPath: string
+  path: string
+  tabId: string
+}) {
+  const sourceMode = usePreviewViewStore((s) => !!s.sourceMode[tabId])
+  if (sourceMode) return <HtmlSourceView wsId={wsId} path={path} tabId={tabId} />
+  return <HtmlPreviewView wsId={wsId} rootPath={rootPath} path={path} tabId={tabId} />
+}
+
+function HtmlSourceView({ wsId, path, tabId }: { wsId: string; path: string; tabId: string }) {
+  const { content, error } = useFileContent(wsId, path)
+  if (error) return <ViewerMessage message={error} />
+  if (content === null) return <ViewerMessage message="Loading…" />
+  return <MonacoEditor tabId={tabId} path={path} untitled={false} fallback={content} />
+}
+
+/**
+ * A live preview of an HTML document: an isolated <webview> pointed at the file
+ * through the studio-media:// site route, so the page runs the way it would in
+ * a browser — inline and file-local scripts execute, and remote assets (a CDN
+ * <script>/<link>) load over the network. Serving from the project root means
+ * both "./app.js" and "/app.js" resolve to project files.
+ *
+ * The guest is a separate process with no node integration, no popups, its own
+ * session (so it shares no cookies or storage with the app or the browser tab)
+ * and no permission prompts. What it can do is what a project served by a local
+ * dev server could: run the repository's scripts, read any file under the
+ * project root through its own origin, and talk to the network. Previewing a
+ * page therefore means trusting the repository, the way `npm run dev` does.
+ *
+ * The preview always shows what's on disk. Unsaved edits in the source view
+ * appear once the file is saved and the preview is reloaded — hence the reload
+ * button the tab strip picks up from the store.
+ */
+function HtmlPreviewView({
+  wsId,
+  rootPath,
+  path,
+  tabId
+}: {
+  wsId: string
+  rootPath: string
+  path: string
+  tabId: string
+}) {
+  const ref = useRef<WebviewEl | null>(null)
+  const setReloader = usePreviewViewStore((s) => s.setReloader)
+  // Site URLs are relative to the project root, so a file outside it (or a tab
+  // whose workspace has gone away) has no address to preview — say so rather
+  // than mount a webview that can only 404.
+  const posixRoot = rootPath.replace(/\\/g, '/')
+  const posixPath = path.replace(/\\/g, '/')
+  const rel = relativeToRoot(posixRoot, posixPath)
+  const inProject = posixRoot !== '' && rel !== posixPath
+
+  useEffect(() => {
+    if (!inProject) return
+    setReloader(tabId, () => ref.current?.reload())
+    return () => setReloader(tabId, null)
+  }, [tabId, inProject, setReloader])
+
+  if (!inProject) {
+    return <ViewerMessage message="Preview needs the file to be inside an open project folder." />
+  }
+
+  return (
+    <div className="html-preview">
+      <webview
+        ref={ref as never}
+        className="html-preview-webview"
+        partition={PREVIEW_PARTITION}
+        src={mediaSiteUrl(wsId, rel)}
+      />
     </div>
   )
 }

@@ -11,7 +11,8 @@ import { TerminalView } from './TerminalView'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { ErrorBoundary } from './ErrorBoundary'
 import { baseName, Breadcrumbs, DiffView, FileView, isMarkdown, MarkdownTextView, relativeToRoot } from './editors'
-import { useMarkdownViewStore } from '../markdown-view-store'
+import { isHtml } from '../../../shared/webTypes'
+import { usePreviewViewStore } from '../preview-view-store'
 import { isSideBySide, useDiffViewStore } from '../diff-view-store'
 import { useSessionsStore } from '../acp/sessions-store'
 import { useToastStore } from '../toast-store'
@@ -79,7 +80,7 @@ export function EditorArea({ workspaces, sessionWorkspaces, onCreateSession, onP
   const toggleMaximize = useTabsStore((s) => s.toggleMaximize)
   const openTab = useTabsStore((s) => s.open)
   const keepTab = useTabsStore((s) => s.keep)
-  const toggleMarkdownSource = useMarkdownViewStore((s) => s.toggle)
+  const togglePreviewSource = usePreviewViewStore((s) => s.toggle)
   const toggleSideBySide = useDiffViewStore((s) => s.toggleSideBySide)
   const pushToast = useToastStore((s) => s.push)
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null)
@@ -124,8 +125,14 @@ export function EditorArea({ workspaces, sessionWorkspaces, onCreateSession, onP
   }
   // A saved (non-scratch) file tab, so the strip can offer a quick download.
   const fileTab = active?.kind === 'file' && !active.untitled ? active : null
-  const markdownTab = active?.kind === 'file' && isMarkdown(active.path) ? active : null
-  const markdownSource = useMarkdownViewStore((s) => (markdownTab ? !!s.sourceMode[markdownTab.id] : false))
+  // Markdown and HTML tabs both open rendered and can flip to source; only the
+  // HTML preview is a live page, so only it offers a reload.
+  const previewTab =
+    active?.kind === 'file' && (isMarkdown(active.path) || isHtml(active.path)) ? active : null
+  const previewSource = usePreviewViewStore((s) => (previewTab ? !!s.sourceMode[previewTab.id] : false))
+  const reloadPreview = usePreviewViewStore((s) =>
+    previewTab && !previewSource ? s.reloaders[previewTab.id] : undefined
+  )
   const diffTab = active?.kind === 'diff' ? active : null
   const diffSideBySide = useDiffViewStore((s) => (diffTab ? isSideBySide(s.sideBySide, diffTab.id) : true))
   const diffController = useDiffViewStore((s) => (diffTab ? s.controllers[diffTab.id] : undefined))
@@ -212,11 +219,18 @@ export function EditorArea({ workspaces, sessionWorkspaces, onCreateSession, onP
             ))}
           </div>
           <div className="tab-actions">
-            {markdownTab && (
+            {reloadPreview && (
               <button
-                className={`icon-button codicon ${markdownSource ? 'codicon-open-preview' : 'codicon-code'}`}
-                title={markdownSource ? 'Show preview' : 'Show source'}
-                onClick={() => toggleMarkdownSource(markdownTab.id)}
+                className="icon-button codicon codicon-refresh"
+                title="Reload preview (shows the file as saved on disk)"
+                onClick={() => reloadPreview()}
+              />
+            )}
+            {previewTab && (
+              <button
+                className={`icon-button codicon ${previewSource ? 'codicon-open-preview' : 'codicon-code'}`}
+                title={previewSource ? 'Show preview' : 'Show source'}
+                onClick={() => togglePreviewSource(previewTab.id)}
               />
             )}
             {diffTab && (
@@ -369,7 +383,14 @@ function TabContent({
         <div className="editor-pane">
           <Breadcrumbs relPath={relativeToRoot(workspace?.rootPath, tab.path)} />
           <div className="editor-pane-body">
-            <FileView key={tab.id} wsId={tab.wsId} path={tab.path} tabId={tab.id} untitled={tab.untitled} />
+            <FileView
+              key={tab.id}
+              wsId={tab.wsId}
+              rootPath={workspace?.rootPath ?? ''}
+              path={tab.path}
+              tabId={tab.id}
+              untitled={tab.untitled}
+            />
           </div>
         </div>
       )

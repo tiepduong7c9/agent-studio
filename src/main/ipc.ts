@@ -4,6 +4,7 @@ import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from 'electr
 import type { GitFileChange, Result, SshConnectOptions } from '../shared/types'
 import { listBrowsers, openInBrowser, openInWindow } from './browsers'
 import { engineHostKey, workspaceId } from '../shared/types'
+import { wsHostId } from '../shared/mediaUrl'
 import { clearSshEngine, LOCAL_HOST_KEY, registerEngineTarget, sshTargetFor } from './engine'
 import { LocalProjectProvider } from './providers/local'
 import {
@@ -131,6 +132,16 @@ function requireProvider(wsId: string): ProjectProvider {
 /** The open provider for a workspace, or undefined. Used by the media protocol. */
 export function getProvider(wsId: string): ProjectProvider | undefined {
   return providers.get(wsId)
+}
+
+/**
+ * The open provider whose workspace id maps to `host` — the hashed handle the
+ * media protocol's site URLs carry in place of the (un-hostname-able) workspace
+ * id. Few workspaces are ever open, so a scan is cheaper than another index.
+ */
+export function getProviderByWsHost(host: string): ProjectProvider | undefined {
+  for (const [id, p] of providers) if (wsHostId(id) === host) return p
+  return undefined
 }
 
 function handle<T>(channel: string, fn: (...args: any[]) => Promise<T>): void {

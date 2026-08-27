@@ -1161,6 +1161,21 @@ body {
   background: #525659;
 }
 
+/* ── HTML preview (live page for .html files) ────────────────────────── */
+
+.html-preview {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  background: #fff;
+}
+
+.html-preview-webview {
+  flex: 1;
+  min-height: 0;
+  border: 0;
+}
+
 /* ── Image viewer (inline preview of image files) ────────────────────── */
 
 .image-editor {
