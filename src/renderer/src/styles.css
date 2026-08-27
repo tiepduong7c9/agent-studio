@@ -1784,6 +1784,15 @@ body {
   flex-shrink: 0;
 }
 
+/* Captured PR / ticket badges on a session row — same chips as the sidebar, but
+   informational here (the row itself opens the session, so no link cursor). */
+.quick-open-badges { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.quick-open-badges .acp-session-badge { cursor: inherit; }
+.quick-open-badges .acp-session-badge:hover { text-decoration: none; }
+.quick-open-row.active .quick-open-badges .acp-session-badge {
+  color: var(--vscode-list-activeSelectionForeground);
+}
+
 /* ── Branch switcher (click the status-bar branch) ───────────────────── */
 
 .branch-switcher {
