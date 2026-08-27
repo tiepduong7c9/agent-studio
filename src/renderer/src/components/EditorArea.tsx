@@ -10,7 +10,16 @@ import { GitGraphView } from './GitGraphView'
 import { TerminalView } from './TerminalView'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { ErrorBoundary } from './ErrorBoundary'
-import { baseName, Breadcrumbs, DiffView, FileView, isMarkdown, MarkdownTextView, relativeToRoot } from './editors'
+import {
+  baseName,
+  Breadcrumbs,
+  DiffView,
+  FileView,
+  HtmlPreviewView,
+  isMarkdown,
+  MarkdownTextView,
+  relativeToRoot
+} from './editors'
 import { isHtml } from '../../../shared/webTypes'
 import { usePreviewViewStore } from '../preview-view-store'
 import { isSideBySide, useDiffViewStore } from '../diff-view-store'
@@ -31,6 +40,18 @@ interface Props {
 
 function joinPath(root: string, rel: string): string {
   return `${root.replace(/\/+$/, '')}/${rel}`
+}
+
+/**
+ * A file tab currently showing a live HTML preview. These render in the editor
+ * area's persistent layer rather than through TabContent, so switching tabs
+ * doesn't tear the guest page down and reload it.
+ */
+function isLiveHtmlPreview(
+  tab: EditorTab,
+  sourceMode: Record<string, true>
+): tab is Extract<EditorTab, { kind: 'file' }> {
+  return tab.kind === 'file' && !tab.untitled && isHtml(tab.path) && !sourceMode[tab.id]
 }
 
 /** A diff of a deleted file has no working-tree file to open. */
@@ -81,6 +102,7 @@ export function EditorArea({ workspaces, sessionWorkspaces, onCreateSession, onP
   const openTab = useTabsStore((s) => s.open)
   const keepTab = useTabsStore((s) => s.keep)
   const togglePreviewSource = usePreviewViewStore((s) => s.toggle)
+  const sourceMode = usePreviewViewStore((s) => s.sourceMode)
   const toggleSideBySide = useDiffViewStore((s) => s.toggleSideBySide)
   const pushToast = useToastStore((s) => s.push)
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null)
@@ -278,10 +300,10 @@ export function EditorArea({ workspaces, sessionWorkspaces, onCreateSession, onP
         </div>
       )}
       <div className="editor-body">
-        {/* Terminals and browsers persist while their tab is open: kept mounted
-            (so the PTY keeps running / the page isn't reloaded) even when another
-            tab is showing, and revealed when active. Everything else renders
-            through TabContent for the active tab. */}
+        {/* Terminals, browsers and live HTML previews persist while their tab is
+            open: kept mounted (so the PTY keeps running / the page isn't
+            reloaded) even when another tab is showing, and revealed when active.
+            Everything else renders through TabContent for the active tab. */}
         {allTabs
           .filter((t): t is Extract<EditorTab, { kind: 'terminal' }> => t.kind === 'terminal')
           .map((t) => (
@@ -304,7 +326,35 @@ export function EditorArea({ workspaces, sessionWorkspaces, onCreateSession, onP
               <BrowserPane url={t.url} />
             </div>
           ))}
-        {active?.kind !== 'terminal' && active?.kind !== 'browser' && (
+        {allTabs
+          .filter((t) => isLiveHtmlPreview(t, sourceMode))
+          .map((t) => {
+            const ws = workspaceForTab(t)
+            return (
+              <div
+                key={t.id}
+                className="editor-html-layer"
+                style={{ display: t.id === activeId ? 'flex' : 'none' }}
+              >
+                <ErrorBoundary inline resetKeys={[t.id]}>
+                  <div className="editor-pane">
+                    <Breadcrumbs relPath={relativeToRoot(ws?.rootPath, t.path)} />
+                    <div className="editor-pane-body">
+                      <HtmlPreviewView
+                        wsId={t.wsId}
+                        rootPath={ws?.rootPath ?? ''}
+                        path={t.path}
+                        tabId={t.id}
+                      />
+                    </div>
+                  </div>
+                </ErrorBoundary>
+              </div>
+            )
+          })}
+        {active?.kind !== 'terminal' &&
+          active?.kind !== 'browser' &&
+          !(active && isLiveHtmlPreview(active, sourceMode)) && (
           <ErrorBoundary inline resetKeys={[active?.id]}>
             <TabContent
               tab={active}
@@ -383,14 +433,7 @@ function TabContent({
         <div className="editor-pane">
           <Breadcrumbs relPath={relativeToRoot(workspace?.rootPath, tab.path)} />
           <div className="editor-pane-body">
-            <FileView
-              key={tab.id}
-              wsId={tab.wsId}
-              rootPath={workspace?.rootPath ?? ''}
-              path={tab.path}
-              tabId={tab.id}
-              untitled={tab.untitled}
-            />
+            <FileView key={tab.id} wsId={tab.wsId} path={tab.path} tabId={tab.id} untitled={tab.untitled} />
           </div>
         </div>
       )

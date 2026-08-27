@@ -900,11 +900,12 @@ body {
   flex-direction: column;
 }
 
-/* A persistent terminal/browser pane; toggled between flex (active) and none
-   (hidden) inline, so the xterm/PTY and the <webview> stay mounted underneath
-   the active tab rather than reloading on every tab switch. */
+/* A persistent terminal/browser/HTML-preview pane; toggled between flex
+   (active) and none (hidden) inline, so the xterm/PTY and the <webview> stay
+   mounted underneath the active tab rather than reloading on every tab switch. */
 .editor-terminal-layer,
-.editor-browser-layer {
+.editor-browser-layer,
+.editor-html-layer {
   flex: 1 1 auto;
   min-height: 0;
   flex-direction: column;

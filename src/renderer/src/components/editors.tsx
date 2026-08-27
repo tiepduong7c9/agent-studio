@@ -5,7 +5,7 @@ import type { GitFileChange, ProjectInfo } from '../../../shared/types'
 import { imageMimeType } from '../../../shared/imageTypes'
 import { videoMimeType } from '../../../shared/videoTypes'
 import { pdfMimeType } from '../../../shared/pdfTypes'
-import { isHtml, PREVIEW_PARTITION } from '../../../shared/webTypes'
+import { PREVIEW_PARTITION } from '../../../shared/webTypes'
 import { mediaSiteUrl, mediaStreamUrl } from '../../../shared/mediaUrl'
 import { monaco } from '../monaco'
 import { usePreviewViewStore } from '../preview-view-store'
@@ -20,18 +20,14 @@ import type { WebviewEl } from './BrowserPane'
 // working content lives in the editor-buffer store (so edits survive tab
 // switches); diffs stay read-only.
 
-/** Routes video/image/markdown/HTML files to their inline viewers; everything else to Monaco. */
+/** Routes video/image/markdown files to their inline viewers; everything else to Monaco. */
 export function FileView({
   wsId,
-  rootPath,
   path,
   tabId,
   untitled
 }: {
   wsId: string
-  /** Project root — the HTML preview is served from it, so root-relative asset
-   *  paths in a previewed page resolve the way they would on a web server. */
-  rootPath: string
   path: string
   tabId: string
   untitled?: boolean
@@ -44,7 +40,9 @@ export function FileView({
   if (mimeType) return <ImageView wsId={wsId} path={path} mimeType={mimeType} />
   if (pdfMimeType(path)) return <PdfView wsId={wsId} path={path} />
   if (isMarkdown(path)) return <MarkdownFileView wsId={wsId} path={path} tabId={tabId} />
-  if (isHtml(path)) return <HtmlFileView wsId={wsId} rootPath={rootPath} path={path} tabId={tabId} />
+  // An HTML file only reaches here in source mode: its preview is mounted by the
+  // editor area's persistent layer (see HtmlPreviewView), so it falls through to
+  // the same editable Monaco as any other text file.
   return <TextFileView wsId={wsId} path={path} tabId={tabId} />
 }
 
@@ -218,33 +216,6 @@ function MarkdownFileView({ wsId, path, tabId }: { wsId: string; path: string; t
 }
 
 /**
- * HTML files open in a live preview by default, with the same preview/source
- * toggle markdown gets (see the tab strip in EditorArea).
- */
-function HtmlFileView({
-  wsId,
-  rootPath,
-  path,
-  tabId
-}: {
-  wsId: string
-  rootPath: string
-  path: string
-  tabId: string
-}) {
-  const sourceMode = usePreviewViewStore((s) => !!s.sourceMode[tabId])
-  if (sourceMode) return <HtmlSourceView wsId={wsId} path={path} tabId={tabId} />
-  return <HtmlPreviewView wsId={wsId} rootPath={rootPath} path={path} tabId={tabId} />
-}
-
-function HtmlSourceView({ wsId, path, tabId }: { wsId: string; path: string; tabId: string }) {
-  const { content, error } = useFileContent(wsId, path)
-  if (error) return <ViewerMessage message={error} />
-  if (content === null) return <ViewerMessage message="Loading…" />
-  return <MonacoEditor tabId={tabId} path={path} untitled={false} fallback={content} />
-}
-
-/**
  * A live preview of an HTML document: an isolated <webview> pointed at the file
  * through the studio-media:// site route, so the page runs the way it would in
  * a browser — inline and file-local scripts execute, and remote assets (a CDN
@@ -261,8 +232,12 @@ function HtmlSourceView({ wsId, path, tabId }: { wsId: string; path: string; tab
  * The preview always shows what's on disk. Unsaved edits in the source view
  * appear once the file is saved and the preview is reloaded — hence the reload
  * button the tab strip picks up from the store.
+ *
+ * Mounted by the editor area's persistent layer, not by FileView: a guest that
+ * unmounted on every tab switch would reload the page and throw away whatever
+ * state it had built up.
  */
-function HtmlPreviewView({
+export function HtmlPreviewView({
   wsId,
   rootPath,
   path,
