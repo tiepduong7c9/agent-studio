@@ -2771,6 +2771,33 @@ body {
   min-height: 0;
 }
 
+/* Footer strip: the on-disk location of the library (or of the selected skill),
+   with open-folder and copy-path actions. */
+.skills-libpath {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 4px 12px;
+  border-top: 1px solid var(--vscode-widget-border);
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.skills-libpath-icon {
+  flex-shrink: 0;
+  font-size: 13px;
+}
+
+.skills-libpath-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--vscode-editor-font-family, monospace);
+  user-select: text;
+}
+
 .skills-rail {
   width: 300px;
   flex-shrink: 0;

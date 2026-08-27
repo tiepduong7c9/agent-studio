@@ -149,6 +149,9 @@ export interface SkillsListing {
   skills: SkillRef[]
   /** Host keys ("local" | "ssh:user@host") that failed to scan this pass. */
   unreachable: string[]
+  /** Absolute path of the app-owned library on this machine, so the UI can show
+   *  (and open) where skill folders actually live. */
+  root: string
 }
 
 // ── engine client module shape (dynamically imported in the main process) ─────

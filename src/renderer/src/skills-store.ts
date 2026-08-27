@@ -25,7 +25,7 @@ interface SkillsState {
 }
 
 export const useSkillsStore = create<SkillsState>((set, get) => ({
-  listing: { skills: [], unreachable: [] },
+  listing: { skills: [], unreachable: [], root: '' },
   loading: false,
   scanning: false,
   error: null,

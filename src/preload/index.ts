@@ -178,6 +178,10 @@ const api = {
      *  project-level skills under `cwd`. Backs the right panel's Skills tab. */
     forProject: (arg: { host: string | null; cwd: string }): Promise<SkillRef[]> =>
       ipcRenderer.invoke('skills:forProject', arg),
+    /** Open the app-owned library folder in the OS file manager (creating it if
+     *  it doesn't exist yet). `dir` opens one skill's folder instead. */
+    revealLibrary: (dir?: string): Promise<void> =>
+      ipcRenderer.invoke('skills:revealLibrary', dir),
     /** Inject a library skill (`sourceDir`) into an open project's .claude/skills.
      *  Result-wrapped (routed through the workspace provider). */
     inject: (wsId: string, sourceDir: string): Promise<Result<{ name: string }>> =>

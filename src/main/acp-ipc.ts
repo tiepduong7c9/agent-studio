@@ -1,4 +1,6 @@
-import { BrowserWindow, ipcMain } from 'electron'
+import { BrowserWindow, ipcMain, shell } from 'electron'
+import { promises as fsp } from 'fs'
+import * as path from 'path'
 import type {
   Disposable,
   ProjectConversations,
@@ -22,6 +24,7 @@ import {
   getCollectedKeys,
   importIntoLibrary,
   libraryHasSkill,
+  libraryRoot,
   listLibrarySkills,
   readLibrarySkill,
   writeLibraryFile
@@ -222,7 +225,7 @@ export function registerAcpIpc(getWindow: () => BrowserWindow | null): AcpHub {
   // listing itself is a cheap local read with no host round-trips or writes.
   ipcMain.handle('skills:list', async (): Promise<SkillsListing> => {
     const skills = await listLibrarySkills().catch(() => [] as SkillRef[])
-    return { skills, unreachable: [] }
+    return { skills, unreachable: [], root: libraryRoot() }
   })
 
   // Read a single skill's files (SKILL.md + resources). Library skills read from
@@ -306,7 +309,27 @@ export function registerAcpIpc(getWindow: () => BrowserWindow | null): AcpHub {
     await addCollectedKeys(newlyCollected)
 
     const skills = await listLibrarySkills().catch(() => [] as SkillRef[])
-    return { skills, unreachable }
+    return { skills, unreachable, root: libraryRoot() }
+  })
+
+  // Open the library folder in the OS file manager. The store isn't created
+  // until something is written to it, so make it first — otherwise the very
+  // action meant to show the user where skills live would silently fail.
+  ipcMain.handle('skills:revealLibrary', async (_e, dir?: string): Promise<void> => {
+    const root = libraryRoot()
+    await fsp.mkdir(root, { recursive: true })
+    // An optional `dir` opens one skill's folder — confined to the library so a
+    // crafted path can't turn this into "open anything on the machine".
+    let target = root
+    if (dir) {
+      const resolved = path.resolve(dir)
+      if (resolved !== root && !resolved.startsWith(root + path.sep)) {
+        throw new Error('Not a library skill')
+      }
+      target = resolved
+    }
+    const err = await shell.openPath(target)
+    if (err) throw new Error(err)
   })
 
   // Create a new, empty skill in the library.

@@ -230,6 +230,28 @@ export function SkillsManager({ remoteHosts, engineStatus, onReconnectRemote, on
     await select(src) // reload the skill's files from disk
   }
 
+  // The footer path follows the selection: a selected library skill shows its own
+  // folder (that's where its resources go), otherwise the library root.
+  const inLibrary = selected?.scope === 'library'
+  const folderPath = inLibrary ? selected!.dir : listing.root
+
+  const openFolder = async () => {
+    try {
+      await window.studio.skills.revealLibrary(inLibrary ? selected!.dir : undefined)
+    } catch (err: any) {
+      pushToast('danger', err?.message || 'Could not open the folder')
+    }
+  }
+
+  const copyPath = async () => {
+    try {
+      await navigator.clipboard.writeText(folderPath)
+      pushToast('info', 'Path copied')
+    } catch {
+      pushToast('danger', 'Could not copy the path')
+    }
+  }
+
   return (
     <div
       className={`modal-overlay ${maximized ? 'skills-overlay-max' : ''}`}
@@ -471,6 +493,26 @@ export function SkillsManager({ remoteHosts, engineStatus, onReconnectRemote, on
               </>
             )}
           </div>
+        </div>
+
+        {/* Where the library actually lives on disk. Adding resources by hand
+            (dropping references/ or assets/ into a skill folder) still happens
+            out here, so the path is always one click from the manager. */}
+        <div className="skills-libpath">
+          <span className="codicon codicon-folder skills-libpath-icon" />
+          <span className="skills-libpath-text" title={folderPath}>
+            {folderPath}
+          </span>
+          <button
+            className="btn btn-icon"
+            title={inLibrary ? 'Open this skill\u2019s folder' : 'Open the library folder'}
+            onClick={() => void openFolder()}
+          >
+            <span className="codicon codicon-folder-opened" />
+          </button>
+          <button className="btn btn-icon" title="Copy path" onClick={() => void copyPath()}>
+            <span className="codicon codicon-copy" />
+          </button>
         </div>
 
         {dialog === 'new' && (
