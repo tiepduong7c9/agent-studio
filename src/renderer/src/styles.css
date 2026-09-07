@@ -584,6 +584,38 @@ body {
   color: var(--vscode-descriptionForeground);
   white-space: nowrap;
 }
+/* The owning repo of a worktree session, braced off the folder name —
+   "(⑂ agent-studio)". Only worktree rows carry it, so it takes the accent to
+   mark them out. It shrinks (and ellipses) before the host does, so a long repo
+   name never pushes the host or time off the row. */
+.acp-session-worktree {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: -3px;
+  color: var(--vscode-textLink-foreground, #3794ff);
+  opacity: 0.9;
+}
+/* The braces frame the name without competing with it. */
+.acp-session-worktree-brace { opacity: 0.55; flex: 0 0 auto; }
+/* Sized just under the folder/host icons so the row's three icons read as one
+   set. `line-height: 1` keeps the glyph from padding the row. Two classes deep
+   so it outranks any bare `.codicon` rule (which sets the size through a `font:`
+   shorthand) wherever the two land in the bundle. */
+.acp-session-worktree .acp-session-worktree-icon {
+  font-size: 11px;
+  line-height: 1;
+  flex: 0 0 auto;
+  opacity: 0.8;
+}
+.acp-session-worktree-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .acp-session-host {
   display: inline-flex;
   align-items: center;

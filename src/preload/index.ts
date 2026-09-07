@@ -18,6 +18,7 @@ import type {
   GitFileChange,
   GitLog,
   GitStatus,
+  GitWorktreeInfo,
   ProjectInfo,
   RemoteDirListing,
   Result,
@@ -88,6 +89,10 @@ const api = {
   /** Local and remote-tracking branches, for the branch switcher. */
   gitBranches: (wsId: string): Promise<Result<GitBranches>> =>
     ipcRenderer.invoke('git:branches', wsId),
+  /** Branch + worktree identity of a session's cwd on `host` (null = local).
+   *  Null when the folder isn't a git repo or its host isn't connected. */
+  gitWorktreeInfo: (cwd: string, host: string | null): Promise<Result<GitWorktreeInfo | null>> =>
+    ipcRenderer.invoke('git:worktreeInfo', cwd, host),
   /** Switch to `branch`; `discardLocal` forces past uncommitted tracked changes. */
   gitCheckout: (wsId: string, branch: string, discardLocal: boolean): Promise<Result<void>> =>
     ipcRenderer.invoke('git:checkout', wsId, branch, discardLocal),

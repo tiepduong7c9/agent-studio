@@ -4,6 +4,7 @@ import type { AcpConversation, ProjectConversations, SessionMeta } from '../../.
 import { useSessionsStore } from '../acp/sessions-store'
 import { useViewPrefsStore } from '../view-prefs-store'
 import { useCaptureStore, type Capture } from '../capture-store'
+import { gitInfoKey, useGitInfoStore } from '../git-info-store'
 import { hostLabel, projectLabel, sessionActivity as activity } from '../session-format'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { AboutDialog, ConfirmDialog } from './Dialogs'
@@ -109,6 +110,33 @@ function CaptureBadges({ captures }: { captures: Capture[] }) {
           +{hidden.length}
         </span>
       )}
+    </span>
+  )
+}
+
+// Which repo a worktree session belongs to, braced after the folder. Only linked
+// worktrees (from `git worktree add`) get this: their folder is named for the
+// task, not the project, so "(⑂ agent-studio)" is what places the row. A session
+// in the repo's main worktree needs nothing — its folder already names the repo.
+// The branch and both paths live in the tooltip rather than the row.
+function WorktreeChip({ cwd, host }: { cwd: string; host?: string | null }) {
+  const ensure = useGitInfoStore((s) => s.ensure)
+  const info = useGitInfoStore((s) => s.entries[gitInfoKey(cwd, host)]?.info ?? null)
+  useEffect(() => ensure(cwd, host), [cwd, host, ensure])
+  if (!info?.linked) return null
+  const title = [
+    `Worktree of ${info.repo}`,
+    info.root,
+    `Main worktree: ${info.repoRoot}`,
+    // Detached HEAD has no branch to name, so the short sha stands in.
+    info.branch ? `On ${info.branch}` : `Detached at ${info.head}`
+  ].join('\n')
+  return (
+    <span className="acp-session-worktree" title={title}>
+      <span className="acp-session-worktree-brace">(</span>
+      <span className="codicon codicon-git-branch acp-session-worktree-icon" />
+      <span className="acp-session-worktree-name">{info.repo}</span>
+      <span className="acp-session-worktree-brace">)</span>
     </span>
   )
 }
@@ -265,6 +293,7 @@ function LiveRow({ s, captures, active, pinned, done, doneAt, unread, onSelect, 
                     <span className="codicon codicon-folder acp-session-meta-icon" />
                     {projectLabel(s.cwd)}
                   </span>
+                  <WorktreeChip cwd={s.cwd} host={s.host} />
                   <span className="acp-session-host">
                     <span
                       className={`codicon ${s.host ? 'codicon-server' : 'codicon-device-desktop'} acp-session-meta-icon`}
@@ -309,6 +338,7 @@ function ConvRow({ project, conv, onOpen }: { project: ProjectConversations; con
             <span className="codicon codicon-folder acp-session-meta-icon" />
             {project.name}
           </span>
+          <WorktreeChip cwd={project.cwd} host={project.host} />
           <span className="acp-session-host">
             <span
               className={`codicon ${project.host ? 'codicon-server' : 'codicon-device-desktop'} acp-session-meta-icon`}
@@ -402,6 +432,22 @@ export function SessionsPanel({
     const t = setInterval(() => forceTick((n) => n + 1), 30_000)
     return () => clearInterval(t)
   }, [])
+
+  // Branch/worktree probes are cached per folder, so they need their own upkeep:
+  // re-probe on a slow interval (an agent switching branch changes the label),
+  // and drop folders no session or conversation points at any more.
+  const refreshGitInfo = useGitInfoStore((s) => s.refreshAll)
+  const pruneGitInfo = useGitInfoStore((s) => s.prune)
+  useEffect(() => {
+    const t = setInterval(refreshGitInfo, 60_000)
+    return () => clearInterval(t)
+  }, [refreshGitInfo])
+  useEffect(() => {
+    const keep = new Set<string>()
+    for (const s of sessions) keep.add(gitInfoKey(s.cwd, s.host))
+    for (const p of projects) keep.add(gitInfoKey(p.cwd, p.host))
+    pruneGitInfo(keep)
+  }, [sessions, projects, pruneGitInfo])
 
   // Pinned sessions whose remote host isn't currently connected, drawn from
   // cached metadata — the host pushes no live list, so without this they'd
