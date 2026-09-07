@@ -90,6 +90,25 @@ export interface GitBranches {
   remote: string[]
 }
 
+/** Git identity of a session's working directory: which branch it sits on, and
+ *  whether the directory is a linked worktree (`git worktree add`) rather than
+ *  the repository's main checkout. Probed per session cwd, so it works for
+ *  folders that were never opened as a workspace. */
+export interface GitWorktreeInfo {
+  /** Worktree root (the cwd's repository top level). */
+  root: string
+  /** Repository name — the main worktree's folder name, shared by every worktree. */
+  repo: string
+  /** The main worktree's root path (the repo's own git dir when it's bare). */
+  repoRoot: string
+  /** Current branch, or null in detached HEAD (use `head` for the label then). */
+  branch: string | null
+  /** Short HEAD sha, the label in detached HEAD. */
+  head: string
+  /** True when this cwd is a linked worktree rather than the main checkout. */
+  linked: boolean
+}
+
 export interface SshConnectOptions {
   host: string
   port?: number

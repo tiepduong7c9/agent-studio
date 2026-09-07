@@ -6,6 +6,7 @@ import { listBrowsers, openInBrowser, openInWindow } from './browsers'
 import { engineHostKey, workspaceId } from '../shared/types'
 import { wsHostId } from '../shared/mediaUrl'
 import { clearSshEngine, LOCAL_HOST_KEY, registerEngineTarget, sshTargetFor } from './engine'
+import { localWorktreeInfo, remoteWorktreeInfo } from './git/worktree'
 import { LocalProjectProvider } from './providers/local'
 import {
   establishSshSession,
@@ -307,6 +308,16 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, hub: 
 
   handle('git:branches', async (wsId: string) => {
     return requireProvider(wsId).gitBranches()
+  })
+
+  // Worktree/branch of an arbitrary session cwd — no workspace required, so the
+  // sessions list can label rows for folders that were never opened. A remote
+  // cwd needs its host connected; an unknown host answers null rather than
+  // failing the row.
+  handle('git:worktreeInfo', async (cwd: string, host: string | null) => {
+    if (!host) return localWorktreeInfo(cwd)
+    const session = sshHosts.get(host)
+    return session ? remoteWorktreeInfo(session.client, cwd) : null
   })
 
   handle('git:checkout', async (wsId: string, branch: string, discardLocal: boolean) => {
