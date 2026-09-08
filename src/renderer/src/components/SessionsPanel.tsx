@@ -144,22 +144,20 @@ function WorktreeChip({ cwd, host }: { cwd: string; host?: string | null }) {
 // Max rows shown per section before a "Show N more" toggle.
 const ROW_LIMIT = 4
 
-// How many of the most-recently-active items surface in "Recent" — a quick-
-// access shortcut so recently-worked sessions stay one click away, whether
-// they're live or resumable, without hunting through the state sections.
+// Rows shown in "Recent" before its "Show N more" toggle. Looser than
+// ROW_LIMIT because Recent is the catch-all tail — everything not demanding
+// attention — and its archive of past conversations is unbounded.
 const RECENT_CAP = 10
 
 // Attention-state sections, in fixed display order. "Pinned" and "Needs you"
-// carry the accent header colour.
-type SectionKey = 'pinned' | 'recent' | 'needs' | 'working' | 'later' | 'idle' | 'parked'
+// carry the accent header colour. Every row lands in exactly one section.
+type SectionKey = 'pinned' | 'needs' | 'working' | 'later' | 'recent'
 const SECTIONS: { key: SectionKey; title: string; accent: boolean }[] = [
   { key: 'needs', title: 'Needs you', accent: true },
   { key: 'working', title: 'Working', accent: false },
   { key: 'pinned', title: 'Pinned', accent: true },
-  { key: 'recent', title: 'Recent', accent: false },
   { key: 'later', title: 'Later', accent: false },
-  { key: 'idle', title: 'Idle', accent: false },
-  { key: 'parked', title: 'Parked', accent: false }
+  { key: 'recent', title: 'Recent', accent: false }
 ]
 
 // A row in a section: a live session, a resumable past conversation, or a pinned
@@ -325,7 +323,7 @@ function LiveRow({ s, captures, active, pinned, done, doneAt, unread, onSelect, 
   )
 }
 
-// A resumable past conversation on disk (no live session). Lives in "Parked".
+// A resumable past conversation on disk (no live session). Lives in "Recent".
 function ConvRow({ project, conv, onOpen }: { project: ProjectConversations; conv: AcpConversation; onOpen: () => void }) {
   return (
     <button className="acp-session-row acp-session-history" onClick={onOpen} title="Resume this conversation">
@@ -466,8 +464,8 @@ export function SessionsPanel({
 
   // Classify every visible live session into an attention-state bucket, plus the
   // resumable on-disk conversations that have no live session. Pinned sessions
-  // are pulled out first (they float regardless of state). Suspended sessions +
-  // on-disk conversations form the resumable pool that "Recent"/"Parked" split.
+  // are pulled out first (they float regardless of state). Idle + suspended
+  // sessions and on-disk conversations all feed the time-sorted "Recent" tail.
   // Sorting: most-recent activity first; Needs-you floats blocked (waiting) items
   // above crashed & done.
   const buckets = useMemo(() => {
@@ -543,9 +541,10 @@ export function SessionsPanel({
     }
   }
 
-  // Section collapse — Parked starts collapsed (header only). Searching forces
-  // every section open so matches stay visible.
-  const [collapsed, setCollapsed] = useState<Set<SectionKey>>(new Set<SectionKey>(['parked']))
+  // Section collapse — every section starts open; RECENT_CAP keeps the Recent
+  // tail short instead. Searching forces every section open so matches stay
+  // visible.
+  const [collapsed, setCollapsed] = useState<Set<SectionKey>>(new Set<SectionKey>())
   const toggleCollapse = (key: SectionKey): void =>
     setCollapsed((prev) => {
       const next = new Set(prev)
@@ -595,36 +594,30 @@ export function SessionsPanel({
       ...offlinePinned.map((o) => ({ kind: 'offline', id: o.id, name: o.name, host: o.host }) as Row)
     ].filter(matchesRow)
 
-    // Recent — the most-recently-active items across every (non-pinned) state,
-    // live and resumable alike, newest first, capped at RECENT_CAP. A quick-
-    // access shortcut: rows here also appear in their own state section below.
-    const recentPool: { row: Row; ts: number }[] = [
-      ...[...buckets.needs, ...buckets.working, ...buckets.later, ...buckets.idle, ...buckets.parked].map(
-        (s) => ({ row: { kind: 'live', s } as Row, ts: activity(s) })
-      ),
+    // Recent — everything that isn't asking for attention, newest first: idle
+    // live sessions, suspended ones, and resumable on-disk history. Nothing is
+    // happening in any of them, so activity time is the only useful ordering.
+    // Not capped here; renderSection clips to RECENT_CAP with a "show more".
+    const recentRows: Row[] = [
+      ...[...buckets.idle, ...buckets.parked].map((s) => ({
+        row: { kind: 'live', s } as Row,
+        ts: activity(s)
+      })),
       ...buckets.convs.map(({ project, conv }) => ({
         row: { kind: 'conv', project, conv } as Row,
         ts: conv.mtime
       }))
-    ].sort((a, b) => b.ts - a.ts)
-    // Filter before slicing so search finds the newest *matching* items, not
-    // only matches that happen to fall in the 10 most-recent overall.
-    const recentRows = recentPool.map((r) => r.row).filter(matchesRow).slice(0, RECENT_CAP)
-
-    // Parked — the full resumable archive: suspended sessions + on-disk history.
-    const parkedRows: Row[] = [
-      ...buckets.parked.map((s) => ({ kind: 'live', s }) as Row),
-      ...buckets.convs.map(({ project, conv }) => ({ kind: 'conv', project, conv }) as Row)
-    ].filter(matchesRow)
+    ]
+      .sort((a, b) => b.ts - a.ts)
+      .map((r) => r.row)
+      .filter(matchesRow)
 
     return {
       pinned: pinnedRows,
-      recent: recentRows,
       needs: live(buckets.needs),
       working: live(buckets.working),
       later: live(buckets.later),
-      idle: live(buckets.idle),
-      parked: parkedRows
+      recent: recentRows
     } as Record<SectionKey, Row[]>
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [buckets, offlinePinned, q, searching, capturesBySid])
@@ -682,8 +675,8 @@ export function SessionsPanel({
     if (rows.length === 0) return null
     const isCollapsed = !searching && collapsed.has(key)
     const showAll = searching || expanded.has(key)
-    // Recent already holds at most RECENT_CAP rows — show them all rather than
-    // clipping to the tighter global ROW_LIMIT used by the other sections.
+    // Recent is the long tail (idle + parked + on-disk history), so it gets a
+    // looser limit than the tighter global ROW_LIMIT used by the other sections.
     const limit = key === 'recent' ? RECENT_CAP : ROW_LIMIT
     const shown = showAll ? rows : rows.slice(0, limit)
     return (
