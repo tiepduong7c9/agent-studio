@@ -6,6 +6,7 @@ import { useViewPrefsStore } from '../view-prefs-store'
 import { useCaptureStore, type Capture } from '../capture-store'
 import { gitInfoKey, useGitInfoStore } from '../git-info-store'
 import { hostLabel, projectLabel, sessionActivity as activity } from '../session-format'
+import { SESSION_TAGS, tagById } from '../session-tags'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { AboutDialog, ConfirmDialog } from './Dialogs'
 import { CapturePatternsDialog } from './CapturePatternsDialog'
@@ -141,6 +142,21 @@ function WorktreeChip({ cwd, host }: { cwd: string; host?: string | null }) {
   )
 }
 
+// The session's tag, a bare coloured icon leading the metadata line. Icon-only
+// keeps the line short — the name lives in the tooltip — and the colour is what
+// makes one recognisable at a glance. Untagged rows render nothing, so their
+// folder name starts where the icon would have been.
+function SessionTagIcon({ tag }: { tag?: string }) {
+  const resolved = tag ? tagById(tag) : undefined
+  if (!resolved) return null
+  const { name, icon: Icon, color } = resolved
+  return (
+    <span className="acp-session-tag" style={{ color }} title={name}>
+      <Icon size={12} strokeWidth={2.25} aria-label={name} />
+    </span>
+  )
+}
+
 // Max rows shown per section before a "Show N more" toggle.
 const ROW_LIMIT = 4
 
@@ -180,13 +196,17 @@ interface LiveRowProps {
   doneAt?: number
   /** User-flagged unread (follow up later) — a persistent manual marker. */
   unread: boolean
+  /** The tag set on this session, if any, from the Tag submenu. */
+  tag?: string
   onSelect: () => void
   onTogglePin: () => void
   onToggleUnread: () => void
+  /** Set the tag, or clear it with null. */
+  onSetTag: (tagId: string | null) => void
   onDelete: () => void
 }
 
-function LiveRow({ s, captures, active, pinned, done, doneAt, unread, onSelect, onTogglePin, onToggleUnread, onDelete }: LiveRowProps) {
+function LiveRow({ s, captures, active, pinned, done, doneAt, unread, tag, onSelect, onTogglePin, onToggleUnread, onSetTag, onDelete }: LiveRowProps) {
   // "done" only stands in when Claude is otherwise idle — a live working/waiting
   // status always wins (a new turn clears the marker anyway).
   const displayStatus = done && (!s.claudeStatus || s.claudeStatus === 'idle') ? 'done' : s.claudeStatus
@@ -234,6 +254,21 @@ function LiveRow({ s, captures, active, pinned, done, doneAt, unread, onSelect, 
   const items: MenuItem[] = [
     { label: pinned ? 'Unpin' : 'Pin', run: onTogglePin },
     { label: unread ? 'Mark as read' : 'Mark as unread', run: onToggleUnread },
+    {
+      label: 'Tag',
+      // One tag at a time, so this reads as a radio group: picking another
+      // replaces the current one, and picking the current one clears it.
+      submenu: [
+        ...SESSION_TAGS.map(({ id, name, icon: Icon, color }) => ({
+          label: name,
+          checked: tag === id,
+          icon: <Icon size={13} strokeWidth={2.25} style={{ color }} />,
+          run: () => onSetTag(tag === id ? null : id)
+        })),
+        { separator: true as const },
+        { label: 'No tag', checked: !tag, run: () => onSetTag(null) }
+      ]
+    },
     { separator: true },
     { label: 'Rename', run: () => setEditing(true) },
     { label: 'Regenerate title', enabled: !busy && !restarting, run: () => void regenerateTitle() },
@@ -287,6 +322,7 @@ function LiveRow({ s, captures, active, pinned, done, doneAt, unread, onSelect, 
                 </span>
               ) : (
                 <>
+                  <SessionTagIcon tag={tag} />
                   <span className="acp-session-project">
                     <span className="codicon codicon-folder acp-session-meta-icon" />
                     {projectLabel(s.cwd)}
@@ -357,11 +393,14 @@ function ConvRow({ project, conv, onOpen }: { project: ProjectConversations; con
 function OfflineRow({
   name,
   host,
+  tag,
   onReconnect,
   onUnpin
 }: {
   name: string
   host: string
+  /** The tag survives the host going away — it's stored client-side. */
+  tag?: string
   onReconnect: () => void
   onUnpin: () => void
 }) {
@@ -385,6 +424,7 @@ function OfflineRow({
             <span className="acp-session-name">{name}</span>
           </span>
           <span className="acp-session-meta-line">
+            <SessionTagIcon tag={tag} />
             <span className="acp-session-host">
               <span className="codicon codicon-server acp-session-meta-icon" />
               <span className="acp-session-host-name">{hostLabel(host)}</span>
@@ -416,6 +456,8 @@ export function SessionsPanel({
   const doneSessions = useSessionsStore((s) => s.doneSessions)
   const unreadSessions = useViewPrefsStore((s) => s.unreadSessions)
   const toggleUnread = useViewPrefsStore((s) => s.toggleUnread)
+  const sessionTag = useViewPrefsStore((s) => s.sessionTag)
+  const setSessionTag = useViewPrefsStore((s) => s.setSessionTag)
   const pinnedSessions = useViewPrefsStore((s) => s.pinnedSessions)
   const pinnedMeta = useViewPrefsStore((s) => s.pinnedMeta)
   const togglePin = useViewPrefsStore((s) => s.togglePin)
@@ -529,7 +571,10 @@ export function SessionsPanel({
     [s.name, projectLabel(s.cwd), hostLabel(s.host)].some((t) => t.toLowerCase().includes(q)) ||
     // Captured PR / ticket ids and their badge labels are searchable too, so a
     // session can be found by "123", "#123", or "WOLF-45".
-    capturesFor(s.id).some((c) => c.id.toLowerCase().includes(q) || c.label.toLowerCase().includes(q))
+    capturesFor(s.id).some((c) => c.id.toLowerCase().includes(q) || c.label.toLowerCase().includes(q)) ||
+    // The tag is icon-only on the row, so search by name is the way to pull up
+    // everything carrying one — "blocked" lists every blocked session.
+    (tagById(sessionTag[s.id] ?? '')?.name.toLowerCase().includes(q) ?? false)
   const matchesText = (...parts: (string | null | undefined)[]): boolean =>
     !searching || parts.some((t) => !!t && t.toLowerCase().includes(q))
   const toggleSearch = (): void => {
@@ -571,9 +616,11 @@ export function SessionsPanel({
     done: !!doneSessions[s.id],
     doneAt: doneSessions[s.id],
     unread: !!unreadSessions[s.id],
+    tag: sessionTag[s.id],
     onSelect: () => onSelectSession(s.id),
     onTogglePin: () => togglePin(s.id),
     onToggleUnread: () => toggleUnread(s.id),
+    onSetTag: (tagId: string | null) => setSessionTag(s.id, tagId),
     onDelete: () => onDeleteSession(s.id)
   })
 
@@ -620,7 +667,7 @@ export function SessionsPanel({
       recent: recentRows
     } as Record<SectionKey, Row[]>
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [buckets, offlinePinned, q, searching, capturesBySid])
+  }, [buckets, offlinePinned, q, searching, capturesBySid, sessionTag])
 
   const totalRows = SECTIONS.reduce((n, s) => n + rowsByKey[s.key].length, 0)
   const nothing = sessions.length === 0 && projects.length === 0 && remoteHosts.length === 0
@@ -656,6 +703,7 @@ export function SessionsPanel({
           key={r.id}
           name={r.name}
           host={r.host}
+          tag={sessionTag[r.id]}
           onReconnect={() => onReconnectRemote(r.host)}
           onUnpin={() => togglePin(r.id)}
         />

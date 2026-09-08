@@ -34,6 +34,10 @@ interface ViewPrefsState {
    *  the user — unlike the transient `doneSessions` marker, viewing the session
    *  does not clear it. */
   unreadSessions: Record<string, true>
+  /** The tag id set on each session (see session-tags.ts for the palette). A
+   *  manual marker chosen from the row's context menu, persisted like the pins.
+   *  One tag per session; untagged sessions hold no key at all. */
+  sessionTag: Record<string, string>
   /** Focus mode: show only pinned sessions, flat and cross-project. */
   focusMode: boolean
   /** Reveal hidden sessions/projects (temporary escape hatch). */
@@ -44,6 +48,8 @@ interface ViewPrefsState {
   togglePin: (sid: string) => void
   /** Flag/unflag a session as unread (follow-up-later). */
   toggleUnread: (sid: string) => void
+  /** Set the session's tag, replacing any current one. `null` clears it. */
+  setSessionTag: (sid: string, tagId: string | null) => void
   /** Refresh cached metadata for currently-pinned live sessions. */
   rememberPinned: (metas: Array<{ id: string } & PinnedMeta>) => void
   hideSession: (sid: string) => void
@@ -67,6 +73,13 @@ const without = (rec: Record<string, true>, key: string): Record<string, true> =
   return next
 }
 
+const dropTag = (rec: Record<string, string>, key: string): Record<string, string> => {
+  if (!(key in rec)) return rec
+  const next = { ...rec }
+  delete next[key]
+  return next
+}
+
 const dropMeta = (rec: Record<string, PinnedMeta>, key: string): Record<string, PinnedMeta> => {
   if (!(key in rec)) return rec
   const next = { ...rec }
@@ -82,6 +95,7 @@ export const useViewPrefsStore = create<ViewPrefsState>()(
       hiddenSessions: {},
       hiddenProjects: {},
       unreadSessions: {},
+      sessionTag: {},
       focusMode: false,
       showHidden: false,
       changesViewMode: 'list',
@@ -98,6 +112,12 @@ export const useViewPrefsStore = create<ViewPrefsState>()(
           sid in s.unreadSessions
             ? { unreadSessions: without(s.unreadSessions, sid) }
             : { unreadSessions: { ...s.unreadSessions, [sid]: true } }
+        ),
+      setSessionTag: (sid, tagId) =>
+        set((s) =>
+          tagId === null
+            ? { sessionTag: dropTag(s.sessionTag, sid) }
+            : { sessionTag: { ...s.sessionTag, [sid]: tagId } }
         ),
       rememberPinned: (metas) =>
         set((s) => {
@@ -140,6 +160,12 @@ export const useViewPrefsStore = create<ViewPrefsState>()(
           const pinnedSessions = keep(s.pinnedSessions)
           const hiddenSessions = keep(s.hiddenSessions)
           const unreadSessions = keep(s.unreadSessions)
+          let tagChanged = false
+          const sessionTag: Record<string, string> = {}
+          for (const id of Object.keys(s.sessionTag)) {
+            if (liveIds.has(id)) sessionTag[id] = s.sessionTag[id]
+            else tagChanged = true
+          }
           // Prune cached metadata alongside pins. This only runs once every
           // remembered host is connected (see the caller's gate), so a live id
           // missing here is a genuinely-gone session, not one hidden behind an
@@ -154,14 +180,16 @@ export const useViewPrefsStore = create<ViewPrefsState>()(
             pinnedSessions === s.pinnedSessions &&
             hiddenSessions === s.hiddenSessions &&
             unreadSessions === s.unreadSessions &&
-            !metaChanged
+            !metaChanged &&
+            !tagChanged
           )
             return {}
           return {
             pinnedSessions,
             hiddenSessions,
             unreadSessions,
-            pinnedMeta: metaChanged ? pinnedMeta : s.pinnedMeta
+            pinnedMeta: metaChanged ? pinnedMeta : s.pinnedMeta,
+            sessionTag: tagChanged ? sessionTag : s.sessionTag
           }
         })
     }),
