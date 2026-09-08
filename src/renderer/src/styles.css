@@ -631,6 +631,21 @@ body {
   white-space: nowrap;
 }
 .acp-session-meta-icon { font-size: 12px; flex: 0 0 auto; opacity: 0.8; }
+/* The manual tag, icon-only and leading the line — the name is in the tooltip
+   and the colour comes from the palette in session-tags.ts (inline, per tag).
+   Never shrinks: clipping it would silently lose the marker. The 1px gap trims
+   the line's 7px so the icon reads as a marker on the row rather than another
+   metadata field. */
+.acp-session-tag {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  margin-right: -1px;
+  line-height: 1;
+}
+/* On the selected row the meta line takes the selection foreground; the tag
+   colour has to win that so it stays recognisable. */
+.acp-session-row.active .acp-session-tag { opacity: 0.95; }
 .acp-session-time { margin-left: auto; padding-left: 4px; white-space: nowrap; flex-shrink: 0; }
 .acp-session-row.active .acp-session-meta-line { color: var(--vscode-list-activeSelectionForeground); opacity: 0.8; }
 
@@ -2161,7 +2176,42 @@ body {
   border: 1px solid var(--vscode-menu-border);
   border-radius: 5px;
   box-shadow: 0 2px 8px var(--vscode-widget-shadow);
-  overflow: hidden;
+  /* Not clipped: submenus render as children and open outside this box. Items
+     carry their own border-radius, so nothing needs the clip. */
+  overflow: visible;
+}
+
+/* A submenu row and the panel it opens. The panel is positioned against the
+   row (not the viewport), so it rides along wherever the parent menu landed. */
+.context-menu-sub {
+  position: relative;
+}
+/* Flush against the row (no margin): a gap between the two is a hole the
+   pointer can cross, and mouseleave there would dismiss the submenu mid-move. */
+.context-menu-panel {
+  position: absolute;
+  left: 100%;
+  top: -5px;
+  min-width: 168px;
+}
+/* Flipped when opening rightwards would run off-screen. */
+.context-menu-panel.flip {
+  left: auto;
+  right: 100%;
+}
+.context-menu-arrow {
+  flex: 0 0 auto;
+  padding-left: 8px;
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0.7;
+}
+/* Leading icon (a tag glyph) — sized to sit with the label, not the checkmark. */
+.context-menu-icon {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  line-height: 1;
 }
 
 .context-menu-item {
