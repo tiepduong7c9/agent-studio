@@ -14,6 +14,7 @@
 //   { type: 'acp_stop', stopReason }             — a prompt turn finished
 //   { type: 'acp_status', claudeStatus }         — derived status change (not stored)
 //   { type: 'acp_usage', usage }                 — latest context-window usage (not stored)
+//   { type: 'acp_schedule', schedule }           — wake-ups this session has armed (not stored)
 //   { type: 'acp_title', title }                 — Claude's generated conversation title (not stored)
 //   { type: 'acp_error', message }               — adapter/turn error
 //   { type: 'exit', code }                       — adapter subprocess exited
@@ -90,6 +91,62 @@ const SDK_STATE_FILTER = [
 // debounce fallback is suppressed too, stranding the status at 'working'.
 const SDK_STATE_META = { claudeCode: { emitRawSDKMessages: SDK_STATE_FILTER } };
 
+// The tools the agent uses to schedule its own future wake-ups: `/loop` without
+// an interval self-paces with ScheduleWakeup, while `/loop <interval>` and
+// one-shot reminders ("remind me at 3pm") go through CronCreate. Neither ACP nor
+// the SDK reports this state — the SDK exposes a session's crons only in a Stop
+// hook payload (`session_crons`) — so we derive it from the tool stream, which
+// carries the tool name in `_meta.claudeCode.toolName` (see _trackSchedule).
+const SCHEDULE_TOOLS = new Set(['ScheduleWakeup', 'CronCreate', 'CronDelete']);
+
+// How long past its computed fire time a one-shot cron stays on the session
+// before we assume it fired (they auto-delete on firing, so no CronDelete ever
+// arrives to clear it). Crons only fire while the REPL is idle, so a job whose
+// turn is busy fires late and the indicator clears a little early — preferable
+// to a reminder badge that outlives the reminder.
+const ONE_SHOT_GRACE_MS = 5 * 60 * 1000;
+
+// Same idea for a self-paced /loop: each wake-up re-arms the next one, so a loop
+// that has passed its wake time by this much has ended without a `stop: true`
+// (interrupted, or the agent just stopped calling ScheduleWakeup). Sized above a
+// long turn, since the re-arm only happens once the woken turn finishes.
+const LOOP_STALE_MS = 15 * 60 * 1000;
+
+// The job id CronCreate reports back ("Scheduled one-shot task 1f54979c (…)"),
+// so a later CronDelete — which names the job by that id — removes the right
+// entry. Falls back to the tool-call id when the wording changes on us.
+function jobIdFromResult(text) {
+  const m = /\b[0-9a-f]{8}\b/.exec(String(text || ''));
+  return m ? m[0] : null;
+}
+
+// Fire time of a one-shot cron, when its expression pins one: minute, hour,
+// day-of-month and month are all literal for a "remind me at X" job, which is
+// enough to date it (the year is implied — next occurrence, this year or next).
+// Returns null for anything else, including recurring expressions.
+function oneShotFireAt(expr) {
+  const parts = String(expr || '').trim().split(/\s+/);
+  if (parts.length !== 5) return null;
+  const [minute, hour, dom, month] = parts.slice(0, 4).map((p) => (/^\d+$/.test(p) ? Number(p) : NaN));
+  if (![minute, hour, dom, month].every(Number.isInteger)) return null;
+  const now = new Date();
+  for (const year of [now.getFullYear(), now.getFullYear() + 1]) {
+    const at = new Date(year, month - 1, dom, hour, minute, 0, 0).getTime();
+    if (at >= now.getTime() - ONE_SHOT_GRACE_MS) return at;
+  }
+  return null;
+}
+
+// The text of a tool_call update's content blocks — for the scheduling tools the
+// adapter has no special rendering for, this is the raw tool result.
+function toolResultText(update) {
+  const out = [];
+  for (const c of update.content || []) {
+    if (c && c.type === 'content' && c.content && c.content.type === 'text') out.push(c.content.text);
+  }
+  return out.join('\n');
+}
+
 // The SDK is ESM-only; agentnode is CommonJS. Load it lazily via dynamic import.
 let _sdkPromise = null;
 function loadSdk() {
@@ -117,6 +174,7 @@ class AcpSession {
     this.modelState = null;          // { currentModelId, availableModels:[{id,name,description}] }
     this.effortState = null;         // { currentEffortId, availableEfforts:[{id,name,description}] } — null when the model has no effort levels
     this.usage = null;               // { used, size, cost? } — latest context-window occupancy
+    this.schedule = null;            // { loop?, crons: [] } — future wake-ups this session has armed (null = none); see _trackSchedule
     this._lastTitle = null;          // last ai-title emitted, to dedupe acp_title events
     this._titleWatcher = null;       // fs.watch on the project dir → picks up ai-title whenever Claude writes it
     this._titleDebounce = null;
@@ -140,6 +198,8 @@ class AcpSession {
     this._activeTasks = new Set();    // task_ids started but not yet settled (see _onExtNotification) — a non-empty set means detached background work is still running, so a session 'idle' must not read as idle
     this._sdkIdle = false;            // last SDK session_state was 'idle' — so a background task settling to empty can finish the turn without waiting for another state event
     this._bgTaskWatchdog = null;      // bounds the 'working' hold if a tracked task's terminal notification never arrives (see BG_TASK_WATCHDOG_MS)
+    this._scheduleCalls = new Map();  // toolCallId -> { name, input } for in-flight scheduling tools (the name only rides on the first update)
+    this._scheduleSweep = null;       // fires when the earliest armed wake-up goes stale (see _armScheduleSweep)
   }
 
   // Spawn the adapter and establish the session. Returns the ACP sessionId.
@@ -210,6 +270,7 @@ class AcpSession {
       clearTimeout(this._bgIdleTimer);
       clearTimeout(this._bgTaskWatchdog); // don't let a settle timer fire on a dead session
       this._activeTasks.clear();
+      this._clearSchedule();              // armed wake-ups died with the process
       this._emit({ type: 'exit', code: code == null ? 0 : code });
       this.listeners.clear();
       // Reject any in-flight permission prompts so the adapter side unblocks.
@@ -379,6 +440,7 @@ class AcpSession {
       return;
     }
     this._trackToolCall(update);
+    this._trackSchedule(update);
     const item = { type: 'acp_update', update };
     this._pushHistory(item);
     this._emit(item);
@@ -396,6 +458,118 @@ class AcpSession {
     const st = update.status;
     if (st === 'completed' || st === 'failed' || st === 'cancelled') this._openToolCalls.delete(id);
     else if (kind === 'tool_call' || st) this._openToolCalls.add(id);
+  }
+
+  // Watch the tool stream for the scheduling tools (SCHEDULE_TOOLS) and keep
+  // `schedule` in step with them, so a session that will wake itself later can
+  // say so. Only a 'completed' call counts — a rejected or failed one armed
+  // nothing — and its arguments come from the earlier update that carried
+  // `rawInput`, since the terminal one usually only carries the result.
+  _trackSchedule(update) {
+    if (!update) return;
+    const kind = update.sessionUpdate;
+    if (kind !== 'tool_call' && kind !== 'tool_call_update') return;
+    const id = update.toolCallId;
+    if (id == null) return;
+    const known = this._scheduleCalls.get(id);
+    const meta = update._meta && update._meta.claudeCode;
+    const name = (meta && meta.toolName) || (known && known.name);
+    if (!name || !SCHEDULE_TOOLS.has(name)) return;
+    const call = known || { name, input: null };
+    // Input streams in: keep the latest, most complete version of it.
+    if (update.rawInput && typeof update.rawInput === 'object') call.input = update.rawInput;
+    const st = update.status;
+    if (st === 'completed') {
+      this._scheduleCalls.delete(id);
+      this._applySchedule(name, call.input || {}, id, toolResultText(update));
+    } else if (st === 'failed' || st === 'cancelled') {
+      this._scheduleCalls.delete(id);
+    } else {
+      this._scheduleCalls.set(id, call);
+    }
+  }
+
+  // Fold one settled scheduling call into `schedule`.
+  _applySchedule(name, input, toolCallId, resultText) {
+    const loop = this.schedule ? this.schedule.loop : undefined;
+    const crons = this.schedule ? this.schedule.crons.slice() : [];
+    if (name === 'ScheduleWakeup') {
+      if (input.stop) return this._setSchedule({ crons }); // the loop ended itself
+      const delaySeconds = Number(input.delaySeconds);
+      const timed = Number.isFinite(delaySeconds) && delaySeconds > 0;
+      return this._setSchedule({
+        loop: {
+          ...(timed ? { delaySeconds, at: Date.now() + delaySeconds * 1000 } : {}),
+          ...(input.reason ? { reason: String(input.reason).slice(0, 200) } : {}),
+        },
+        crons,
+      });
+    }
+    if (name === 'CronCreate') {
+      const expr = String(input.cron || '').trim();
+      const recurring = input.recurring !== false;
+      const id = jobIdFromResult(resultText) || toolCallId;
+      const at = recurring ? null : oneShotFireAt(expr);
+      const entry = {
+        id,
+        schedule: expr,
+        recurring,
+        ...(input.prompt ? { prompt: String(input.prompt).slice(0, 200) } : {}),
+        ...(at ? { at } : {}),
+      };
+      return this._setSchedule({ loop, crons: [...crons.filter((c) => c.id !== id), entry] });
+    }
+    // CronDelete
+    const id = String(input.id || '');
+    return this._setSchedule({ loop, crons: crons.filter((c) => c.id !== id) });
+  }
+
+  // Store + broadcast the schedule, normalising "nothing armed" to null so the
+  // UI has a single emptiness test. Deduped, since the sweep re-derives state
+  // that is often unchanged.
+  _setSchedule({ loop, crons }) {
+    const next = loop || crons.length ? { ...(loop ? { loop } : {}), crons } : null;
+    if (JSON.stringify(next) === JSON.stringify(this.schedule)) return;
+    this.schedule = next;
+    this._armScheduleSweep();
+    this._emit({ type: 'acp_schedule', schedule: this.schedule });
+  }
+
+  // Drop wake-ups that have come and gone (see ONE_SHOT_GRACE_MS / LOOP_STALE_MS).
+  _sweepSchedule() {
+    if (!this.schedule) return;
+    const now = Date.now();
+    const stale = (at) => at && at + ONE_SHOT_GRACE_MS < now;
+    this._setSchedule({
+      loop: this.schedule.loop && this.schedule.loop.at && this.schedule.loop.at + LOOP_STALE_MS < now
+        ? undefined
+        : this.schedule.loop,
+      crons: this.schedule.crons.filter((c) => !stale(c.at)),
+    });
+  }
+
+  // Wake at the earliest staleness deadline so the indicator clears itself
+  // without needing another event. Never arms for a deadline already past: the
+  // sweep drops those on sight, so re-arming would spin.
+  _armScheduleSweep() {
+    clearTimeout(this._scheduleSweep);
+    if (!this.schedule) return;
+    const deadlines = this.schedule.crons.filter((c) => c.at).map((c) => c.at + ONE_SHOT_GRACE_MS);
+    if (this.schedule.loop && this.schedule.loop.at) deadlines.push(this.schedule.loop.at + LOOP_STALE_MS);
+    if (!deadlines.length) return;
+    const wait = Math.min(...deadlines) - Date.now();
+    if (wait <= 0) return;
+    this._scheduleSweep = setTimeout(() => this._sweepSchedule(), wait + 1000);
+    if (this._scheduleSweep.unref) this._scheduleSweep.unref();
+  }
+
+  // Everything armed lives in the adapter process's memory (CronCreate is
+  // explicit that nothing is written to disk), so a conversation switch or a
+  // dead adapter means none of it survives.
+  _clearSchedule() {
+    clearTimeout(this._scheduleSweep);
+    this._scheduleCalls.clear();
+    this._setSchedule({ crons: [] });
   }
 
   // The adapter settles prompt() at the user turn's terminal result, then keeps
@@ -753,6 +927,7 @@ class AcpSession {
     // _sdkStateAuthoritative stays: the same adapter/child keeps forwarding SDK state.
     this.claudeStatus = undefined;
     this.model = null;
+    this._clearSchedule();           // crons/wake-ups belong to the conversation we just left
     this._lastTitle = null;          // new conversation → let its own title surface
     this._emit({ type: 'acp_reset', acpSessionId: this.acpSessionId });
   }
@@ -998,6 +1173,7 @@ class AcpSession {
       modelState: this.modelState,
       effortState: this.effortState,
       usage: this.usage,
+      schedule: this.schedule,
       // True while a resume is still replaying history; the snapshot is empty
       // now and the conversation will stream in via subsequent acp_event frames.
       loading: this._resumeRequested && !this.isReady,
@@ -1009,6 +1185,7 @@ class AcpSession {
     clearTimeout(this._bgIdleTimer);
     clearTimeout(this._bgTaskWatchdog);
     this._activeTasks.clear();
+    this._clearSchedule();
     clearTimeout(this._titleDebounce);
     try { if (this._titleWatcher) this._titleWatcher.close(); } catch (_) {}
     this._titleWatcher = null;

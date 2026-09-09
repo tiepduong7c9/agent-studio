@@ -1,6 +1,8 @@
 // Rich ACP thread types, ported from ccremote's web/src/lib/protocol.ts. These
 // type the structured event stream the engine forwards over IPC (window.studio.acp).
 
+import type { SessionSchedule } from '../../../shared/acp'
+
 export type AcpContentBlock = { type: 'text'; text: string } | { type: string; [k: string]: unknown }
 
 export interface AcpToolContent {
@@ -86,5 +88,6 @@ export type AcpEvent = (
   | { type: 'acp_model'; model: string | null; modelState?: AcpModelState | null }
   | { type: 'acp_effort'; effortState: AcpEffortState | null }
   | { type: 'acp_usage'; usage: AcpUsage | null }
+  | { type: 'acp_schedule'; schedule: SessionSchedule | null }
   | { type: 'acp_notice'; notice: string; text: string }
 ) & { seq?: number; rxAt?: number }

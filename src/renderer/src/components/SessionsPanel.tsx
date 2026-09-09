@@ -1,11 +1,11 @@
 import { type KeyboardEvent, type MouseEvent, useEffect, useMemo, useRef, useState } from 'react'
-import { Hash, Info, Tag } from 'lucide-react'
+import { AlarmClock, Hash, Info, Tag } from 'lucide-react'
 import type { AcpConversation, ProjectConversations, SessionMeta } from '../../../shared/acp'
 import { useSessionsStore } from '../acp/sessions-store'
 import { useViewPrefsStore } from '../view-prefs-store'
 import { useCaptureStore, type Capture } from '../capture-store'
 import { gitInfoKey, useGitInfoStore } from '../git-info-store'
-import { hostLabel, projectLabel, sessionActivity as activity } from '../session-format'
+import { hostLabel, projectLabel, scheduleLabel, sessionActivity as activity } from '../session-format'
 import { tagColorVar, tagLabel, useTagsStore, type SessionTag } from '../tags-store'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { AboutDialog, ConfirmDialog } from './Dialogs'
@@ -323,6 +323,14 @@ function LiveRow({ s, captures, active, pinned, done, doneAt, unread, tag, tags,
             <span className="acp-session-title-line">
               <span className="acp-session-name">{renderTitle(s.name)}</span>
               <CaptureBadges captures={captures} />
+              {/* This session wakes itself later — a /loop or a cron it armed.
+                  Sits alongside the status dot rather than replacing it: a
+                  looping session is idle between wake-ups but still scheduled. */}
+              {s.schedule && (
+                <span className="acp-session-schedule" title={scheduleLabel(s.schedule)}>
+                  <AlarmClock size={12} strokeWidth={2.25} />
+                </span>
+              )}
               {/* One indicator, right-aligned: a live green pulse while working,
                   else the blue unread-activity dot. Mutually exclusive. */}
               {displayStatus === 'working' ? (

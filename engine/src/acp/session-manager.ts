@@ -19,7 +19,7 @@ import { listSkills, readSkill } from './skills.js';
 import { getUsageDetail } from './usage.cjs';
 // CommonJS out-of-band title generator (subscription-OAuth call to /v1/messages).
 import { generateTitle } from './title.cjs';
-import type { AcpConversation, AcpEvent, AcpSnapshot, AcpUsageDetail, ClaudeStatus, CreateSessionOptions, ProjectConversations, SessionMeta, SkillFiles, SkillRef } from './types.js';
+import type { AcpConversation, AcpEvent, AcpSnapshot, AcpUsageDetail, ClaudeStatus, CreateSessionOptions, ProjectConversations, SessionMeta, SessionSchedule, SkillFiles, SkillRef } from './types.js';
 
 const ADJECTIVES = ['amber', 'arctic', 'bold', 'brave', 'bright', 'calm', 'cool', 'crisp', 'dawn', 'deep', 'fast', 'fierce', 'gentle', 'golden', 'grand', 'hidden', 'jade', 'keen', 'lively', 'lucid', 'mellow', 'misty', 'noble', 'quiet', 'rapid', 'royal', 'shady', 'sharp', 'silent', 'silver', 'sleek', 'solar', 'still', 'sturdy', 'swift', 'teal', 'vivid', 'warm', 'wild', 'wise'];
 const ANIMALS = ['bear', 'bison', 'boar', 'cobra', 'crane', 'crow', 'deer', 'dove', 'eagle', 'elk', 'falcon', 'finch', 'fox', 'goat', 'goose', 'hawk', 'heron', 'hound', 'jay', 'kite', 'lark', 'lion', 'lynx', 'mink', 'moose', 'newt', 'orca', 'otter', 'owl', 'panda', 'puma', 'quail', 'raven', 'robin', 'seal', 'shark', 'snipe', 'stag', 'swan', 'tiger', 'trout', 'viper', 'vole', 'wasp', 'weasel', 'whale', 'wolf', 'wren'];
@@ -248,6 +248,7 @@ export class SessionManager {
     try { rec.acp.kill(); } catch { /* ignore */ }
     rec.meta.status = 'suspended';
     delete rec.meta.claudeStatus;
+    delete rec.meta.schedule;
     return this._resume(rec);
   }
 
@@ -259,6 +260,7 @@ export class SessionManager {
         try { rec.acp.kill(); } catch { /* ignore */ }
         rec.meta.status = 'suspended';
         delete rec.meta.claudeStatus;
+        delete rec.meta.schedule;
       }
     }
     this._persist();
@@ -277,6 +279,14 @@ export class SessionManager {
           if (next === undefined) delete meta.claudeStatus; else meta.claudeStatus = next;
           this._changed();
         }
+      } else if (event.type === 'acp_schedule') {
+        // Wake-ups the session armed for itself (a /loop, a cron). Mirrored onto
+        // the meta so the session list can flag it without attaching, and — like
+        // claudeStatus — never restored from disk, since the jobs live only in
+        // the adapter process.
+        const next = event.schedule as SessionSchedule | null | undefined;
+        if (next) meta.schedule = next; else delete meta.schedule;
+        this._changed();
       } else if (event.type === 'acp_title') {
         // Claude generated a conversation title — adopt it as the session name
         // unless the user has claimed the name themselves.
@@ -288,10 +298,12 @@ export class SessionManager {
       } else if (event.type === 'acp_reset') {
         meta.acpSessionId = event.acpSessionId;
         delete meta.claudeStatus;
+        delete meta.schedule;
         this._changed();
       } else if (event.type === 'exit') {
         if (meta.status === 'running') meta.status = 'suspended';
         delete meta.claudeStatus;
+        delete meta.schedule;
         this._changed();
       }
     };
@@ -329,6 +341,7 @@ export class SessionManager {
         if (this._sessions.has(meta.id)) continue;
         if (meta.status === 'running') meta.status = 'suspended'; // was live when daemon stopped
         delete meta.claudeStatus;
+        delete meta.schedule;
         // Recreate a dormant AcpSession; it spawns lazily on first attach (_resume).
         const acp = new AcpSession({ cwd: meta.cwd, env: this._childEnv(meta.id) });
         const rec: SessionRecord = { meta, acp };
