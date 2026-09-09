@@ -15,6 +15,8 @@ import 'monaco-editor/esm/vs/platform/theme/common/colors/miscColors.js'
 // Workbench/extension colors monaco doesn't ship (git, chat), registered with
 // VS Code's real defaults so they resolve per-theme too.
 import './extra-colors'
+// Our own colors, registered the same way so they resolve per theme base too.
+import './tag-colors'
 import type { ColorScheme } from './types'
 
 // Minimal shape of the IColorTheme the registry's resolveDefaultColor expects.

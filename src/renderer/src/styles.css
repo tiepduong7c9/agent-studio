@@ -632,7 +632,8 @@ body {
 }
 .acp-session-meta-icon { font-size: 12px; flex: 0 0 auto; opacity: 0.8; }
 /* The manual tag, icon-only and leading the line — the name is in the tooltip
-   and the colour comes from the palette in session-tags.ts (inline, per tag).
+   and the colour is set inline from the tag's palette id, which resolves to a
+   per-theme --vscode-studio-tag-* value (see theme/tag-colors.ts).
    Never shrinks: clipping it would silently lose the marker. The 1px gap trims
    the line's 7px so the icon reads as a marker on the row rather than another
    metadata field. */
@@ -2298,6 +2299,72 @@ body {
   color: var(--vscode-errorForeground);
   vertical-align: text-bottom;
 }
+
+/* ── Tags dialog (Customizations → Tags) ─────────────────────────────── */
+.tags-dialog { width: 560px; }
+.tags-title { display: flex; align-items: center; gap: 6px; }
+.tags-list {
+  margin-top: 12px;
+  max-height: 52vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+/* Separates the fixed six from the user's own — the two halves of the list
+   behave differently, so they're labelled rather than run together. */
+.tags-group-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--vscode-descriptionForeground);
+  margin-top: 6px;
+}
+.tags-group-label:first-child { margin-top: 0; }
+.tags-empty {
+  padding: 2px 2px 4px;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+}
+.tag-row { display: flex; align-items: center; gap: 8px; }
+/* A built-in has nothing to edit, so its row is just glyph, name, and the lock
+   that says why — shorter than an editable row, hence its own height. */
+.tag-row.builtin { height: 24px; }
+/* Preview in the tag's own colour — the row shows exactly what the sidebar will
+   show, which is all the icon and colour affect. */
+.tag-row-preview { flex: 0 0 auto; display: inline-flex; align-items: center; }
+.tag-row-fixed-name { flex: 1; min-width: 0; font-size: 13px; }
+.tag-row-lock {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 4px;
+  color: var(--vscode-descriptionForeground);
+}
+.tag-row .tag-row-name { flex: 1; min-width: 0; height: 30px; box-sizing: border-box; }
+/* The whole palette inline rather than behind a popover: nine swatches fit the
+   row, and picking a colour is then one click with every option visible. Only
+   custom rows have one — a built-in's colour is fixed. */
+.tag-swatches { flex: 0 0 auto; display: flex; align-items: center; gap: 4px; }
+.tag-swatch {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--vscode-foreground) 25%, transparent);
+  border-radius: 50%;
+  cursor: pointer;
+}
+/* The selected swatch reads as a ring: a gap in the row's background colour,
+   then the foreground outline — legible over any of the nine fills. */
+.tag-swatch.selected {
+  border-color: var(--vscode-foreground);
+  box-shadow: 0 0 0 2px var(--vscode-editor-background), 0 0 0 3px var(--vscode-foreground);
+}
+.tag-swatch:hover { border-color: var(--vscode-foreground); }
+.tag-row-remove { flex: 0 0 auto; }
+.tags-actions { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+.tags-actions .btn { display: inline-flex; align-items: center; gap: 5px; }
 
 /* ── Ticket Patterns dialog ──────────────────────────────────────────── */
 .capture-dialog { width: 560px; }

@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Lock, Tag } from 'lucide-react'
+import { Hash, Lock } from 'lucide-react'
 import { useCaptureStore, type CaptureKind, type CapturePattern } from '../capture-store'
 import { hasCaptureGroup, isValidRegex } from '../session-links'
 
@@ -98,7 +98,7 @@ export function CapturePatternsDialog({ onClose }: { onClose: () => void }) {
     <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal capture-dialog">
         <h2 className="modal-title capture-title">
-          <Tag size={15} /> Ticket Patterns
+          <Hash size={15} /> Ticket Patterns
         </h2>
         <div className="modal-detail">
           Links in a session that match a pattern become badges. The first capture group is the id;
