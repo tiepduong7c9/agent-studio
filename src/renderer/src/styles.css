@@ -541,6 +541,18 @@ body {
 .acp-session-row.unread:not(.done) .acp-session-unread-dot {
   background: var(--vscode-charts-purple, #b180d7);
 }
+/* "Wakes itself later" marker: this session has a /loop or a cron armed, so it
+   will start a turn on its own. Sits just before the status dot and never
+   shrinks — the name truncates instead, since losing the marker would silently
+   hide that the session is still going to act. */
+.acp-session-schedule {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  line-height: 1;
+  color: var(--vscode-charts-purple, #b180d7);
+}
+
 /* Live indicator while a session is actively executing — a green pulsing dot in
    the same title-line slot as the unread dot (a working row is never unread). */
 .acp-session-working-dot {

@@ -17,11 +17,37 @@ export interface SessionMeta {
   mode: 'acp'
   status: 'running' | 'suspended' | 'exited'
   claudeStatus?: ClaudeStatus
+  schedule?: SessionSchedule
   acpSessionId?: string | null
   createdAt: string
   lastAttachedAt?: string | null
   resumedAt?: string
   exitCode?: number
+}
+
+export interface SessionCron {
+  /** Job id as reported by CronCreate (the tool-call id when unparseable). */
+  id: string
+  /** 5-field cron expression, in local time. */
+  schedule: string
+  /** false = fires once then auto-deletes. */
+  recurring: boolean
+  /** The prompt the job will submit (truncated). */
+  prompt?: string
+  /** Fire time (ms epoch) when a one-shot's expression pins one. */
+  at?: number
+}
+
+/** Future work a session has armed for itself: a self-paced `/loop`
+ *  (ScheduleWakeup) or session-scoped cron jobs (`/loop <interval>`, one-shot
+ *  reminders — CronCreate). Derived from the tool stream, since neither ACP nor
+ *  the SDK reports it; in-memory only, because the CLI keeps these jobs in the
+ *  adapter process and loses them when it restarts. Absent = nothing armed. */
+export interface SessionSchedule {
+  /** A self-paced `/loop` waiting on its next wake-up. */
+  loop?: { delaySeconds?: number; reason?: string; at?: number }
+  /** Live cron jobs, in creation order. */
+  crons: SessionCron[]
 }
 
 /** One thread event or transient state update for a session. */
@@ -75,6 +101,7 @@ export interface AcpSnapshot {
   modelState?: any
   effortState?: any
   usage?: AcpUsage | null
+  schedule?: SessionSchedule | null
   loading?: boolean
 }
 

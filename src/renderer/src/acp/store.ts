@@ -58,6 +58,9 @@ function reduceEvent(prev: AcpThreadState, event: AcpEvent): AcpThreadState {
     case 'acp_effort':
       return { ...prev, effortState: event.effortState, pendingEffortId: null }
     case 'acp_usage': return { ...prev, usage: event.usage }
+    // Armed wake-ups (a /loop, a cron) are session-list state, read off
+    // SessionMeta.schedule by the sessions panel — not part of the thread.
+    case 'acp_schedule': return prev
     case 'acp_reset':
       return { ...prev, events: [], lastSeq: -1, claudeStatus: undefined, acpSessionId: event.acpSessionId, model: null, usage: null }
   }
