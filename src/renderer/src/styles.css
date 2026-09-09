@@ -295,11 +295,6 @@ body {
   flex-shrink: 0;
 }
 
-.sessions-title {
-  font-size: 13px;
-  font-weight: 600;
-}
-
 /* Active toggle (e.g. the search button while the box is open) */
 .sessions-header .icon-button.active {
   color: var(--vscode-foreground);
@@ -339,6 +334,186 @@ body {
   overflow-y: auto;
   min-height: 0;
   padding: 0 0 8px;
+}
+
+/* ── Hosts tab ─────────────────────────────────────────
+   One card per connectable host: is an agent working there, what's holding it,
+   and the button to take it. Cards rather than one-line rows because the
+   decision ("put the next task here") is worth an explicit action, not a
+   whole-row click that could be mistaken for navigation. */
+.hosts-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 10px 8px;
+}
+.host-card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px 9px;
+  border: 0.5px solid var(--vscode-widget-border, var(--vscode-panel-border, transparent));
+  border-radius: 6px;
+  background: var(--vscode-editorWidget-background, transparent);
+}
+/* A free host is the one being looked for, so its border carries the state
+   colour while the others stay neutral. */
+.host-card.free {
+  border-color: color-mix(in srgb, var(--vscode-charts-green, #3fb950) 45%, transparent);
+}
+.host-card.offline {
+  opacity: 0.75;
+}
+.host-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.host-card-icon {
+  flex: 0 0 auto;
+  font-size: 14px;
+  color: var(--vscode-icon-foreground);
+}
+/* The hostname is the comparison key: full width, truncating last. */
+.host-card-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+}
+/* State pill + dot share the state colour: green = take it, yellow = an agent
+   is mid-turn, red = unreachable. */
+.host-card-state {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--vscode-descriptionForeground);
+}
+.host-card-dot {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: currentColor;
+  color: var(--vscode-descriptionForeground);
+}
+.host-card.free .host-card-state,
+.host-card.free .host-card-dot {
+  color: var(--vscode-charts-green, #3fb950);
+}
+.host-card.busy .host-card-state,
+.host-card.busy .host-card-dot {
+  color: var(--vscode-charts-yellow, #cca700);
+}
+/* A busy host's dot pulses like the session rows' working dot — same meaning,
+   so the same signal. */
+.host-card.busy .host-card-dot {
+  animation: acp-dot-pulse 1.4s ease-out infinite;
+}
+.host-card.reconnecting .host-card-state,
+.host-card.reconnecting .host-card-dot {
+  color: var(--vscode-editorWarning-foreground, #cca700);
+}
+.host-card.offline .host-card-state,
+.host-card.offline .host-card-dot {
+  color: var(--vscode-errorForeground, #f14c4c);
+}
+.host-card-meta {
+  font-size: 11.5px;
+  color: var(--vscode-descriptionForeground);
+}
+/* What's occupying the host, indented under the counts and clickable through to
+   the session itself. */
+.host-card-sessions {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.host-card-session {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 2px 4px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  font-family: inherit;
+  font-size: 11.5px;
+  color: var(--vscode-foreground);
+  text-align: left;
+  cursor: pointer;
+}
+.host-card-session:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+.host-session-dot {
+  width: 5px;
+  height: 5px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: currentColor;
+}
+.host-session-dot.working {
+  color: var(--vscode-charts-yellow, #cca700);
+}
+/* A past session on a free host: muted, so the line reads as history rather
+   than as something currently running. */
+.host-session-dot.idle {
+  color: var(--vscode-descriptionForeground);
+  opacity: 0.7;
+}
+/* Waiting on you — the same blue/purple the session rows use for "needs you". */
+.host-session-dot.waiting {
+  color: var(--vscode-charts-blue, #3794ff);
+}
+/* The session name gives way before the project that places it. */
+.host-session-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.host-session-project {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+}
+/* How long ago a past session was active. Only the recent line carries it, so
+   it sits after the project without a fixed column. */
+.host-session-time {
+  flex: 0 0 auto;
+  margin-left: 6px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--vscode-descriptionForeground);
+}
+.host-card-sessions-more {
+  padding: 0 4px;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+}
+.host-card-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 1px;
+}
+.hosts-panel-hint {
+  padding: 2px 2px 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--vscode-descriptionForeground);
+}
+.hosts-panel-connect {
+  align-self: flex-start;
+  margin-top: 2px;
 }
 
 /* ── Attention-state sections ──────────────────────────
@@ -1504,6 +1679,29 @@ body {
 .panel-tab.active {
   color: var(--vscode-tab-activeForeground);
   font-weight: 600;
+}
+
+/* A count carried on a tab, so its answer is readable from the other tab.
+   Green while there's something available, muted when there isn't. */
+.panel-tab-badge {
+  display: inline-block;
+  min-width: 14px;
+  margin-left: 5px;
+  padding: 0 3px;
+  border-radius: 7px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 14px;
+  text-align: center;
+  vertical-align: 1px;
+}
+.panel-tab-badge.free {
+  color: var(--vscode-editor-background, #1f1f1f);
+  background: var(--vscode-charts-green, #3fb950);
+}
+.panel-tab-badge.busy {
+  color: var(--vscode-descriptionForeground);
+  background: var(--vscode-badge-background, rgba(128, 128, 128, 0.28));
 }
 
 .right-panel-body {

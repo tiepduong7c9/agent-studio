@@ -5,13 +5,15 @@ import { useSessionsStore } from '../acp/sessions-store'
 import { useViewPrefsStore } from '../view-prefs-store'
 import { useCaptureStore, type Capture } from '../capture-store'
 import { gitInfoKey, useGitInfoStore } from '../git-info-store'
-import { hostLabel, projectLabel, scheduleLabel, sessionActivity as activity } from '../session-format'
+import { hostLabel, projectLabel, relTime, scheduleLabel, sessionActivity as activity } from '../session-format'
 import { tagColorVar, tagLabel, useTagsStore, type SessionTag } from '../tags-store'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { AboutDialog, ConfirmDialog } from './Dialogs'
 import { CapturePatternsDialog } from './CapturePatternsDialog'
 import { TagsDialog } from './TagsDialog'
 import { RemoteHostsDialog } from './RemoteHostsDialog'
+import { HostsPanel } from './HostsPanel'
+import { hostLoads } from '../host-load'
 import { SkillsManager } from './SkillsManager'
 
 const CUSTOMIZATIONS = [
@@ -35,6 +37,10 @@ interface Props {
   onOpenConversation: (project: ProjectConversations, conv: AcpConversation) => void
   /** Start the New Session flow (opens the command palette at its project picker). */
   onNewSessionFlow: () => void
+  /** Start the New Session flow narrowed to one host (null = local machine),
+   *  from the hosts strip — picking a free host is the first half of the
+   *  decision, so the picker shouldn't re-ask for it. */
+  onNewSessionOnHost: (host: string | null) => void
   /** Permanently end (kill) a live session on the engine. */
   onDeleteSession: (sid: string) => void
   onOpenLocal: () => void
@@ -43,20 +49,6 @@ interface Props {
   onDisconnectRemote: (host: string) => void
   /** Reconnect a disconnected (saved) SSH host from its stored credentials. */
   onReconnectRemote: (host: string) => void
-}
-
-// Compact relative time — Working counts up (elapsed), the rest count time since
-// last active. Rendered tersely to fit the right edge of the metadata line.
-function relTime(ms: number): string {
-  if (!ms || Number.isNaN(ms)) return ''
-  const diff = Date.now() - ms
-  const m = Math.floor(diff / 60000)
-  if (m < 1) return 'now'
-  if (m < 60) return `${m}m`
-  const h = Math.floor(m / 60)
-  if (h < 24) return `${h}h`
-  const d = Math.floor(h / 24)
-  return `${d}d`
 }
 
 // Render a session title with inline PR/issue numbers (#1234) in the mono face,
@@ -471,6 +463,7 @@ export function SessionsPanel({
   onSelectSession,
   onOpenConversation,
   onNewSessionFlow,
+  onNewSessionOnHost,
   onDeleteSession,
   onOpenLocal,
   onOpenSsh,
@@ -706,6 +699,20 @@ export function SessionsPanel({
   const totalRows = SECTIONS.reduce((n, s) => n + rowsByKey[s.key].length, 0)
   const nothing = sessions.length === 0 && projects.length === 0 && remoteHosts.length === 0
 
+  // Which sidebar tab is showing. "Hosts" answers where to put the next task
+  // (who's busy, who's free); "Sessions" is the work itself. Panel-local, like
+  // the right panel's tabs — not persisted.
+  const [tab, setTab] = useState<'sessions' | 'hosts'>('sessions')
+
+  // Free-host count for the Hosts tab badge, so the answer is visible from the
+  // Sessions tab without switching. Only meaningful once a remote host exists —
+  // with the local machine alone there's nothing to choose between.
+  const freeHosts = useMemo(() => {
+    if (remoteHosts.length === 0) return null
+    const loads = hostLoads(sessions, remoteHosts, engineStatus)
+    return { free: loads.filter((h) => h.state === 'free').length, total: loads.length }
+  }, [sessions, remoteHosts, engineStatus])
+
   // Header "manage remote hosts" popup — the single place to connect a new SSH
   // host and to manage each known one (open a folder, disconnect, reconnect,
   // forget). Replaces the old separate hosts + connect buttons.
@@ -790,9 +797,28 @@ export function SessionsPanel({
   return (
     <div className="sessions-panel agent-sessions-workbench">
       <div className="sessions-header">
-        <span className="sessions-title">Sessions</span>
+        <button
+          className={`panel-tab ${tab === 'sessions' ? 'active' : ''}`}
+          onClick={() => setTab('sessions')}
+        >
+          Sessions
+        </button>
+        <button
+          className={`panel-tab ${tab === 'hosts' ? 'active' : ''}`}
+          onClick={() => setTab('hosts')}
+        >
+          Hosts
+          {freeHosts && (
+            <span
+              className={`panel-tab-badge ${freeHosts.free > 0 ? 'free' : 'busy'}`}
+              title={`${freeHosts.free} of ${freeHosts.total} hosts free`}
+            >
+              {freeHosts.free}
+            </span>
+          )}
+        </button>
         <span className="topbar-spacer" />
-        {!nothing && (
+        {tab === 'sessions' && !nothing && (
           <button
             className={`icon-button codicon codicon-search ${searchOpen ? 'active' : ''}`}
             title={searchOpen ? 'Hide Search' : 'Search'}
@@ -800,13 +826,17 @@ export function SessionsPanel({
           />
         )}
         <button className="icon-button codicon codicon-add" title="New Session" onClick={onNewSessionFlow} />
-        <button
-          className={`icon-button codicon codicon-server ${hostsOpen ? 'active' : ''}`}
-          title="Manage remote hosts"
-          onClick={() => setHostsOpen(true)}
-        />
+        {/* The Hosts tab carries connect / disconnect / reconnect inline, so the
+            dialog is only worth a button from the Sessions tab. */}
+        {tab === 'sessions' && (
+          <button
+            className={`icon-button codicon codicon-server ${hostsOpen ? 'active' : ''}`}
+            title="Manage remote hosts"
+            onClick={() => setHostsOpen(true)}
+          />
+        )}
       </div>
-      {searchOpen && !nothing && (
+      {tab === 'sessions' && searchOpen && !nothing && (
         <div className="sessions-search-wrap">
           <div className="sessions-search">
             <span className="codicon codicon-search sessions-search-icon" />
@@ -836,7 +866,23 @@ export function SessionsPanel({
         </div>
       )}
       <div className="sessions-body pane-body">
-        {nothing ? (
+        {tab === 'hosts' ? (
+          <HostsPanel
+            sessions={sessions}
+            remoteHosts={remoteHosts}
+            engineStatus={engineStatus}
+            onNewSessionOnHost={onNewSessionOnHost}
+            onSelectSession={(sid) => {
+              // Jumping to a session means working on it — land on the tab that
+              // shows it, rather than leaving the sidebar on Hosts.
+              setTab('sessions')
+              onSelectSession(sid)
+            }}
+            onOpenSsh={onOpenSsh}
+            onDisconnectRemote={onDisconnectRemote}
+            onReconnectRemote={onReconnectRemote}
+          />
+        ) : nothing ? (
           <div className="sessions-empty-cta">
             <div className="sessions-empty">No sessions found</div>
             <button className="btn btn-primary" onClick={onOpenLocal}>Open Folder</button>

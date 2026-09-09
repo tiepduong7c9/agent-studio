@@ -20,6 +20,10 @@ interface PaletteItem {
   label: string
   detail?: string // secondary text, e.g. the folder path
   badge?: string // right-aligned tag, e.g. the host label
+  /** The host this target runs on (null = local); absent on non-target rows.
+   *  Kept structured, rather than read back off the badge, so the host filter
+   *  can't be fooled by a label. */
+  host?: string | null
   run: () => void
 }
 
@@ -37,6 +41,11 @@ interface Props {
   /** Which step to open on: 'commands' (default) or straight into 'targets'
    *  (the New Session project picker), e.g. from the sidebar's + button. */
   initialStep?: 'commands' | 'targets'
+  /** Narrow the target list to one host, when the caller has already chosen
+   *  where the session should run (the sidebar's hosts strip). Wrapped in an
+   *  object so `{ host: null }` — the local machine — stays distinct from
+   *  "no filter". */
+  hostFilter?: { host: string | null }
   onClose: () => void
 }
 
@@ -52,12 +61,17 @@ export function CommandPalette({
   onBrowseLocal,
   onGoToSession,
   initialStep = 'commands',
+  hostFilter,
   onClose
 }: Props) {
   // 'commands' → the top-level command list; 'targets' → pick where a New
   // Session runs. browseHost, when set, overlays the remote folder picker.
   const [step, setStep] = useState<'commands' | 'targets'>(initialStep)
   const [browseHost, setBrowseHost] = useState<string | null>(null)
+  // The active host scope. Seeded from hostFilter and dropped when the user
+  // steps back to the command list, so re-entering New Session from there asks
+  // about every host again rather than silently staying narrowed.
+  const [scope, setScope] = useState<{ host: string | null } | undefined>(hostFilter)
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
   const listRef = useRef<HTMLDivElement>(null)
@@ -103,6 +117,7 @@ export function CommandPalette({
         label: ws.name,
         detail: ws.rootPath,
         badge: hostLabel(host),
+        host,
         run: () => onCreateSession(ws.rootPath, host)
       })
     }
@@ -119,6 +134,7 @@ export function CommandPalette({
         label: p.name,
         detail: p.cwd,
         badge: hostLabel(host),
+        host,
         run: () => onCreateSession(p.cwd, host)
       })
     }
@@ -137,6 +153,7 @@ export function CommandPalette({
         label: baseName(s.cwd),
         detail: s.cwd,
         badge: hostLabel(host),
+        host,
         run: () => onCreateSession(s.cwd, host)
       })
     }
@@ -148,6 +165,7 @@ export function CommandPalette({
       label: 'Browse folder…',
       detail: 'Pick a folder on this machine',
       badge: 'Local',
+      host: null,
       run: onBrowseLocal
     })
     for (const host of remoteHosts) {
@@ -157,11 +175,16 @@ export function CommandPalette({
         label: 'Browse folder…',
         detail: `Pick a folder on ${host}`,
         badge: host,
+        host,
         run: () => setBrowseHost(host)
       })
     }
-    return items
-  }, [workspaces, projects, sessions, remoteHosts, onCreateSession, onBrowseLocal])
+    // Scoped to one host: keep only that host's projects and its own "browse a
+    // folder" action. Filtering the finished list (rather than each source)
+    // keeps the ordering and de-duplication above untouched.
+    if (!scope) return items
+    return items.filter((it) => it.host === scope.host)
+  }, [workspaces, projects, sessions, remoteHosts, scope, onCreateSession, onBrowseLocal])
 
   const source = step === 'commands' ? commands : targets
 
@@ -204,6 +227,7 @@ export function CommandPalette({
 
   const back = () => {
     setStep('commands')
+    setScope(undefined)
     setQuery('')
   }
 
@@ -240,8 +264,13 @@ export function CommandPalette({
     )
   }
 
+  const scopedHost = scope ? hostLabel(scope.host) : null
   const placeholder =
-    step === 'commands' ? 'Type a command' : 'Select a project or browse a folder to start a session'
+    step === 'commands'
+      ? 'Type a command'
+      : scopedHost
+        ? `Select a project on ${scopedHost}, or browse a folder`
+        : 'Select a project or browse a folder to start a session'
 
   return (
     <div className="modal-overlay" onMouseDown={onClose}>
@@ -249,7 +278,7 @@ export function CommandPalette({
         {step === 'targets' && (
           <div className="quick-open-crumb">
             <span className="codicon codicon-add" />
-            New Session
+            New Session{scopedHost ? ` on ${scopedHost}` : ''}
           </div>
         )}
         <input
