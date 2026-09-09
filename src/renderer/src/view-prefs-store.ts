@@ -34,7 +34,7 @@ interface ViewPrefsState {
    *  the user — unlike the transient `doneSessions` marker, viewing the session
    *  does not clear it. */
   unreadSessions: Record<string, true>
-  /** The tag id set on each session (see session-tags.ts for the palette). A
+  /** The tag id set on each session (see tags-store.ts for the definitions). A
    *  manual marker chosen from the row's context menu, persisted like the pins.
    *  One tag per session; untagged sessions hold no key at all. */
   sessionTag: Record<string, string>
@@ -50,6 +50,11 @@ interface ViewPrefsState {
   toggleUnread: (sid: string) => void
   /** Set the session's tag, replacing any current one. `null` clears it. */
   setSessionTag: (sid: string, tagId: string | null) => void
+  /** Unset any session tag whose definition is gone, after a tag is deleted or
+   *  the palette is reset. An unknown id renders as nothing anyway, so this is
+   *  about not accumulating dead keys — and about a re-added tag with the same
+   *  id (a default, restored by Reset) not resurfacing on old sessions. */
+  pruneTags: (validTagIds: Set<string>) => void
   /** Refresh cached metadata for currently-pinned live sessions. */
   rememberPinned: (metas: Array<{ id: string } & PinnedMeta>) => void
   hideSession: (sid: string) => void
@@ -119,6 +124,16 @@ export const useViewPrefsStore = create<ViewPrefsState>()(
             ? { sessionTag: dropTag(s.sessionTag, sid) }
             : { sessionTag: { ...s.sessionTag, [sid]: tagId } }
         ),
+      pruneTags: (validTagIds) =>
+        set((s) => {
+          let changed = false
+          const sessionTag: Record<string, string> = {}
+          for (const sid of Object.keys(s.sessionTag)) {
+            if (validTagIds.has(s.sessionTag[sid])) sessionTag[sid] = s.sessionTag[sid]
+            else changed = true
+          }
+          return changed ? { sessionTag } : {}
+        }),
       rememberPinned: (metas) =>
         set((s) => {
           let changed = false

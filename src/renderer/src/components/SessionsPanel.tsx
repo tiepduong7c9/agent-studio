@@ -1,15 +1,16 @@
 import { type KeyboardEvent, type MouseEvent, useEffect, useMemo, useRef, useState } from 'react'
-import { Info, Tag } from 'lucide-react'
+import { Hash, Info, Tag } from 'lucide-react'
 import type { AcpConversation, ProjectConversations, SessionMeta } from '../../../shared/acp'
 import { useSessionsStore } from '../acp/sessions-store'
 import { useViewPrefsStore } from '../view-prefs-store'
 import { useCaptureStore, type Capture } from '../capture-store'
 import { gitInfoKey, useGitInfoStore } from '../git-info-store'
 import { hostLabel, projectLabel, sessionActivity as activity } from '../session-format'
-import { SESSION_TAGS, tagById } from '../session-tags'
+import { tagColorVar, tagLabel, useTagsStore, type SessionTag } from '../tags-store'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { AboutDialog, ConfirmDialog } from './Dialogs'
 import { CapturePatternsDialog } from './CapturePatternsDialog'
+import { TagsDialog } from './TagsDialog'
 import { RemoteHostsDialog } from './RemoteHostsDialog'
 import { SkillsManager } from './SkillsManager'
 
@@ -146,12 +147,18 @@ function WorktreeChip({ cwd, host }: { cwd: string; host?: string | null }) {
 // keeps the line short — the name lives in the tooltip — and the colour is what
 // makes one recognisable at a glance. Untagged rows render nothing, so their
 // folder name starts where the icon would have been.
+//
+// Subscribes to the tag store itself rather than taking a resolved tag, so a
+// rename or recolour in the manager repaints every row wearing it. An id whose
+// definition is gone (a deleted custom tag) renders nothing rather than a blank
+// gap. Built-ins draw their own glyph; a custom tag gets the generic one.
 function SessionTagIcon({ tag }: { tag?: string }) {
-  const resolved = tag ? tagById(tag) : undefined
+  const resolved = useTagsStore((s) => (tag ? s.tags.find((t) => t.id === tag) : undefined))
   if (!resolved) return null
-  const { name, icon: Icon, color } = resolved
+  const name = tagLabel(resolved)
+  const Icon = resolved.icon ?? Tag
   return (
-    <span className="acp-session-tag" style={{ color }} title={name}>
+    <span className="acp-session-tag" style={{ color: tagColorVar(resolved.color) }} title={name}>
       <Icon size={12} strokeWidth={2.25} aria-label={name} />
     </span>
   )
@@ -198,15 +205,20 @@ interface LiveRowProps {
   unread: boolean
   /** The tag set on this session, if any, from the Tag submenu. */
   tag?: string
+  /** Every defined tag, for the Tag submenu (see tags-store.ts). */
+  tags: SessionTag[]
   onSelect: () => void
   onTogglePin: () => void
   onToggleUnread: () => void
   /** Set the tag, or clear it with null. */
   onSetTag: (tagId: string | null) => void
+  /** Open the tag manager — the submenu's way out when the wanted tag doesn't
+   *  exist yet, which an editable palette makes the common case. */
+  onManageTags: () => void
   onDelete: () => void
 }
 
-function LiveRow({ s, captures, active, pinned, done, doneAt, unread, tag, onSelect, onTogglePin, onToggleUnread, onSetTag, onDelete }: LiveRowProps) {
+function LiveRow({ s, captures, active, pinned, done, doneAt, unread, tag, tags, onSelect, onTogglePin, onToggleUnread, onSetTag, onManageTags, onDelete }: LiveRowProps) {
   // "done" only stands in when Claude is otherwise idle — a live working/waiting
   // status always wins (a new turn clears the marker anyway).
   const displayStatus = done && (!s.claudeStatus || s.claudeStatus === 'idle') ? 'done' : s.claudeStatus
@@ -259,14 +271,18 @@ function LiveRow({ s, captures, active, pinned, done, doneAt, unread, tag, onSel
       // One tag at a time, so this reads as a radio group: picking another
       // replaces the current one, and picking the current one clears it.
       submenu: [
-        ...SESSION_TAGS.map(({ id, name, icon: Icon, color }) => ({
-          label: name,
-          checked: tag === id,
-          icon: <Icon size={13} strokeWidth={2.25} style={{ color }} />,
-          run: () => onSetTag(tag === id ? null : id)
-        })),
+        ...tags.map((t) => {
+          const Icon = t.icon ?? Tag
+          return {
+            label: tagLabel(t),
+            checked: tag === t.id,
+            icon: <Icon size={13} strokeWidth={2.25} style={{ color: tagColorVar(t.color) }} />,
+            run: () => onSetTag(tag === t.id ? null : t.id)
+          }
+        }),
         { separator: true as const },
-        { label: 'No tag', checked: !tag, run: () => onSetTag(null) }
+        { label: 'No tag', checked: !tag, run: () => onSetTag(null) },
+        { label: 'Manage tags…', run: onManageTags }
       ]
     },
     { separator: true },
@@ -458,12 +474,20 @@ export function SessionsPanel({
   const toggleUnread = useViewPrefsStore((s) => s.toggleUnread)
   const sessionTag = useViewPrefsStore((s) => s.sessionTag)
   const setSessionTag = useViewPrefsStore((s) => s.setSessionTag)
+  const tags = useTagsStore((s) => s.tags)
   const pinnedSessions = useViewPrefsStore((s) => s.pinnedSessions)
   const pinnedMeta = useViewPrefsStore((s) => s.pinnedMeta)
   const togglePin = useViewPrefsStore((s) => s.togglePin)
   const capturesBySid = useCaptureStore((s) => s.capturesBySid)
   const NO_CAPTURES: Capture[] = []
   const capturesFor = (sid: string): Capture[] => capturesBySid[sid] ?? NO_CAPTURES
+  // A session's tag name, for the search filter. Nothing to match when the
+  // session is untagged, its tag has been deleted, or the tag is still unnamed.
+  const tagNameOf = (sid: string): string | undefined => {
+    const id = sessionTag[sid]
+    const t = id ? tags.find((x) => x.id === id) : undefined
+    return t?.name.trim() || undefined
+  }
 
   // A slow tick so live timestamps (Working counts up, others age) refresh even
   // without a session update.
@@ -574,7 +598,7 @@ export function SessionsPanel({
     capturesFor(s.id).some((c) => c.id.toLowerCase().includes(q) || c.label.toLowerCase().includes(q)) ||
     // The tag is icon-only on the row, so search by name is the way to pull up
     // everything carrying one — "blocked" lists every blocked session.
-    (tagById(sessionTag[s.id] ?? '')?.name.toLowerCase().includes(q) ?? false)
+    (tagNameOf(s.id)?.toLowerCase().includes(q) ?? false)
   const matchesText = (...parts: (string | null | undefined)[]): boolean =>
     !searching || parts.some((t) => !!t && t.toLowerCase().includes(q))
   const toggleSearch = (): void => {
@@ -617,10 +641,12 @@ export function SessionsPanel({
     doneAt: doneSessions[s.id],
     unread: !!unreadSessions[s.id],
     tag: sessionTag[s.id],
+    tags,
     onSelect: () => onSelectSession(s.id),
     onTogglePin: () => togglePin(s.id),
     onToggleUnread: () => toggleUnread(s.id),
     onSetTag: (tagId: string | null) => setSessionTag(s.id, tagId),
+    onManageTags: () => setTagsOpen(true),
     onDelete: () => onDeleteSession(s.id)
   })
 
@@ -667,7 +693,7 @@ export function SessionsPanel({
       recent: recentRows
     } as Record<SectionKey, Row[]>
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [buckets, offlinePinned, q, searching, capturesBySid, sessionTag])
+  }, [buckets, offlinePinned, q, searching, capturesBySid, sessionTag, tags])
 
   const totalRows = SECTIONS.reduce((n, s) => n + rowsByKey[s.key].length, 0)
   const nothing = sessions.length === 0 && projects.length === 0 && remoteHosts.length === 0
@@ -681,6 +707,7 @@ export function SessionsPanel({
   const [aboutOpen, setAboutOpen] = useState(false)
   const [skillsOpen, setSkillsOpen] = useState(false)
   const [patternsOpen, setPatternsOpen] = useState(false)
+  const [tagsOpen, setTagsOpen] = useState(false)
   const [version, setVersion] = useState<string | null>(null)
   useEffect(() => {
     let cancelled = false
@@ -841,8 +868,12 @@ export function SessionsPanel({
                 </div>
               )
             })}
-            <div className="customization-row" role="button" onClick={() => setPatternsOpen(true)}>
+            <div className="customization-row" role="button" onClick={() => setTagsOpen(true)}>
               <Tag size={16} className="customization-icon" />
+              <span className="customization-name">Tags</span>
+            </div>
+            <div className="customization-row" role="button" onClick={() => setPatternsOpen(true)}>
+              <Hash size={16} className="customization-icon" />
               <span className="customization-name">Ticket Patterns</span>
             </div>
             <div className="customization-row" role="button" onClick={() => setAboutOpen(true)}>
@@ -863,6 +894,7 @@ export function SessionsPanel({
         />
       )}
       {aboutOpen && <AboutDialog version={version} onClose={() => setAboutOpen(false)} />}
+      {tagsOpen && <TagsDialog onClose={() => setTagsOpen(false)} />}
       {patternsOpen && <CapturePatternsDialog onClose={() => setPatternsOpen(false)} />}
       {skillsOpen && (
         <SkillsManager
