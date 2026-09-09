@@ -16,15 +16,6 @@ import { HostsPanel } from './HostsPanel'
 import { hostLoads } from '../host-load'
 import { SkillsManager } from './SkillsManager'
 
-const CUSTOMIZATIONS = [
-  { icon: 'sparkle', label: 'Agents' },
-  { icon: 'lightbulb', label: 'Skills' },
-  { icon: 'book', label: 'Instructions' },
-  { icon: 'plug', label: 'Hooks' },
-  { icon: 'server', label: 'MCP Servers' },
-  { icon: 'extensions', label: 'Plugins' }
-]
-
 interface Props {
   sessions: SessionMeta[]
   projects: ProjectConversations[]
@@ -908,20 +899,10 @@ export function SessionsPanel({
         </div>
         {!customizationsCollapsed && (
           <>
-            {CUSTOMIZATIONS.map((c) => {
-              const onClick = c.label === 'Skills' ? () => setSkillsOpen(true) : undefined
-              return (
-                <div
-                  key={c.label}
-                  className="customization-row"
-                  role={onClick ? 'button' : undefined}
-                  onClick={onClick}
-                >
-                  <span className={`codicon codicon-${c.icon}`} />
-                  <span className="customization-name">{c.label}</span>
-                </div>
-              )
-            })}
+            <div className="customization-row" role="button" onClick={() => setSkillsOpen(true)}>
+              <span className="codicon codicon-lightbulb" />
+              <span className="customization-name">Skills</span>
+            </div>
             <div className="customization-row" role="button" onClick={() => setTagsOpen(true)}>
               <Tag size={16} className="customization-icon" />
               <span className="customization-name">Tags</span>
