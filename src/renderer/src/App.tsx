@@ -93,6 +93,9 @@ export function App() {
   // Which step the command palette opens on: the sidebar + button jumps straight
   // to the New Session picker; the keyboard shortcut opens the command list.
   const [paletteStep, setPaletteStep] = useState<'commands' | 'targets'>('commands')
+  // Set when the palette is opened for a host already chosen in the sidebar's
+  // hosts strip, so its target list only offers folders on that host.
+  const [paletteHost, setPaletteHost] = useState<{ host: string | null } | undefined>(undefined)
   const [sessionSwitcherOpen, setSessionSwitcherOpen] = useState(false)
   // The untitled tab awaiting a save location (Ctrl/Cmd+S on a scratch buffer).
   const [saveAs, setSaveAs] = useState<Extract<EditorTab, { kind: 'file' }> | null>(null)
@@ -554,6 +557,7 @@ export function App() {
         e.preventDefault()
         if (e.shiftKey) {
           setPaletteStep('commands')
+          setPaletteHost(undefined)
           setPaletteOpen((v) => !v)
         } else setQuickOpen((v) => !v)
       } else if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'e' || e.key === 'E')) {
@@ -747,6 +751,12 @@ export function App() {
                 onOpenConversation={openConversation}
                 onNewSessionFlow={() => {
                   setPaletteStep('targets')
+                  setPaletteHost(undefined)
+                  setPaletteOpen(true)
+                }}
+                onNewSessionOnHost={(host) => {
+                  setPaletteStep('targets')
+                  setPaletteHost({ host })
                   setPaletteOpen(true)
                 }}
                 onDeleteSession={deleteSession}
@@ -821,6 +831,7 @@ export function App() {
             setSessionSwitcherOpen(true)
           }}
           initialStep={paletteStep}
+          hostFilter={paletteHost}
           onClose={() => setPaletteOpen(false)}
         />
       )}

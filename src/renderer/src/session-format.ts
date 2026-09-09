@@ -8,6 +8,20 @@ import { normRoot } from './workspace'
 export const sessionActivity = (s: SessionMeta): number =>
   Date.parse(s.lastAttachedAt || s.createdAt)
 
+/** Compact relative time — "now" / "5m" / "3h" / "2d". Terse enough for the
+ *  right edge of a sidebar row; empty for a missing or unparseable timestamp. */
+export const relTime = (ms: number): string => {
+  if (!ms || Number.isNaN(ms)) return ''
+  const diff = Date.now() - ms
+  const m = Math.floor(diff / 60000)
+  if (m < 1) return 'now'
+  if (m < 60) return `${m}m`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h}h`
+  const d = Math.floor(h / 24)
+  return `${d}d`
+}
+
 /** Project display name — the folder basename of a cwd. */
 export const projectLabel = (cwd: string): string => normRoot(cwd).split('/').pop() || cwd
 
