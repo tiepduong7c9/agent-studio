@@ -27,6 +27,7 @@ import {
   libraryRoot,
   listLibrarySkills,
   readLibrarySkill,
+  setSkillActive,
   writeLibraryFile
 } from './skills-library'
 
@@ -353,11 +354,19 @@ export function registerAcpIpc(getWindow: () => BrowserWindow | null): AcpHub {
   // then written into the local library.
   ipcMain.handle(
     'skills:import',
-    async (_e, arg: { host: string | null; scope: SkillScope; dir: string; name: string }) => {
+    async (
+      _e,
+      arg: { host: string | null; scope: SkillScope; dir: string; name: string; active?: boolean }
+    ) => {
       const files = await readSkillFiles(arg)
-      return importIntoLibrary(arg.name, files.files)
+      return importIntoLibrary(arg.name, files.files, arg.active === true)
     }
   )
+
+  // Mark a library skill active (in the curated set offered to projects) or not.
+  ipcMain.handle('skills:setActive', async (_e, arg: { dir: string; active: boolean }) => {
+    await setSkillActive(arg.dir, arg.active)
+  })
 
   // Account + subscription usage for a host's Claude credentials (null host =
   // local). Fetched on the owning engine, so each host reports its own limits.

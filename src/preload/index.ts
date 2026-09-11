@@ -178,7 +178,13 @@ const api = {
       scope: SkillScope
       dir: string
       name: string
+      /** Start the copy in the active set (a duplicate inherits its source's). */
+      active?: boolean
     }): Promise<SkillRef> => ipcRenderer.invoke('skills:import', arg),
+    /** Mark a library skill active — i.e. part of the curated set the session
+     *  Skills tab offers for injection. */
+    setActive: (arg: { dir: string; active: boolean }): Promise<void> =>
+      ipcRenderer.invoke('skills:setActive', arg),
     /** Skills available to a project/session: the host's personal skills plus the
      *  project-level skills under `cwd`. Backs the right panel's Skills tab. */
     forProject: (arg: { host: string | null; cwd: string }): Promise<SkillRef[]> =>

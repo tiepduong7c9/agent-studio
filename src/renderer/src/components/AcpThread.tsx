@@ -7,7 +7,7 @@ import {
   ShieldQuestion, SquarePen, Square, SquareArrowOutUpRight, Terminal, Trash2, Wrench, X, ArrowUp, Zap
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import type { AcpConversation } from '../../../shared/acp'
+import type { AcpConversation, SkillRef } from '../../../shared/acp'
 import { Mermaid, mermaidSource } from './Mermaid'
 import { useAcpStore } from '../acp/store'
 import { useSessionsStore } from '../acp/sessions-store'
@@ -777,6 +777,10 @@ export function AcpThread({ sid, workspace = null, visible = true }: { sid: stri
   const [resuming, setResuming] = useState(false)
   const [cmdOpen, setCmdOpen] = useState(false)
   const [cmdHighlight, setCmdHighlight] = useState(0)
+  // @-mention autosuggest over the skills this session can actually use.
+  const [mentionOpen, setMentionOpen] = useState(false)
+  const [mentionHighlight, setMentionHighlight] = useState(0)
+  const [skills, setSkills] = useState<SkillRef[]>([])
   const scrollRef = useRef<HTMLDivElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
   const stickRef = useRef(true)
@@ -881,6 +885,34 @@ export function AcpThread({ sid, workspace = null, visible = true }: { sid: stri
       .slice(0, 8)
   }, [cmdQuery, commands, recentCommands])
   const showCmd = cmdOpen && cmdQuery != null && cmdSuggestions.length > 0
+
+  // Skill @-mentions: a "@" starting a word, matched on what follows it. Only
+  // skills the agent can actually load are offered — the project's own
+  // .claude/skills plus the host's personal ones — so a mention always resolves.
+  // (Library skills have to be injected first; that's the right panel's job.)
+  const mentionQuery = /(?:^|\s)@([^\s@]*)$/.exec(draft)?.[1]?.toLowerCase() ?? null
+  const mentioning = mentionQuery != null
+  // Loaded lazily, on the first "@" of a typing run rather than per keystroke,
+  // so an untouched composer never costs a host round-trip and a skill injected
+  // a moment ago still shows up.
+  useEffect(() => {
+    if (!mentioning || !cwd) return
+    let cancelled = false
+    window.studio.skills
+      .forProject({ host, cwd })
+      .then((list) => { if (!cancelled) setSkills(list) })
+      .catch(() => { if (!cancelled) setSkills([]) })
+    return () => { cancelled = true }
+  }, [mentioning, host, cwd])
+  const mentionSuggestions = useMemo(() => {
+    if (mentionQuery == null) return []
+    return skills
+      .filter((s) => s.name.toLowerCase().includes(mentionQuery) || s.description.toLowerCase().includes(mentionQuery))
+      // The project's own skills before the host-wide personal ones.
+      .sort((a, b) => (a.scope === b.scope ? a.name.localeCompare(b.name) : a.scope === 'project' ? -1 : 1))
+      .slice(0, 8)
+  }, [mentionQuery, skills])
+  const showMention = mentionOpen && mentionQuery != null && mentionSuggestions.length > 0
 
   // Auto-scroll while parked at the bottom.
   const onScroll = () => {
@@ -1014,6 +1046,21 @@ export function AcpThread({ sid, workspace = null, visible = true }: { sid: stri
     }
   }
 
+  // Insert a skill mention over the "@…" token being typed, leaving the caret
+  // after it so the sentence can carry on.
+  const applyMention = (skill: SkillRef) => {
+    setMentionOpen(false)
+    const text = draft.replace(/@[^\s@]*$/, `@${skill.name} `)
+    setDraft(text)
+    requestAnimationFrame(() => {
+      const el = taRef.current
+      if (!el) return
+      el.focus()
+      el.setSelectionRange(text.length, text.length)
+      autoGrow(el)
+    })
+  }
+
   // Tab completes the command text without submitting, so the user can add
   // arguments and send it themselves. A trailing space is left for typing.
   const completeCommand = (c: AcpCommand) => {
@@ -1074,6 +1121,24 @@ export function AcpThread({ sid, workspace = null, visible = true }: { sid: stri
       <div className="acp-composer">
         <div className="acp-composer-inner">
           {waiting && <div className="acp-waiting"><ShieldQuestion size={12} /> Claude is waiting for your permission above.</div>}
+          {showMention && (
+            <ul className="acp-cmd-suggest" role="listbox">
+              {mentionSuggestions.map((s, i) => (
+                <li
+                  key={s.id}
+                  role="option"
+                  aria-selected={i === mentionHighlight}
+                  className={`acp-cmd-item ${i === mentionHighlight ? 'active' : ''}`}
+                  onMouseDown={(e) => { e.preventDefault(); applyMention(s) }}
+                  onMouseEnter={() => setMentionHighlight(i)}
+                >
+                  <span className="acp-cmd-name">@{s.name}</span>
+                  {s.description && <span className="acp-cmd-desc">{s.description}</span>}
+                  {s.scope === 'host' && <span className="acp-cmd-scope">personal</span>}
+                </li>
+              ))}
+            </ul>
+          )}
           {showCmd && (
             <ul className="acp-cmd-suggest" role="listbox">
               {cmdSuggestions.map((c, i) => (
@@ -1116,10 +1181,19 @@ export function AcpThread({ sid, workspace = null, visible = true }: { sid: stri
               value={draft}
               placeholder="Reply to Claude…"
               onFocus={() => setFocused(true)}
-              onBlur={() => { setFocused(false); setCmdOpen(false) }}
+              onBlur={() => { setFocused(false); setCmdOpen(false); setMentionOpen(false) }}
               onPaste={onPaste}
-              onChange={(e) => { navPos.current = 0; setDraft(e.target.value); autoGrow(e.target); setCmdOpen(true); setCmdHighlight(0) }}
+              onChange={(e) => { navPos.current = 0; setDraft(e.target.value); autoGrow(e.target); setCmdOpen(true); setCmdHighlight(0); setMentionOpen(true); setMentionHighlight(0) }}
               onKeyDown={(e) => {
+                if (showMention) {
+                  const pick = () => mentionSuggestions[Math.min(mentionHighlight, mentionSuggestions.length - 1)]
+                  if (e.key === 'ArrowDown') { e.preventDefault(); setMentionHighlight((h) => (h + 1) % mentionSuggestions.length); return }
+                  if (e.key === 'ArrowUp') { e.preventDefault(); setMentionHighlight((h) => (h - 1 + mentionSuggestions.length) % mentionSuggestions.length); return }
+                  // Enter and Tab both just complete the mention — unlike a slash
+                  // command it's part of a sentence, never the whole prompt.
+                  if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); applyMention(pick()); return }
+                  if (e.key === 'Escape') { e.preventDefault(); setMentionOpen(false); return }
+                }
                 if (showCmd) {
                   if (e.key === 'ArrowDown') { e.preventDefault(); setCmdHighlight((h) => (h + 1) % cmdSuggestions.length); return }
                   if (e.key === 'ArrowUp') { e.preventDefault(); setCmdHighlight((h) => (h - 1 + cmdSuggestions.length) % cmdSuggestions.length); return }

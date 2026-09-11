@@ -22,6 +22,8 @@ interface SkillsState {
   /** Scan connected hosts and mirror new skills into the library. */
   scan: () => Promise<void>
   select: (skill: SkillRef | null) => Promise<void>
+  /** Add/remove a library skill from the curated "active" set. */
+  setActive: (skill: SkillRef, active: boolean) => Promise<void>
 }
 
 export const useSkillsStore = create<SkillsState>((set, get) => ({
@@ -80,6 +82,25 @@ export const useSkillsStore = create<SkillsState>((set, get) => ({
       if (get().selectedId === skill.id) {
         set({ files: { files: [] }, filesLoading: false, error: err?.message || String(err) })
       }
+    }
+  },
+
+  setActive: async (skill, active) => {
+    // Optimistic: the toggle is a checkbox, so it has to feel instant. A failed
+    // write reverts by reloading the library, which is the source of truth.
+    const flip = (value: boolean) =>
+      set((state) => ({
+        listing: {
+          ...state.listing,
+          skills: state.listing.skills.map((s) => (s.id === skill.id ? { ...s, active: value } : s))
+        }
+      }))
+    flip(active)
+    try {
+      await window.studio.skills.setActive({ dir: skill.dir, active })
+    } catch (err: any) {
+      set({ error: err?.message || String(err) })
+      await get().refresh()
     }
   }
 }))

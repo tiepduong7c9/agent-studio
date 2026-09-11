@@ -152,6 +152,9 @@ export interface SkillRef {
   resources: { rel: string; size: number }[]
   mtime: number
   invalid?: boolean
+  /** Library skills only: in the curated "active" set, i.e. the subset offered
+   *  for injection in a session's Skills tab. Absent/false for host sources. */
+  active?: boolean
 }
 
 /** One file within a skill: `text` for text files, `base64` for binary ones. */
