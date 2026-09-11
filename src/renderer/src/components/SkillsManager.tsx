@@ -44,6 +44,8 @@ interface SkillEntry {
   /** The representative source shown by default (library > local > remote). */
   rep: SkillRef
   invalid: boolean
+  /** In the curated set offered to projects (see the Active group in the rail). */
+  active: boolean
 }
 
 // The name/description already appear in the header, so drop the leading
@@ -68,7 +70,7 @@ function sourceRank(s: SkillRef): number {
 }
 
 export function SkillsManager({ remoteHosts, engineStatus, onReconnectRemote, onClose }: Props) {
-  const { listing, loading, scanning, error, selectedId, files, filesLoading, refresh, scan, select } =
+  const { listing, loading, scanning, error, selectedId, files, filesLoading, refresh, scan, select, setActive } =
     useSkillsStore()
   const [activeFile, setActiveFile] = useState<string>('SKILL.md')
   // Markdown content defaults to the rendered preview; toggles to raw source.
@@ -120,10 +122,21 @@ export function SkillsManager({ remoteHosts, engineStatus, onReconnectRemote, on
     return [...byName.entries()]
       .map(([name, sources]) => {
         sources.sort((a, b) => sourceRank(a) - sourceRank(b))
-        return { name, sources, rep: sources[0], invalid: sources.every((s) => s.invalid) }
+        return {
+          name,
+          sources,
+          rep: sources[0],
+          invalid: sources.every((s) => s.invalid),
+          active: sources.some((s) => s.active)
+        }
       })
       .sort((a, b) => a.name.localeCompare(b.name))
   }, [listing.skills])
+
+  // The rail is split in two: the curated Active set on top (what a session's
+  // Skills tab offers for injection), everything else below.
+  const activeEntries = useMemo(() => entries.filter((e) => e.active), [entries])
+  const restEntries = useMemo(() => entries.filter((e) => !e.active), [entries])
 
   const selected = useMemo(
     () => listing.skills.find((s) => s.id === selectedId) ?? null,
@@ -204,7 +217,8 @@ export function SkillsManager({ remoteHosts, engineStatus, onReconnectRemote, on
         host: src.host ?? null,
         scope: src.scope,
         dir: src.dir,
-        name
+        name,
+        active: src.active === true
       })
       pushToast('info', `Duplicated as "${ref.name}"`)
       return ref
@@ -250,6 +264,64 @@ export function SkillsManager({ remoteHosts, engineStatus, onReconnectRemote, on
     } catch {
       pushToast('danger', 'Could not copy the path')
     }
+  }
+
+  // One rail row: the checkbox that puts the skill in (or out of) the active set,
+  // the name, and — when selected — its files nested underneath.
+  const renderEntry = (e: SkillEntry) => {
+    const isSelected = selectedEntry?.name === e.name
+    return (
+      <div key={e.name}>
+        <div className={`skills-row-wrap ${isSelected ? 'selected' : ''}`}>
+          <input
+            type="checkbox"
+            className="skills-active-check"
+            checked={e.active}
+            onChange={(ev) => void setActive(e.rep, ev.target.checked)}
+            title={
+              e.active
+                ? 'Active — offered to projects in the session Skills tab'
+                : 'Mark active so projects can inject it'
+            }
+          />
+          <button
+            className="skills-row"
+            onClick={() => void select(e.rep)}
+            title={e.rep.description || e.name}
+          >
+            <span className="codicon codicon-lightbulb skills-row-icon" />
+            <span className="skills-row-name">{e.name}</span>
+            {e.invalid && (
+              <span className="codicon codicon-error skills-row-warn" title="Missing frontmatter" />
+            )}
+          </button>
+        </div>
+        {/* The selected skill's files (SKILL.md + resources) nest here. */}
+        {isSelected && (files?.files.length ?? 0) > 1 && (
+          <div className="skills-file-list">
+            {files!.files.map((f) => {
+              const slash = f.rel.lastIndexOf('/')
+              const dir = slash < 0 ? '' : f.rel.slice(0, slash + 1)
+              const base = slash < 0 ? f.rel : f.rel.slice(slash + 1)
+              return (
+                <button
+                  key={f.rel}
+                  className={`skills-file ${activeFile === f.rel ? 'selected' : ''}`}
+                  onClick={() => setActiveFile(f.rel)}
+                  title={f.rel}
+                >
+                  <span className="codicon codicon-file skills-file-icon" />
+                  <span className="skills-file-name">
+                    {dir && <span className="skills-file-dir">{dir}</span>}
+                    {base}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    )
   }
 
   return (
@@ -301,51 +373,26 @@ export function SkillsManager({ remoteHosts, engineStatus, onReconnectRemote, on
                 {scanning || loading ? 'Scanning…' : 'Library empty — Scan to collect skills'}
               </div>
             ) : (
-              entries.map((e) => {
-                const isSelected = selectedEntry?.name === e.name
-                return (
-                  <div key={e.name}>
-                    <button
-                      className={`skills-row ${isSelected ? 'selected' : ''}`}
-                      onClick={() => void select(e.rep)}
-                      title={e.rep.description || e.name}
-                    >
-                      <span className="codicon codicon-lightbulb skills-row-icon" />
-                      <span className="skills-row-name">{e.name}</span>
-                      {e.invalid && (
-                        <span
-                          className="codicon codicon-error skills-row-warn"
-                          title="Missing frontmatter"
-                        />
-                      )}
-                    </button>
-                    {/* The selected skill's files (SKILL.md + resources) nest here. */}
-                    {isSelected && (files?.files.length ?? 0) > 1 && (
-                      <div className="skills-file-list">
-                        {files!.files.map((f) => {
-                          const slash = f.rel.lastIndexOf('/')
-                          const dir = slash < 0 ? '' : f.rel.slice(0, slash + 1)
-                          const base = slash < 0 ? f.rel : f.rel.slice(slash + 1)
-                          return (
-                            <button
-                              key={f.rel}
-                              className={`skills-file ${activeFile === f.rel ? 'selected' : ''}`}
-                              onClick={() => setActiveFile(f.rel)}
-                              title={f.rel}
-                            >
-                              <span className="codicon codicon-file skills-file-icon" />
-                              <span className="skills-file-name">
-                                {dir && <span className="skills-file-dir">{dir}</span>}
-                                {base}
-                              </span>
-                            </button>
-                          )
-                        })}
-                      </div>
-                    )}
+              <>
+                <div className="skills-group-label">
+                  Active <span className="skills-group-count">{activeEntries.length}</span>
+                </div>
+                {activeEntries.length === 0 ? (
+                  <div className="skills-empty">
+                    None yet — tick a skill to offer it to your projects
                   </div>
-                )
-              })
+                ) : (
+                  activeEntries.map(renderEntry)
+                )}
+                {restEntries.length > 0 && (
+                  <>
+                    <div className="skills-group-label">
+                      Collected <span className="skills-group-count">{restEntries.length}</span>
+                    </div>
+                    {restEntries.map(renderEntry)}
+                  </>
+                )}
+              </>
             )}
 
             {disconnected.length > 0 && (

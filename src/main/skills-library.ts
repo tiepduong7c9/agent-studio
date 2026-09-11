@@ -56,6 +56,40 @@ export async function addCollectedKeys(keys: string[]): Promise<void> {
   await fsp.writeFile(ledgerPath(), JSON.stringify([...set], null, 2), 'utf8')
 }
 
+// The curated "active" set: library skills the user has picked out as the ones
+// worth offering to projects. A scan collects everything it finds, so the
+// library gets large and mostly irrelevant; the active set is the small subset
+// the session Skills tab offers for injection. Stored as folder names (not
+// absolute paths) so the set survives the library moving.
+function activePath(): string {
+  return path.join(app.getPath('userData'), 'skills-active.json')
+}
+
+/** Folder names of the library skills currently marked active. */
+export async function getActiveNames(): Promise<Set<string>> {
+  try {
+    const parsed = JSON.parse(await fsp.readFile(activePath(), 'utf8'))
+    return new Set(Array.isArray(parsed) ? (parsed as string[]) : [])
+  } catch {
+    return new Set()
+  }
+}
+
+async function writeActiveNames(names: Set<string>): Promise<void> {
+  await fsp.mkdir(path.dirname(activePath()), { recursive: true })
+  await fsp.writeFile(activePath(), JSON.stringify([...names].sort(), null, 2), 'utf8')
+}
+
+/** Add/remove one library skill (by its directory) from the active set. */
+export async function setSkillActive(dir: string, active: boolean): Promise<void> {
+  assertInLibrary(dir)
+  const name = path.basename(path.resolve(dir))
+  const names = await getActiveNames()
+  if (active) names.add(name)
+  else names.delete(name)
+  await writeActiveNames(names)
+}
+
 async function readHeadBuffer(file: string, bytes: number): Promise<Buffer> {
   const fd = await fsp.open(file, 'r')
   try {
@@ -142,6 +176,7 @@ export async function listLibrarySkills(): Promise<SkillRef[]> {
   } catch {
     return []
   }
+  const active = await getActiveNames()
   const skills: SkillRef[] = []
   for (const d of dirs) {
     if (!d.isDirectory()) continue
@@ -171,7 +206,8 @@ export async function listLibrarySkills(): Promise<SkillRef[]> {
       dir,
       resources: await walkResources(dir),
       mtime: stat.mtimeMs,
-      invalid
+      invalid,
+      active: active.has(d.name)
     })
   }
   skills.sort((a, b) => a.name.localeCompare(b.name))
@@ -242,7 +278,13 @@ export async function libraryHasSkill(name: string): Promise<boolean> {
   }
 }
 
-function refFor(dir: string, name: string, description: string, mtime: number): SkillRef {
+function refFor(
+  dir: string,
+  name: string,
+  description: string,
+  mtime: number,
+  active = false
+): SkillRef {
   return {
     id: `local:library:${dir}`,
     name,
@@ -251,7 +293,8 @@ function refFor(dir: string, name: string, description: string, mtime: number): 
     host: null,
     dir,
     resources: [],
-    mtime
+    mtime,
+    active
   }
 }
 
@@ -267,7 +310,10 @@ export async function createLibrarySkill(name: string, description = ''): Promis
     `# ${clean}\n\nDescribe what this skill does and when to use it.\n`
   await fsp.writeFile(path.join(dir, 'SKILL.md'), body, 'utf8')
   const stat = await fsp.stat(path.join(dir, 'SKILL.md'))
-  return refFor(dir, clean, description, stat.mtimeMs)
+  // A hand-authored skill was made deliberately, so it starts active; skills
+  // pulled in by a Scan don't (that's the whole point of the active set).
+  await setSkillActive(dir, true)
+  return refFor(dir, clean, description, stat.mtimeMs, true)
 }
 
 // Reject a resource path that would escape the skill directory.
@@ -297,12 +343,17 @@ export async function deleteLibrarySkill(dir: string): Promise<void> {
     throw new Error('Not a library skill directory')
   }
   await fsp.rm(resolved, { recursive: true, force: true })
+  await setSkillActive(resolved, false).catch(() => {})
 }
 
 /** Copy a skill's files into the library under `name`, creating the folder.
  *  Backs both "import" (collect from a host/project) and "duplicate". Throws if
  *  the name is taken. `files` come from readSkill/readLibrarySkill. */
-export async function importIntoLibrary(name: string, files: SkillFile[]): Promise<SkillRef> {
+export async function importIntoLibrary(
+  name: string,
+  files: SkillFile[],
+  active = false
+): Promise<SkillRef> {
   const clean = sanitizeName(name)
   const dir = path.join(libraryRoot(), clean)
   if (await exists(dir)) throw new Error(`A library skill named "${clean}" already exists`)
@@ -320,6 +371,7 @@ export async function importIntoLibrary(name: string, files: SkillFile[]): Promi
     }
   }
   const stat = await fsp.stat(dir)
+  if (active) await setSkillActive(dir, true)
   // Description is re-derived on the next scan; leave empty here.
-  return refFor(dir, clean, '', stat.mtimeMs)
+  return refFor(dir, clean, '', stat.mtimeMs, active)
 }
