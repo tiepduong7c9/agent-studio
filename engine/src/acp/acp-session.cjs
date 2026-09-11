@@ -292,9 +292,14 @@ class AcpSession {
       // AskUserQuestion (and MCP server elicitations) surface here as a form the
       // user fills in. Advertised via clientCapabilities.elicitation.form below;
       // without that capability the adapter disables AskUserQuestion entirely.
+      // acp sdk 1.4 dropped the `unstable_` prefix on the legacy client hooks and
+      // only registers `elicitation/create` when the name it looks for is present,
+      // so keep both spellings until the floor is 1.4.
+      createElicitation: async (params) => this._onElicitation(params),
       unstable_createElicitation: async (params) => this._onElicitation(params),
       // Only fires for url-mode elicitations, which we don't advertise — kept as
       // a no-op so the adapter never invokes an undefined client method.
+      completeElicitation: async () => {},
       unstable_completeElicitation: async () => {},
       // Adapter-forwarded raw SDK messages (session_state_changed + the task_*
       // lifecycle, via SDK_STATE_FILTER). This is the authoritative status signal
