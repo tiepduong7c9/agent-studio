@@ -12,7 +12,7 @@ import { Mermaid, mermaidSource } from './Mermaid'
 import { useAcpStore } from '../acp/store'
 import { useSessionsStore } from '../acp/sessions-store'
 import { useViewPrefsStore } from '../view-prefs-store'
-import { buildThread, modelLabel, recapOf, textOf, type ThreadItem } from '../acp/buildThread'
+import { buildThread, isToolRunning, modelLabel, recapOf, textOf, type ThreadItem } from '../acp/buildThread'
 import type {
   AcpCommand, AcpEffortState, AcpElicitationRequest, AcpElicitationResponse, AcpElicitationValue,
   AcpEnumOption, AcpModeState, AcpModelInfo, AcpModelState, AcpToolContent
@@ -308,7 +308,7 @@ function ToolStatus({ status }: { status: string }) {
 function ToolCard({ item }: { item: Extract<ThreadItem, { kind: 'tool' }> }) {
   const [open, setOpen] = useState(false)
   const hasContent = item.content.some((c) => c.type === 'diff' || textOf(c.content))
-  const running = item.status !== 'completed' && item.status !== 'failed' && item.status !== 'cancelled'
+  const running = isToolRunning(item.status)
   const { Icon } = toolMeta(item.toolKind)
   const title = useMemo(() => displayTitle(item.toolKind, item.title), [item.toolKind, item.title])
   const stat = useMemo(() => diffStat(item.content), [item.content])

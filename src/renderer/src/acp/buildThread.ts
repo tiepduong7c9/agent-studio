@@ -20,6 +20,11 @@ export type ThreadItem =
   | { kind: 'interrupted'; id: string }
   | { kind: 'error'; id: string; message: string }
 
+/** A tool card animates until its status settles; everything else reads as running. */
+export function isToolRunning(status: string): boolean {
+  return status !== 'completed' && status !== 'failed' && status !== 'cancelled'
+}
+
 export function textOf(c: AcpContentBlock | undefined): string {
   if (!c) return ''
   if (typeof (c as { text?: unknown }).text === 'string') return (c as { text: string }).text
@@ -42,6 +47,17 @@ export function buildThread(events: AcpEvent[]): ThreadItem[] {
   const items: ThreadItem[] = []
   const toolIndex = new Map<string, number>()
   let planIndex = -1
+
+  // A turn that was interrupted (or blew up) may never deliver the terminal
+  // tool_call_update for whatever was in flight, which would leave those cards
+  // animating forever. Settle them when the turn ends. A trailing update that
+  // does arrive later still patches the card back to its real status.
+  const settleOpenTools = (): void => {
+    for (const idx of toolIndex.values()) {
+      const it = items[idx]
+      if (it && it.kind === 'tool' && isToolRunning(it.status)) it.status = 'cancelled'
+    }
+  }
 
   events.forEach((e, i) => {
     if (e.type === 'acp_user') {
@@ -91,10 +107,14 @@ export function buildThread(events: AcpEvent[]): ThreadItem[] {
     } else if (e.type === 'acp_elicitation') {
       items.push({ kind: 'elicitation', id: `elicit${i}`, requestId: e.requestId, request: e.request, resolved: e.resolved })
     } else if (e.type === 'acp_stop') {
-      if (e.stopReason && /cancel/i.test(e.stopReason)) items.push({ kind: 'interrupted', id: `stop${i}` })
+      if (e.stopReason && /cancel/i.test(e.stopReason)) {
+        settleOpenTools()
+        items.push({ kind: 'interrupted', id: `stop${i}` })
+      }
     } else if (e.type === 'acp_notice') {
       items.push({ kind: 'notice', id: `notice${i}`, text: e.text, notice: e.notice })
     } else if (e.type === 'acp_error') {
+      settleOpenTools()
       items.push({ kind: 'error', id: `err${i}`, message: e.message })
     }
   })
