@@ -573,7 +573,9 @@ export function SessionsPanel({
     return { pinned, needs, working, later, idle, parked, convs }
   }, [sessions, projects, pinnedSessions, doneSessions, unreadSessions])
 
-  // Search: free-text across the whole list, matching title / project / host.
+  // Search: free-text across the whole list, matching title / project path /
+  // host. The whole cwd is searched, not just its basename, so a repo name
+  // pulls up its worktrees too ("caredocs" finds caredocs/pr4161).
   const [searchOpen, setSearchOpen] = useState(false)
   const [query, setQuery] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
@@ -584,7 +586,7 @@ export function SessionsPanel({
   const searching = q.length > 0
   const matchesSession = (s: SessionMeta): boolean =>
     !searching ||
-    [s.name, projectLabel(s.cwd), hostLabel(s.host)].some((t) => t.toLowerCase().includes(q)) ||
+    [s.name, s.cwd, hostLabel(s.host)].some((t) => t.toLowerCase().includes(q)) ||
     // Captured PR / ticket ids and their badge labels are searchable too, so a
     // session can be found by "123", "#123", or "WOLF-45".
     capturesFor(s.id).some((c) => c.id.toLowerCase().includes(q) || c.label.toLowerCase().includes(q)) ||
@@ -650,7 +652,7 @@ export function SessionsPanel({
       r.kind === 'live'
         ? matchesSession(r.s)
         : r.kind === 'conv'
-          ? matchesText(r.conv.title, r.project.name, hostLabel(r.project.host))
+          ? matchesText(r.conv.title, r.project.cwd, hostLabel(r.project.host))
           : matchesText(r.name, hostLabel(r.host))
 
     // Pinned live sessions + offline-pinned placeholders (host disconnected).
