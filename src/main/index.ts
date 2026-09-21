@@ -17,6 +17,18 @@ import icon from '../../resources/icon.png?asset'
 // The studio-media:// streaming scheme must be declared before app `ready`.
 registerMediaScheme()
 
+// GNOME takes an app's taskbar/dock icon from the .desktop file it can match
+// the window to, never from the window itself. On Wayland that match is the
+// xdg-shell app_id, which Electron only sets from CHROME_DESKTOP (empty
+// otherwise, so nothing matches and the shell falls back to a generic icon).
+// setDesktopName sets that variable; it has to run before the first window is
+// created, since the app_id is read in the window constructor. The packaged
+// deb/rpm install `agent-studio.desktop`; for a dev run, install
+// ~/.local/share/applications/agent-studio.desktop.
+if (process.platform === 'linux') {
+  app.setDesktopName('agent-studio.desktop')
+}
+
 let mainWindow: BrowserWindow | null = null
 let disposeAcp: (() => void) | null = null
 let disposeTerminals: (() => void) | null = null
@@ -48,11 +60,9 @@ function createWindow(): void {
   })
 
   // Belt-and-suspenders for the window icon on X11 sessions, where the
-  // constructor `icon` option alone is unreliable. Note: on a GNOME/Wayland
-  // session (this app runs via XWayland) neither sets the taskbar/dock icon —
-  // GNOME takes that from a .desktop file matched to WM_CLASS ("agent-studio")
-  // via StartupWMClass. The packaged AppImage ships one (build/icon.png); for a
-  // dev run, install ~/.local/share/applications/agent-studio.desktop.
+  // constructor `icon` option alone is unreliable. Neither has any effect on a
+  // Wayland session — see the setDesktopName call above for how the icon is
+  // resolved there (and via StartupWMClass on X11, set in package.json).
   mainWindow.setIcon(icon)
 
   mainWindow.on('closed', () => {
