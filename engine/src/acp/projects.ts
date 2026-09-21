@@ -32,6 +32,31 @@ function firstHumanText(content: any): string | null {
   return null;
 }
 
+// Flatten a user message's text blocks, wrappers included — used to look for the
+// command envelope, which firstHumanText deliberately throws away.
+function allText(content: any): string {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content
+      .filter((b) => b && b.type === 'text' && typeof b.text === 'string')
+      .map((b) => b.text)
+      .join('\n');
+  }
+  return '';
+}
+
+// A session opened with a slash command (/pr-review 4161) never has a typed
+// prompt: its first turn is the command envelope, which firstHumanText skips,
+// so the row would otherwise be untitled. Title it by the command instead —
+// that's also what makes it findable by search.
+function commandTitle(content: any): string | null {
+  const text = allText(content);
+  const name = /<command-name>([^<]+)<\/command-name>/.exec(text)?.[1]?.trim();
+  if (!name) return null;
+  const args = /<command-args>([^<]*)<\/command-args>/.exec(text)?.[1]?.trim();
+  return `/${name.replace(/^\//, '')}${args ? ` ${args}` : ''}`.replace(/\s+/g, ' ').slice(0, 80);
+}
+
 async function readHead(file: string, bytes: number): Promise<string> {
   let fd: fs.promises.FileHandle | undefined;
   try {
@@ -48,12 +73,14 @@ interface HeadInfo {
   cwd: string | null;
   /** summary / first-human-text fallback title. */
   fallbackTitle: string | null;
+  /** Slash command that opened the session — last-resort title. */
+  commandTitle: string | null;
   /** ai-title lines found in this head, keyed by their sessionId. */
   aiTitles: Map<string, string>;
 }
 
 function parseHead(text: string): HeadInfo {
-  const info: HeadInfo = { cwd: null, fallbackTitle: null, aiTitles: new Map() };
+  const info: HeadInfo = { cwd: null, fallbackTitle: null, commandTitle: null, aiTitles: new Map() };
   const lines = text.split('\n');
   // Drop the trailing line — the head read may have cut it mid-JSON.
   if (lines.length > 1) lines.pop();
@@ -63,9 +90,15 @@ function parseHead(text: string): HeadInfo {
     try { o = JSON.parse(line); } catch { continue; }
     if (!info.cwd && typeof o.cwd === 'string' && o.cwd) info.cwd = o.cwd;
     if (o.type === 'ai-title' && o.sessionId && o.aiTitle) info.aiTitles.set(o.sessionId, String(o.aiTitle));
+    if (o.type === 'user' && o.message && !info.commandTitle) {
+      info.commandTitle = commandTitle(o.message.content);
+    }
     if (!info.fallbackTitle) {
       if (o.type === 'summary' && o.summary) info.fallbackTitle = String(o.summary).replace(/\s+/g, ' ').slice(0, 80);
-      else if (o.type === 'user' && o.message) {
+      // isMeta turns are harness-injected (the local-command caveat, a skill's
+      // "Base directory for this skill: …" preamble) — plain text, so the '<'
+      // rule doesn't catch them, and they'd title every skill run identically.
+      else if (o.type === 'user' && o.message && o.isMeta !== true) {
         const t = firstHumanText(o.message.content);
         if (t) info.fallbackTitle = t.replace(/\s+/g, ' ').slice(0, 80);
       }
@@ -109,7 +142,7 @@ async function scanProject(dir: string): Promise<ProjectConversations | null> {
 
   const conversations: AcpConversation[] = scanned.map((s) => ({
     sessionId: s.sessionId,
-    title: aiTitles.get(s.sessionId) ?? s.head.fallbackTitle,
+    title: aiTitles.get(s.sessionId) ?? s.head.fallbackTitle ?? s.head.commandTitle,
     mtime: s.mtime,
   }));
   conversations.sort((a, b) => b.mtime - a.mtime);

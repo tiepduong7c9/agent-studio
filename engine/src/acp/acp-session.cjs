@@ -1137,6 +1137,31 @@ class AcpSession {
     return '';
   }
 
+  // Flatten a user message's text blocks, wrappers included — used to look for
+  // the command envelope, which _firstHumanText deliberately throws away.
+  static _allText(content) {
+    if (typeof content === 'string') return content;
+    if (Array.isArray(content)) {
+      return content
+        .filter((b) => b && b.type === 'text' && typeof b.text === 'string')
+        .map((b) => b.text)
+        .join('\n');
+    }
+    return '';
+  }
+
+  // A session opened with a slash command (/pr-review 4161) never has a typed
+  // prompt: its first turn is the command envelope, which _firstHumanText
+  // skips. Title it by the command so the row isn't blank.
+  static _commandTitle(content) {
+    const text = AcpSession._allText(content);
+    const name = /<command-name>([^<]+)<\/command-name>/.exec(text);
+    if (!name) return null;
+    const args = /<command-args>([^<]*)<\/command-args>/.exec(text);
+    const arg = args ? args[1].trim() : '';
+    return `/${name[1].trim().replace(/^\//, '')}${arg ? ` ${arg}` : ''}`.replace(/\s+/g, ' ').slice(0, 80);
+  }
+
   // Read just the head of a log to derive a human title (first real user line).
   async _readTitle(file) {
     let fd;
@@ -1148,16 +1173,23 @@ class AcpSession {
       const buf = Buffer.alloc(262144);
       const { bytesRead } = await fd.read(buf, 0, buf.length, 0);
       const text = buf.slice(0, bytesRead).toString('utf8');
+      let command = null;
       for (const line of text.split('\n')) {
         if (!line.trim()) continue;
         let o;
         try { o = JSON.parse(line); } catch (_) { continue; }
         if (o.type === 'summary' && o.summary) return String(o.summary).slice(0, 80);
         if (o.type === 'user' && o.message) {
+          if (!command) command = AcpSession._commandTitle(o.message.content);
+          // isMeta turns are harness-injected (the local-command caveat, a
+          // skill's "Base directory for this skill: …" preamble) — plain text,
+          // so the '<' rule misses them and every skill run reads the same.
+          if (o.isMeta === true) continue;
           const t = AcpSession._firstHumanText(o.message.content);
           if (t) return t.replace(/\s+/g, ' ').slice(0, 80);
         }
       }
+      if (command) return command;
     } catch (_) {
       // ignore — title is best-effort
     } finally {
