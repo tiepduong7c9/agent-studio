@@ -63,12 +63,18 @@
       "category": "Development",
       "executableArgs": [
         "--ozone-platform-hint=wayland"
-      ]
+      ],
+      "desktop": {
+        "entry": {
+          "StartupWMClass": "agent-studio"
+        }
+      }
     },
     "win": {
       "target": [
         "nsis"
-      ]
+      ],
+      "icon": "build/icons/256x256.png"
     },
     "nsis": {
       "oneClick": false,
