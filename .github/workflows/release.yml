@@ -10,12 +10,17 @@ permissions:
 
 jobs:
   release:
+    name: ${{ matrix.name }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest    # AppImage, deb, rpm
-          - os: windows-latest   # nsis .exe
+          - name: linux-x64
+            os: ubuntu-latest        # AppImage, deb, rpm (x86_64)
+          - name: linux-arm64
+            os: ubuntu-24.04-arm     # AppImage, deb, rpm (aarch64)
+          - name: windows-x64
+            os: windows-latest       # nsis .exe
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
