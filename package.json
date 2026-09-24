@@ -70,6 +70,12 @@
         }
       }
     },
+    "rpm": {
+      "fpm": [
+        "--rpm-posttrans",
+        "build/linux/rpm-posttrans.sh"
+      ]
+    },
     "win": {
       "target": [
         "nsis"
