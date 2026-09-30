@@ -38,11 +38,13 @@ interface Props {
   onBrowseLocal: () => void
   /** Open the session switcher (Ctrl/Cmd+E) to jump to an existing session. */
   onGoToSession: () => void
+  /** Open the full-window sessions board (Ctrl/Cmd+Shift+B). */
+  onOpenBoard: () => void
   /** Which step to open on: 'commands' (default) or straight into 'targets'
    *  (the New Session project picker), e.g. from the sidebar's + button. */
   initialStep?: 'commands' | 'targets'
   /** Narrow the target list to one host, when the caller has already chosen
-   *  where the session should run (the sidebar's hosts strip). Wrapped in an
+   *  where the session should run (a host column on the sessions board). Wrapped in an
    *  object so `{ host: null }` — the local machine — stays distinct from
    *  "no filter". */
   hostFilter?: { host: string | null }
@@ -60,6 +62,7 @@ export function CommandPalette({
   onCreateSession,
   onBrowseLocal,
   onGoToSession,
+  onOpenBoard,
   initialStep = 'commands',
   hostFilter,
   onClose
@@ -100,8 +103,15 @@ export function CommandPalette({
         run: onGoToSession
       })
     }
+    items.push({
+      key: 'open-board',
+      icon: 'editor-layout',
+      label: 'Open Sessions Board',
+      detail: 'Every host and session side by side (Ctrl/Cmd+Shift+B)',
+      run: onOpenBoard
+    })
     return items
-  }, [sessions, onGoToSession])
+  }, [sessions, onGoToSession, onOpenBoard])
 
   const targets = useMemo<PaletteItem[]>(() => {
     const items: PaletteItem[] = []

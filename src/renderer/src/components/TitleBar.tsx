@@ -1,3 +1,4 @@
+import { SquareKanban } from 'lucide-react'
 import type { ProjectInfo } from '../../../shared/types'
 import { ThemePicker } from './ThemePicker'
 
@@ -7,6 +8,8 @@ interface Props {
   rightVisible: boolean
   onToggleLeft: () => void
   onToggleRight: () => void
+  boardOpen: boolean
+  onToggleBoard: () => void
 }
 
 export function TitleBar({
@@ -14,7 +17,9 @@ export function TitleBar({
   leftVisible,
   rightVisible,
   onToggleLeft,
-  onToggleRight
+  onToggleRight,
+  boardOpen,
+  onToggleBoard
 }: Props) {
   const project = activeWorkspace
   return (
@@ -25,6 +30,17 @@ export function TitleBar({
           title="Toggle Left Panel"
           onClick={onToggleLeft}
         />
+        {/* Labelled, not icon-only: the board is a primary view, so it should be
+            findable at a glance and reachable even with the sidebar hidden. */}
+        <button
+          className={`titlebar-board ${boardOpen ? 'active' : ''}`}
+          title={`${boardOpen ? 'Close' : 'Open'} Sessions Board (Ctrl+Shift+B)`}
+          aria-pressed={boardOpen}
+          onClick={onToggleBoard}
+        >
+          <SquareKanban size={15} strokeWidth={2} />
+          <span>Board</span>
+        </button>
       </div>
       <div className="titlebar-center">
         <span className="icon-button codicon codicon-arrow-left nav-arrow" />

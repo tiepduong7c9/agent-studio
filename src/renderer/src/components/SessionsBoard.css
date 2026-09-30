@@ -1,0 +1,328 @@
+/* ── Sessions board ────────────────────────────────────
+   Full-window overlay over the panels: a toolbar, then one column per host
+   scrolling sideways. Lane colours match the sidebar's signals — blue running,
+   amber needs you, purple scheduled, grey idle. */
+.sessions-board {
+  --board-running: var(--vscode-charts-blue, #3794ff);
+  --board-needs: var(--vscode-charts-orange, #d18616);
+  --board-scheduled: var(--vscode-charts-purple, #b180d7);
+  --board-idle: var(--vscode-descriptionForeground);
+  --board-online: var(--vscode-charts-green, #3fb950);
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--vscode-editor-background);
+}
+
+.board-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  height: 48px;
+  padding: 0 16px 0 20px;
+  border-bottom: 1px solid var(--vscode-panel-border, var(--vscode-widget-border, transparent));
+  background: var(--vscode-sideBar-background);
+}
+.board-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+.board-summary {
+  display: flex;
+  gap: 14px;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12.5px;
+  color: var(--vscode-foreground);
+  white-space: nowrap;
+}
+.board-summary-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.board-summary-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.board-summary-item.lane-running .board-summary-dot { color: var(--board-running); }
+.board-summary-item.lane-needs .board-summary-dot { color: var(--board-needs); }
+.board-summary-item.lane-scheduled .board-summary-dot { color: var(--board-scheduled); }
+.board-summary-item.lane-idle .board-summary-dot { color: var(--board-idle); opacity: 0.6; }
+
+/* Segmented filter: All / Active only / Needs me. */
+.board-filters {
+  display: flex;
+  flex-shrink: 0;
+  padding: 2px;
+  border-radius: 6px;
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.15));
+}
+.board-filter {
+  padding: 3px 10px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--vscode-descriptionForeground);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.board-filter:hover { color: var(--vscode-foreground); }
+.board-filter.active {
+  background: var(--vscode-editor-background);
+  color: var(--vscode-foreground);
+  font-weight: 600;
+  box-shadow: 0 0 0 0.5px var(--vscode-widget-border, rgba(128, 128, 128, 0.35));
+}
+.board-search {
+  flex: 0 1 220px;
+  min-width: 120px;
+}
+.board-new { flex-shrink: 0; }
+.board-close {
+  flex-shrink: 0;
+  font-size: 16px;
+  padding: 3px;
+  border-radius: 4px;
+}
+.board-close:hover { background: var(--vscode-toolbar-hoverBackground); }
+
+/* Columns scroll sideways as a row; each column scrolls its own cards. */
+.board-columns {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  flex: 1;
+  min-height: 0;
+  padding: 16px 20px;
+  overflow: auto;
+}
+.board-column {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 300px;
+  max-height: 100%;
+  min-height: 0;
+}
+.board-column-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 4px;
+  min-width: 0;
+}
+.board-column-icon {
+  font-size: 15px;
+  color: var(--vscode-icon-foreground);
+}
+.board-column-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 600;
+}
+.board-column-dot {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--board-online);
+}
+.board-column.reconnecting .board-column-dot {
+  background: var(--vscode-editorWarning-foreground, #cca700);
+  animation: acp-dot-pulse 1.4s ease-out infinite;
+}
+.board-column.offline .board-column-dot { background: var(--board-idle); opacity: 0.6; }
+.board-column-count {
+  margin-left: auto;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--vscode-descriptionForeground);
+}
+.board-column-menu {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 4px;
+  font-size: 14px;
+  color: var(--vscode-descriptionForeground);
+}
+.board-column-menu:hover {
+  color: var(--vscode-foreground);
+  background: var(--vscode-toolbar-hoverBackground);
+}
+.board-column-summary {
+  padding: 6px 4px 10px;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+}
+.board-column-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 1px;
+}
+.board-column.offline .board-column-head,
+.board-column.offline .board-column-summary,
+.board-column.offline .board-card {
+  opacity: 0.6;
+}
+.board-column-empty {
+  padding: 10px 4px;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--vscode-descriptionForeground);
+}
+
+.board-card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex-shrink: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border, rgba(128, 128, 128, 0.25)));
+  border-radius: 7px;
+  background: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
+  cursor: pointer;
+  outline: none;
+}
+.board-card:hover {
+  border-color: color-mix(in srgb, var(--vscode-foreground) 30%, transparent);
+}
+.board-card:focus-visible { border-color: var(--vscode-focusBorder); }
+.board-card.lane-running { border-color: color-mix(in srgb, var(--board-running) 60%, transparent); }
+/* Blocked on you: the one card that should pull the eye. */
+.board-card.asking {
+  border-color: color-mix(in srgb, var(--board-needs) 55%, transparent);
+  background: color-mix(in srgb, var(--board-needs) 10%, var(--vscode-editorWidget-background, transparent));
+}
+.board-card.active { box-shadow: 0 0 0 1px var(--vscode-focusBorder); }
+.board-card.suspended { opacity: 0.75; }
+
+.board-card-title-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+/* Titles wrap to two lines — a column is narrow, and the title is what a card
+   is recognised by. */
+.board-card-title {
+  flex: 1;
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 13.5px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.board-card-title-line .acp-session-badges { margin-top: 1px; }
+.board-card-schedule {
+  display: inline-flex;
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--board-scheduled);
+}
+
+.board-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+}
+.board-card-project {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.board-card-project .codicon { font-size: 13px; flex-shrink: 0; }
+.board-card-project-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.board-card-time {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+.board-card-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.board-card-status-dot {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: currentColor;
+}
+.board-card-status.running { color: var(--board-running); }
+.board-card-status.running .board-card-status-dot { animation: acp-dot-pulse 1.4s ease-out infinite; }
+.board-card-status.needs { color: var(--board-needs); }
+.board-card-status.done { color: var(--board-running); }
+.board-card-status.scheduled { color: var(--board-scheduled); }
+.board-card-status.snoozed { color: var(--board-idle); }
+
+.board-card-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 3px;
+}
+
+.board-more {
+  align-self: flex-start;
+  padding: 2px 4px;
+  border: none;
+  background: none;
+  color: var(--vscode-textLink-foreground);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.board-more:hover { text-decoration: underline; }
+
+.board-column-new,
+.board-connect {
+  padding: 9px;
+  border: 1px dashed var(--vscode-widget-border, rgba(128, 128, 128, 0.45));
+  border-radius: 7px;
+  background: none;
+  color: var(--vscode-descriptionForeground);
+  font-family: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.board-column-new:hover:not(:disabled),
+.board-connect:hover {
+  color: var(--vscode-foreground);
+  border-color: color-mix(in srgb, var(--vscode-foreground) 40%, transparent);
+}
+.board-column-new:disabled { opacity: 0.5; cursor: default; }
+.board-column-reconnect { padding: 7px; }
+.board-connect {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex: 0 0 200px;
+}
