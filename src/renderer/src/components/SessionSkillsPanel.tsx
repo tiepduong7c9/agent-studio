@@ -11,6 +11,8 @@ import type { PanelHandle } from './RightPanel'
 // list is the curated "active" set by default: a scan collects everything on
 // every host, most of which is irrelevant to any one project, so only the skills
 // marked active in the Skills Manager are offered (with a Show all escape hatch).
+// Library rows can be ticked and injected in one go; injecting always replaces
+// any existing copy in the project.
 
 function basename(p: string): string {
   const parts = p.replace(/\/+$/, '').split('/')
@@ -33,6 +35,8 @@ export const SessionSkillsPanel = forwardRef<PanelHandle, Props>(({ project, fil
   const [library, setLibrary] = useState<SkillRef[]>([])
   const [loading, setLoading] = useState(true)
   const [injecting, setInjecting] = useState<string | null>(null)
+  // Library skills ticked for a bulk inject, by id.
+  const [checked, setChecked] = useState<Set<string>>(new Set())
   // Widen the library list from the active set to everything collected.
   const [showAll, setShowAll] = useState(false)
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null)
@@ -65,6 +69,36 @@ export const SessionSkillsPanel = forwardRef<PanelHandle, Props>(({ project, fil
   const projectSkills = available.filter((s) => s.scope === 'project' && matches(s, filter))
   const personalSkills = available.filter((s) => s.scope === 'host' && matches(s, filter))
   const installed = new Set(available.filter((s) => s.scope === 'project').map((s) => basename(s.dir)))
+
+  const toggleChecked = (id: string) =>
+    setChecked((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+
+  // Inject several library skills in one pass (each replaces any existing copy),
+  // reloading once at the end and reporting a single summary toast.
+  const injectMany = async (skills: SkillRef[]) => {
+    if (skills.length === 0) return
+    let done = 0
+    const failed: string[] = []
+    try {
+      for (const s of skills) {
+        setInjecting(s.id)
+        const res = await window.studio.skills.inject(project.id, s.dir)
+        if (res.ok) done++
+        else failed.push(`${s.name}: ${res.error}`)
+      }
+    } finally {
+      setInjecting(null)
+    }
+    if (done > 0) pushToast('info', `Injected ${done} skill${done === 1 ? '' : 's'} into ${project.name}`)
+    for (const f of failed) pushToast('danger', f)
+    setChecked(new Set())
+    await load()
+  }
 
   const inject = async (skill: SkillRef) => {
     setInjecting(skill.id)
@@ -131,6 +165,9 @@ export const SessionSkillsPanel = forwardRef<PanelHandle, Props>(({ project, fil
   const activeLibrary = library.filter((s) => s.active)
   const injectable = (showAll ? library : activeLibrary).filter((s) => matches(s, filter))
   const hiddenCount = library.length - activeLibrary.length
+  // Only ticked skills still in view are injected (a filter may hide others).
+  const selected = injectable.filter((s) => checked.has(s.id))
+  const allSelected = injectable.length > 0 && selected.length === injectable.length
 
   return (
     <div className="session-skills">
@@ -186,6 +223,34 @@ export const SessionSkillsPanel = forwardRef<PanelHandle, Props>(({ project, fil
               </button>
             )}
           </div>
+          {injectable.length > 0 && (
+            <div className="session-skill-bulk">
+              <label className="session-skill-bulk-all">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  ref={(el) => {
+                    if (el) el.indeterminate = selected.length > 0 && !allSelected
+                  }}
+                  onChange={() =>
+                    setChecked(allSelected ? new Set() : new Set(injectable.map((s) => s.id)))
+                  }
+                  disabled={injecting !== null}
+                />
+                Select all
+              </label>
+              <button
+                className="session-skill-inject primary"
+                onClick={() => void injectMany(selected)}
+                disabled={injecting !== null || selected.length === 0}
+                title="Inject the ticked skills, replacing any existing copies in this project"
+              >
+                {injecting !== null && selected.length > 0
+                  ? 'Injecting…'
+                  : `Inject selected${selected.length ? ` (${selected.length})` : ''}`}
+              </button>
+            </div>
+          )}
           {injectable.length === 0 ? (
             <div className="skills-sec-empty">
               {library.length === 0
@@ -204,6 +269,14 @@ export const SessionSkillsPanel = forwardRef<PanelHandle, Props>(({ project, fil
                   title={s.description || s.name}
                   onContextMenu={(e) => openMenu(e, s, true)}
                 >
+                  <input
+                    type="checkbox"
+                    className="session-skill-check"
+                    checked={checked.has(s.id)}
+                    onChange={() => toggleChecked(s.id)}
+                    disabled={injecting !== null}
+                    aria-label={`Select ${s.name}`}
+                  />
                   <span className="codicon codicon-lightbulb session-skill-icon" />
                   <div className="session-skill-text">
                     <div className="session-skill-name">{s.name}</div>

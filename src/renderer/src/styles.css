@@ -3683,3 +3683,39 @@ body {
   opacity: 0.5;
   cursor: default;
 }
+
+.session-skill-inject.primary:not(:disabled) {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  border-color: transparent;
+}
+
+/* Bulk-inject bar above the library list: select-all + Inject selected. */
+.session-skill-bulk {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 12px 6px;
+}
+
+.session-skill-bulk-all {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+  cursor: pointer;
+}
+
+.session-skill-bulk-all input,
+.session-skill-check {
+  flex-shrink: 0;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--vscode-button-background);
+}
+
+.session-skill-check {
+  margin-top: 3px;
+}
