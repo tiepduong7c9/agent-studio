@@ -152,13 +152,21 @@ export function App() {
   // board's New session) means working in it — get the board out of the way.
   useEffect(() => setBoardOpen(false), [activeId])
 
-  // Selecting/opening a session means the user is now looking at it — clear its
-  // "done" (unread-completion) marker. Deliberately not cleared on mere window
-  // refocus, so a session that finished while you were away still reads as
-  // "done" when you come back, until you actually visit it or start a new turn.
+  // The session whose chat is actually on screen: its tab is in front and the
+  // board isn't covering it. activeSid alone isn't enough — it stays set while a
+  // file/terminal tab or the board is showing, and a turn finishing then goes
+  // unseen.
+  const viewedSid = !boardOpen && active?.kind === 'chat' ? active.sid : null
+  const viewedSidRef = useRef(viewedSid)
+  viewedSidRef.current = viewedSid
+
+  // Looking at a session's chat clears its "done" (unread-completion) marker.
+  // Deliberately not cleared on mere window refocus, so a session that finished
+  // while you were away still reads as "done" when you come back, until you
+  // actually visit it or start a new turn.
   useEffect(() => {
-    if (activeSid) useSessionsStore.getState().clearDone(activeSid)
-  }, [activeSid])
+    if (viewedSid) useSessionsStore.getState().clearDone(viewedSid)
+  }, [viewedSid])
 
   // Watch the session list for a working → idle transition (a finished turn).
   // The engine mirrors claudeStatus onto every session's meta and broadcasts it
@@ -173,12 +181,12 @@ export function App() {
     // OS notifications are only useful when the app isn't in front of the user;
     // if the window is focused we never send one (regardless of which session's
     // tab is active). The "done" marker is separate — it's per-session, so it
-    // still uses `watching` (this session's tab active *and* window focused).
+    // still uses `watching` (this session's chat on screen *and* window focused).
     const focused = document.hasFocus()
     for (const s of sessions) {
       const before = prev.get(s.id)
       const now = s.claudeStatus
-      const watching = useTabsStore.getState().activeSid === s.id && focused
+      const watching = viewedSidRef.current === s.id && focused
       if (before === 'working' && now === 'idle') {
         if (!watching) markDone(s.id)
         if (!focused) notifySession(s.id, s.name, 'done')
