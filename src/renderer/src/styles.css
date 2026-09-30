@@ -3256,6 +3256,59 @@ body {
   accent-color: var(--vscode-button-background);
 }
 
+/* Pending approval: skills a Scan staged, shown above the library groups with
+   inline approve/reject buttons. */
+.skills-pending {
+  margin-bottom: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--vscode-widget-border);
+}
+
+.skills-group-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 2px;
+}
+
+.skills-pending-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.75;
+}
+
+.skills-row-wrap .skills-pending-btn:last-child {
+  margin-right: 6px;
+}
+
+.skills-pending-btn:hover:not(:disabled) {
+  opacity: 1;
+  background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
+}
+
+.skills-pending-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.skills-pending-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+}
+
 .skills-row {
   display: flex;
   align-items: center;
@@ -3629,4 +3682,40 @@ body {
 .session-skill-inject:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+.session-skill-inject.primary:not(:disabled) {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  border-color: transparent;
+}
+
+/* Bulk-inject bar above the library list: select-all + Inject selected. */
+.session-skill-bulk {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 12px 6px;
+}
+
+.session-skill-bulk-all {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+  cursor: pointer;
+}
+
+.session-skill-bulk-all input,
+.session-skill-check {
+  flex-shrink: 0;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--vscode-button-background);
+}
+
+.session-skill-check {
+  margin-top: 3px;
 }

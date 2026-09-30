@@ -155,11 +155,16 @@ const api = {
   // connected host/project. Like the acp calls these reject on error (no Result
   // envelope) — the renderer store handles failures.
   skills: {
-    /** The managed collection (the app-owned library only). Cheap local read. */
+    /** The managed collection (the app-owned library plus skills pending
+     *  approval). Cheap local read. */
     list: (): Promise<SkillsListing> => ipcRenderer.invoke('skills:list'),
-    /** Scan connected hosts and mirror newly-discovered skills into the library.
-     *  Returns the refreshed library plus hosts that couldn't be scanned. */
+    /** Scan connected hosts and stage newly-discovered skills for approval.
+     *  Returns the refreshed listing plus hosts that couldn't be scanned. */
     scan: (): Promise<SkillsListing> => ipcRenderer.invoke('skills:scan'),
+    /** Approve a pending (scanned) skill into the library. */
+    approve: (arg: { dir: string }): Promise<SkillRef> => ipcRenderer.invoke('skills:approve', arg),
+    /** Reject a pending (scanned) skill; a later scan won't stage it again. */
+    reject: (arg: { dir: string }): Promise<void> => ipcRenderer.invoke('skills:reject', arg),
     /** A single skill's files (SKILL.md + resources) for the viewer/editor. */
     read: (arg: { host: string | null; scope: SkillScope; dir: string }): Promise<SkillFiles> =>
       ipcRenderer.invoke('skills:read', arg),

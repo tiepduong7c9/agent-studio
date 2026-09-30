@@ -17,7 +17,7 @@ export class SessionManagerChannel implements IServerChannel {
     switch (command) {
       case 'list': return this.manager.list();
       case 'listProjects': return this.manager.listProjects();
-      case 'listSkills': return this.manager.listSkills();
+      case 'listSkills': return this.manager.listSkills(typeof arg === 'string' ? arg : undefined);
       case 'readSkill': return this.manager.readSkill(arg as string);
       case 'getUsage': return this.manager.getUsage();
       case 'create': return this.manager.create(arg as CreateSessionOptions);
@@ -54,7 +54,9 @@ export class SessionManagerChannel implements IServerChannel {
 export interface ISessionManagerClient {
   list(): Promise<SessionMeta[]>;
   listProjects(): Promise<ProjectConversations[]>;
-  listSkills(): Promise<SkillRef[]>;
+  /** `extraCwd` also scans that folder's .claude/skills even when it has no
+   *  conversations yet. Engines predating the argument ignore it. */
+  listSkills(extraCwd?: string): Promise<SkillRef[]>;
   readSkill(dir: string): Promise<SkillFiles>;
   getUsage(): Promise<AcpUsageDetail>;
   create(opts: CreateSessionOptions): Promise<SessionMeta>;
@@ -81,7 +83,7 @@ export function createSessionManagerClient(channel: IChannel): ISessionManagerCl
   return {
     list: () => channel.call('list'),
     listProjects: () => channel.call('listProjects'),
-    listSkills: () => channel.call('listSkills'),
+    listSkills: (extraCwd) => channel.call('listSkills', extraCwd),
     readSkill: (dir) => channel.call('readSkill', dir),
     getUsage: () => channel.call('getUsage'),
     create: (opts) => channel.call('create', opts),

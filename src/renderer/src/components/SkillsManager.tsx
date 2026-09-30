@@ -21,11 +21,12 @@ const MARKDOWN_COMPONENTS = {
 }
 
 // The Skills Manager: a full-screen overlay opened from the Customizations →
-// Skills row. Phase 1 is read-only. The left rail is a single flat list of
-// skills deduplicated by name (the same skill often exists on several
-// hosts/projects); selecting one shows its SKILL.md and lists every place it was
-// found so a specific copy can be viewed. Disconnected hosts are surfaced at the
-// bottom with a Reconnect action (create/clone/edit/inject land later).
+// Skills row. The left rail is a single flat list of skills deduplicated by
+// name (the same skill often exists on several hosts/projects); selecting one
+// shows its SKILL.md and lists every place it was found so a specific copy can
+// be viewed. Skills a Scan picks up land in a Pending group first and only join
+// the library once approved. Disconnected hosts are surfaced at the bottom with
+// a Reconnect action.
 
 interface Props {
   /** Connected + saved SSH hosts ("user@host"). */
@@ -53,6 +54,15 @@ interface SkillEntry {
 function stripFrontmatter(text: string): string {
   const m = /^﻿?---\r?\n[\s\S]*?\r?\n---\r?\n?/.exec(text)
   return m ? text.slice(m[0].length).replace(/^\s+/, '') : text
+}
+
+// Where a pending skill was scanned from, e.g. "user@host · project /srv/app".
+function describeOrigin(s: SkillRef): string {
+  const o = s.origin
+  if (!o) return 'Scanned source'
+  const host = o.host ?? 'local'
+  if (o.scope === 'project') return `${host} · project ${o.projectPath ?? o.dir}`
+  return `${host} · personal skills`
 }
 
 function formatSize(bytes: number): string {
@@ -85,16 +95,18 @@ export function SkillsManager({ remoteHosts, engineStatus, onReconnectRemote, on
   const [dialog, setDialog] = useState<'new' | 'duplicate' | 'delete' | null>(null)
   const pushToast = useToastStore((s) => s.push)
 
-  // Show the library immediately, then scan hosts (collecting any new skills) on
-  // open and whenever a host's connection state flips — so a freshly-connected
-  // host's skills are pulled in automatically.
+  // Show the library immediately, then scan hosts (staging any new skills for
+  // approval) on open and whenever a host's connection state flips — so a
+  // freshly-connected host's skills are offered automatically.
   const statusKey = remoteHosts.map((h) => `${h}:${engineStatus[`ssh:${h}`] ?? ''}`).join('|')
   useEffect(() => {
     void refresh()
   }, [refresh])
   useEffect(() => {
-    void scan()
-  }, [scan, statusKey])
+    void scan().then((n) => {
+      if (n > 0) pushToast('info', `${n} new skill${n === 1 ? '' : 's'} awaiting approval`)
+    })
+  }, [scan, statusKey, pushToast])
 
   // Escape backs out the innermost thing: an open dialog first, then an
   // in-progress edit, and only then closes the overlay. (The dialogs don't stop
@@ -139,9 +151,13 @@ export function SkillsManager({ remoteHosts, engineStatus, onReconnectRemote, on
   const restEntries = useMemo(() => entries.filter((e) => !e.active), [entries])
 
   const selected = useMemo(
-    () => listing.skills.find((s) => s.id === selectedId) ?? null,
-    [listing.skills, selectedId]
+    () =>
+      listing.skills.find((s) => s.id === selectedId) ??
+      listing.pending.find((s) => s.id === selectedId) ??
+      null,
+    [listing.skills, listing.pending, selectedId]
   )
+  const isPending = selected?.scope === 'pending'
   // The deduped entry the current selection belongs to (for its source list).
   const selectedEntry = useMemo(
     () => entries.find((e) => e.sources.some((s) => s.id === selectedId)) ?? null,
@@ -175,12 +191,12 @@ export function SkillsManager({ remoteHosts, engineStatus, onReconnectRemote, on
       ? stripFrontmatter(activeContent?.text ?? '')
       : activeContent?.text ?? ''
 
-  // Everything shown is a managed library skill, so it's always editable
-  // (except binary resources).
-  const canEdit = !!activeContent && !activeContent.binary
+  // Library skills are editable (except binary resources); a pending skill is
+  // read-only until approved.
+  const canEdit = !isPending && !!activeContent && !activeContent.binary
 
   const startEdit = () => {
-    if (!activeContent || activeContent.binary) return
+    if (!canEdit || !activeContent) return
     setDraft(activeContent.text ?? '')
     setViewMode('raw')
     setEditing(true)
@@ -225,6 +241,48 @@ export function SkillsManager({ remoteHosts, engineStatus, onReconnectRemote, on
     }, true)
   }
 
+  const doApprove = async (skill: SkillRef) => {
+    const ref = await run(async () => {
+      const ref = await window.studio.skills.approve({ dir: skill.dir })
+      pushToast('info', `Added "${skill.name}" to the library`)
+      return ref
+    })
+    // Land on the approved copy if it was the one being reviewed.
+    if (ref && selectedId === skill.id) {
+      const approved = useSkillsStore.getState().listing.skills.find((s) => s.dir === ref.dir)
+      await select(approved ?? null)
+    }
+  }
+
+  const doReject = async (skill: SkillRef) => {
+    await run(async () => {
+      await window.studio.skills.reject({ dir: skill.dir })
+      pushToast('info', `Rejected "${skill.name}"`)
+    })
+    if (selectedId === skill.id) await select(null)
+  }
+
+  // Approve/reject every pending skill in one go. Failures (e.g. a name clash
+  // with an existing library skill) are reported and leave that skill pending.
+  const doAll = async (action: 'approve' | 'reject') => {
+    const pending = listing.pending
+    if (pending.length === 0) return
+    setBusy(true)
+    let failed = 0
+    for (const s of pending) {
+      try {
+        await window.studio.skills[action]({ dir: s.dir })
+      } catch (err: any) {
+        failed++
+        pushToast('danger', err?.message || String(err))
+      }
+    }
+    await refresh()
+    setBusy(false)
+    const done = pending.length - failed
+    pushToast('info', `${action === 'approve' ? 'Approved' : 'Rejected'} ${done} skill${done === 1 ? '' : 's'}`)
+  }
+
   const doDelete = async (skill: SkillRef) => {
     await run(async () => {
       await window.studio.skills.remove({ dir: skill.dir })
@@ -266,6 +324,71 @@ export function SkillsManager({ remoteHosts, engineStatus, onReconnectRemote, on
     }
   }
 
+  // The selected skill's files (SKILL.md + resources), nested under its row.
+  const renderFiles = () =>
+    (files?.files.length ?? 0) > 1 && (
+      <div className="skills-file-list">
+        {files!.files.map((f) => {
+          const slash = f.rel.lastIndexOf('/')
+          const dir = slash < 0 ? '' : f.rel.slice(0, slash + 1)
+          const base = slash < 0 ? f.rel : f.rel.slice(slash + 1)
+          return (
+            <button
+              key={f.rel}
+              className={`skills-file ${activeFile === f.rel ? 'selected' : ''}`}
+              onClick={() => setActiveFile(f.rel)}
+              title={f.rel}
+            >
+              <span className="codicon codicon-file skills-file-icon" />
+              <span className="skills-file-name">
+                {dir && <span className="skills-file-dir">{dir}</span>}
+                {base}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+    )
+
+  // One pending row: the skill plus inline approve/reject buttons.
+  const renderPending = (s: SkillRef) => {
+    const isSelected = selectedId === s.id
+    return (
+      <div key={s.id}>
+        <div className={`skills-row-wrap ${isSelected ? 'selected' : ''}`}>
+          <button
+            className="skills-row"
+            onClick={() => void select(s)}
+            title={`${s.description || s.name}\n\nFrom ${describeOrigin(s)}`}
+          >
+            <span className="codicon codicon-lightbulb skills-row-icon" />
+            <span className="skills-row-name">{s.name}</span>
+            {s.invalid && (
+              <span className="codicon codicon-error skills-row-warn" title="Missing frontmatter" />
+            )}
+          </button>
+          <button
+            className="skills-pending-btn"
+            title="Approve — add to the library"
+            onClick={() => void doApprove(s)}
+            disabled={busy}
+          >
+            <span className="codicon codicon-check" />
+          </button>
+          <button
+            className="skills-pending-btn"
+            title="Reject — discard (a later scan won't offer it again)"
+            onClick={() => void doReject(s)}
+            disabled={busy}
+          >
+            <span className="codicon codicon-close" />
+          </button>
+        </div>
+        {isSelected && renderFiles()}
+      </div>
+    )
+  }
+
   // One rail row: the checkbox that puts the skill in (or out of) the active set,
   // the name, and — when selected — its files nested underneath.
   const renderEntry = (e: SkillEntry) => {
@@ -296,30 +419,7 @@ export function SkillsManager({ remoteHosts, engineStatus, onReconnectRemote, on
             )}
           </button>
         </div>
-        {/* The selected skill's files (SKILL.md + resources) nest here. */}
-        {isSelected && (files?.files.length ?? 0) > 1 && (
-          <div className="skills-file-list">
-            {files!.files.map((f) => {
-              const slash = f.rel.lastIndexOf('/')
-              const dir = slash < 0 ? '' : f.rel.slice(0, slash + 1)
-              const base = slash < 0 ? f.rel : f.rel.slice(slash + 1)
-              return (
-                <button
-                  key={f.rel}
-                  className={`skills-file ${activeFile === f.rel ? 'selected' : ''}`}
-                  onClick={() => setActiveFile(f.rel)}
-                  title={f.rel}
-                >
-                  <span className="codicon codicon-file skills-file-icon" />
-                  <span className="skills-file-name">
-                    {dir && <span className="skills-file-dir">{dir}</span>}
-                    {base}
-                  </span>
-                </button>
-              )
-            })}
-          </div>
-        )}
+        {isSelected && renderFiles()}
       </div>
     )
   }
@@ -346,7 +446,7 @@ export function SkillsManager({ remoteHosts, engineStatus, onReconnectRemote, on
             <button
               className="btn btn-icon"
               onClick={() => void scan()}
-              title="Scan connected hosts and collect skills into the library"
+              title="Scan connected hosts for new skills to approve"
               disabled={scanning}
             >
               <span className={`codicon codicon-refresh ${scanning ? 'spin' : ''}`} />
@@ -368,10 +468,40 @@ export function SkillsManager({ remoteHosts, engineStatus, onReconnectRemote, on
 
         <div className="skills-body">
           <div className="skills-rail">
-            {entries.length === 0 ? (
-              <div className="skills-empty">
-                {scanning || loading ? 'Scanning…' : 'Library empty — Scan to collect skills'}
+            {listing.pending.length > 0 && (
+              <div className="skills-pending">
+                <div className="skills-group-label">
+                  Pending approval{' '}
+                  <span className="skills-group-count">{listing.pending.length}</span>
+                  <span className="skills-group-actions">
+                    <button
+                      className="skills-pending-btn"
+                      title="Approve all"
+                      onClick={() => void doAll('approve')}
+                      disabled={busy}
+                    >
+                      <span className="codicon codicon-check-all" />
+                    </button>
+                    <button
+                      className="skills-pending-btn"
+                      title="Reject all"
+                      onClick={() => void doAll('reject')}
+                      disabled={busy}
+                    >
+                      <span className="codicon codicon-clear-all" />
+                    </button>
+                  </span>
+                </div>
+                {listing.pending.map(renderPending)}
               </div>
+            )}
+
+            {entries.length === 0 ? (
+              listing.pending.length === 0 && (
+                <div className="skills-empty">
+                  {scanning || loading ? 'Scanning…' : 'Library empty — Scan to collect skills'}
+                </div>
+              )
             ) : (
               <>
                 <div className="skills-group-label">
@@ -446,7 +576,26 @@ export function SkillsManager({ remoteHosts, engineStatus, onReconnectRemote, on
                       )}
                     </div>
                     <div className="skills-detail-actions">
-                      {editing ? (
+                      {isPending ? (
+                        <>
+                          <button
+                            className="skills-act"
+                            onClick={() => void doReject(selected)}
+                            disabled={busy}
+                            title="Discard — a later scan won't offer it again"
+                          >
+                            Reject
+                          </button>
+                          <button
+                            className="skills-act primary"
+                            onClick={() => void doApprove(selected)}
+                            disabled={busy}
+                            title="Add to the library"
+                          >
+                            Approve
+                          </button>
+                        </>
+                      ) : editing ? (
                         <>
                           <button className="skills-act" onClick={() => setEditing(false)}>
                             Cancel
@@ -486,6 +635,12 @@ export function SkillsManager({ remoteHosts, engineStatus, onReconnectRemote, on
                       )}
                     </div>
                   </div>
+                  {isPending && (
+                    <div className="skills-pending-note">
+                      <span className="codicon codicon-info" /> Pending approval — scanned from{' '}
+                      {describeOrigin(selected)}. Approve to add it to the library.
+                    </div>
+                  )}
                 </div>
 
                 <div

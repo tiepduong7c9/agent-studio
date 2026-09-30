@@ -19,6 +19,7 @@ import {
 } from './engine'
 import {
   addCollectedKeys,
+  approvePendingSkill,
   createLibrarySkill,
   deleteLibrarySkill,
   getCollectedKeys,
@@ -26,8 +27,12 @@ import {
   libraryHasSkill,
   libraryRoot,
   listLibrarySkills,
+  listPendingSkills,
   readLibrarySkill,
+  readPendingSkill,
+  rejectPendingSkill,
   setSkillActive,
+  stagePendingSkill,
   writeLibraryFile
 } from './skills-library'
 
@@ -221,13 +226,19 @@ export function registerAcpIpc(getWindow: () => BrowserWindow | null): AcpHub {
     return perHost.flat()
   })
 
-  // The managed collection: the app-owned library only. Skills discovered on
-  // hosts/projects are mirrored into the library by an explicit Scan (below), so
-  // listing itself is a cheap local read with no host round-trips or writes.
-  ipcMain.handle('skills:list', async (): Promise<SkillsListing> => {
-    const skills = await listLibrarySkills().catch(() => [] as SkillRef[])
-    return { skills, unreachable: [], root: libraryRoot() }
-  })
+  // The managed collection: the app-owned library plus the skills a Scan has
+  // staged for approval. Skills discovered on hosts/projects are staged by an
+  // explicit Scan (below), so listing itself is a cheap local read with no host
+  // round-trips or writes.
+  const localListing = async (unreachable: string[]): Promise<SkillsListing> => {
+    const [skills, pending] = await Promise.all([
+      listLibrarySkills().catch(() => [] as SkillRef[]),
+      listPendingSkills().catch(() => [] as SkillRef[])
+    ])
+    return { skills, pending, unreachable, root: libraryRoot() }
+  }
+
+  ipcMain.handle('skills:list', async (): Promise<SkillsListing> => localListing([]))
 
   // Read a single skill's files (SKILL.md + resources). Library skills read from
   // the local store; host/project skills read on the owning host's engine.
@@ -237,6 +248,7 @@ export function registerAcpIpc(getWindow: () => BrowserWindow | null): AcpHub {
     dir: string
   }): Promise<SkillFiles> => {
     if (arg.scope === 'library') return readLibrarySkill(arg.dir)
+    if (arg.scope === 'pending') return readPendingSkill(arg.dir)
     const key = arg.host ? `ssh:${arg.host}` : LOCAL_HOST_KEY
     const engine = await connectHost(ensureHostConn(key))
     return engine.sm.readSkill(arg.dir)
@@ -248,26 +260,32 @@ export function registerAcpIpc(getWindow: () => BrowserWindow | null): AcpHub {
 
   // Skills available to one project/session on `host`: the host's personal
   // skills (~/.claude/skills) plus the project-level skills under `cwd`. Backs
-  // the right panel's per-session Skills tab.
+  // the right panel's per-session Skills tab. `cwd` is passed to the engine so
+  // it's scanned even before it has any conversation (a fresh worktree isn't in
+  // Claude's project history yet, so it would otherwise be skipped).
+  const samePath = (a: string | undefined, b: string) =>
+    !!a && a.replace(/[\\/]+$/, '') === b.replace(/[\\/]+$/, '')
   ipcMain.handle(
     'skills:forProject',
     async (_e, arg: { host: string | null; cwd: string }): Promise<SkillRef[]> => {
       const key = arg.host ? `ssh:${arg.host}` : LOCAL_HOST_KEY
       const engine = await connectHost(ensureHostConn(key))
       const host = arg.host ?? null
-      const list = await engine.sm.listSkills()
+      const list = await engine.sm.listSkills(arg.cwd)
       return list
-        .filter((s) => s.scope === 'host' || (s.scope === 'project' && s.projectPath === arg.cwd))
+        .filter((s) => s.scope === 'host' || (s.scope === 'project' && samePath(s.projectPath, arg.cwd)))
         .map((s) => ({ ...s, host, id: `${host ?? 'local'}:${s.id}` }))
     }
   )
 
-  // Scan every connected host for skills and mirror any not-yet-collected ones
-  // into the library. A per-source ledger means a source is pulled in at most
-  // once, so a skill the user later deletes from the library won't reappear, and
-  // library copies persist even after the source is removed from its host.
-  // Same-name collisions are treated as already-present (first source wins).
-  // Returns the refreshed library plus hosts that couldn't be scanned.
+  // Scan every connected host for skills and stage any not-yet-collected ones in
+  // the pending area, where they wait for the user to approve them into the
+  // library. A per-source ledger means a source is pulled in at most once, so a
+  // skill the user rejects (or later deletes from the library) won't reappear,
+  // and staged/library copies persist even after the source is removed from its
+  // host. Same-name collisions with the library or pending area are treated as
+  // already-present (first source wins). Returns the refreshed listing plus
+  // hosts that couldn't be scanned.
   ipcMain.handle('skills:scan', async (): Promise<SkillsListing> => {
     await ensureAll()
     const unreachable: string[] = []
@@ -292,7 +310,7 @@ export function registerAcpIpc(getWindow: () => BrowserWindow | null): AcpHub {
     const newlyCollected: string[] = []
     for (const s of discovered) {
       if (collected.has(s.id)) continue
-      // A same-named skill is already in the library → first source wins; record
+      // A same-named skill is already in the library/pending → first source wins; record
       // this one as collected so we don't retry it forever.
       if (await libraryHasSkill(s.name)) {
         newlyCollected.push(s.id)
@@ -300,8 +318,13 @@ export function registerAcpIpc(getWindow: () => BrowserWindow | null): AcpHub {
       }
       try {
         const files = await readSkillFiles({ host: s.host ?? null, scope: s.scope, dir: s.dir })
-        await importIntoLibrary(s.name, files.files)
-        newlyCollected.push(s.id) // only after a successful import
+        await stagePendingSkill(s.name, files.files, {
+          host: s.host ?? null,
+          scope: s.scope,
+          dir: s.dir,
+          projectPath: s.projectPath
+        })
+        newlyCollected.push(s.id) // only after a successful stage
       } catch {
         // Transient read/import failure (e.g. an SSH drop mid-scan) — leave the
         // source uncollected so a later scan retries it.
@@ -309,8 +332,15 @@ export function registerAcpIpc(getWindow: () => BrowserWindow | null): AcpHub {
     }
     await addCollectedKeys(newlyCollected)
 
-    const skills = await listLibrarySkills().catch(() => [] as SkillRef[])
-    return { skills, unreachable, root: libraryRoot() }
+    return localListing(unreachable)
+  })
+
+  // Approve a scanned skill: move it from the pending area into the library.
+  ipcMain.handle('skills:approve', async (_e, arg: { dir: string }) => approvePendingSkill(arg.dir))
+
+  // Reject a scanned skill: discard it (a later scan won't stage it again).
+  ipcMain.handle('skills:reject', async (_e, arg: { dir: string }) => {
+    await rejectPendingSkill(arg.dir)
   })
 
   // Open the library folder in the OS file manager. The store isn't created

@@ -132,8 +132,10 @@ export interface AcpEventPayload {
 // ── skills ────────────────────────────────────────────────────────────────────
 
 /** Where a skill lives. `library` is the app-owned store on the local machine;
- *  `host`/`project` skills come from a host's engine. */
-export type SkillScope = 'library' | 'host' | 'project'
+ *  `pending` is the local staging area a Scan collects into, awaiting the user's
+ *  approval before it joins the library; `host`/`project` skills come from a
+ *  host's engine. */
+export type SkillScope = 'library' | 'pending' | 'host' | 'project'
 
 /** A skill directory (SKILL.md + resources) discovered somewhere. Mirrors the
  *  engine's SkillRef; the main process decorates `host` (null = local). */
@@ -155,6 +157,8 @@ export interface SkillRef {
   /** Library skills only: in the curated "active" set, i.e. the subset offered
    *  for injection in a session's Skills tab. Absent/false for host sources. */
   active?: boolean
+  /** Pending skills only: the host/project source a Scan staged it from. */
+  origin?: { host: string | null; scope: SkillScope; dir: string; projectPath?: string }
 }
 
 /** One file within a skill: `text` for text files, `base64` for binary ones. */
@@ -177,6 +181,8 @@ export interface SkillFiles {
  *  greyed with a Reconnect action. */
 export interface SkillsListing {
   skills: SkillRef[]
+  /** Skills a Scan staged for review; they join `skills` only once approved. */
+  pending: SkillRef[]
   /** Host keys ("local" | "ssh:user@host") that failed to scan this pass. */
   unreachable: string[]
   /** Absolute path of the app-owned library on this machine, so the UI can show
@@ -192,7 +198,9 @@ export type EventFn<T> = (listener: (e: T) => void) => Disposable
 export interface ISessionManagerClient {
   list(): Promise<SessionMeta[]>
   listProjects(): Promise<ProjectConversations[]>
-  listSkills(): Promise<SkillRef[]>
+  /** `extraCwd` also scans that folder's .claude/skills even when it has no
+   *  conversations yet (e.g. a new worktree). Older engines ignore it. */
+  listSkills(extraCwd?: string): Promise<SkillRef[]>
   readSkill(dir: string): Promise<SkillFiles>
   getUsage(): Promise<AcpUsageDetail>
   create(opts: { cwd: string; name?: string }): Promise<SessionMeta>

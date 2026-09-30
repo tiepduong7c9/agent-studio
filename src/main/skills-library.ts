@@ -1,7 +1,7 @@
 import { app } from 'electron'
 import { promises as fsp } from 'fs'
 import * as path from 'path'
-import type { SkillFile, SkillFiles, SkillRef } from '../shared/acp'
+import type { SkillFile, SkillFiles, SkillRef, SkillScope } from '../shared/acp'
 
 // The app-owned skill library: a canonical collection the app manages, separate
 // from any host's ~/.claude/skills. Skills are copied in from hosts/projects
@@ -27,10 +27,41 @@ export function libraryRoot(): string {
   return path.join(app.getPath('userData'), 'skills')
 }
 
-// Ledger of source skills already collected into the library, keyed by their
-// stable source id (`${host}:${scope}:${dir}`). It lets a Scan skip sources it
-// has already pulled in, so a skill the user later deletes from the library does
-// NOT reappear on the next scan, and library copies persist even after the source
+// The pending area: a Scan stages newly-discovered host/project skills here
+// instead of writing them straight into the library, so nothing lands in the
+// library without the user approving it. Approving moves the folder into the
+// library; rejecting deletes it (its source stays in the collected ledger, so it
+// won't be re-staged by the next scan).
+export function pendingRoot(): string {
+  return path.join(app.getPath('userData'), 'skills-pending')
+}
+
+type SkillOrigin = NonNullable<SkillRef['origin']>
+
+// Where each pending skill came from, keyed by its folder name. Kept outside the
+// skill folders so it never shows up as (or gets approved along with) a resource.
+function pendingMetaPath(): string {
+  return path.join(app.getPath('userData'), 'skills-pending.json')
+}
+
+async function readPendingMeta(): Promise<Record<string, SkillOrigin>> {
+  try {
+    const parsed = JSON.parse(await fsp.readFile(pendingMetaPath(), 'utf8'))
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+async function writePendingMeta(meta: Record<string, SkillOrigin>): Promise<void> {
+  await fsp.mkdir(path.dirname(pendingMetaPath()), { recursive: true })
+  await fsp.writeFile(pendingMetaPath(), JSON.stringify(meta, null, 2), 'utf8')
+}
+
+// Ledger of source skills already collected (staged for approval), keyed by
+// their stable source id (`${host}:${scope}:${dir}`). It lets a Scan skip sources
+// it has already pulled in, so a skill the user rejects, or later deletes from
+// the library, does NOT reappear on the next scan, and library copies persist even after the source
 // is removed from its host.
 function ledgerPath(): string {
   return path.join(app.getPath('userData'), 'skills-collected.json')
@@ -82,7 +113,7 @@ async function writeActiveNames(names: Set<string>): Promise<void> {
 
 /** Add/remove one library skill (by its directory) from the active set. */
 export async function setSkillActive(dir: string, active: boolean): Promise<void> {
-  assertInLibrary(dir)
+  assertWithin(libraryRoot(), dir)
   const name = path.basename(path.resolve(dir))
   const names = await getActiveNames()
   if (active) names.add(name)
@@ -167,16 +198,15 @@ async function walkResources(dir: string): Promise<{ rel: string; size: number }
   return out
 }
 
-/** Every skill in the library (empty when the store doesn't exist yet). */
-export async function listLibrarySkills(): Promise<SkillRef[]> {
-  const root = libraryRoot()
+// Every skill folder directly under `root` (empty when it doesn't exist yet).
+async function listSkillsIn(root: string, scope: SkillScope): Promise<SkillRef[]> {
   let dirs: import('fs').Dirent[]
   try {
     dirs = await fsp.readdir(root, { withFileTypes: true })
   } catch {
     return []
   }
-  const active = await getActiveNames()
+  const active = scope === 'library' ? await getActiveNames() : new Set<string>()
   const skills: SkillRef[] = []
   for (const d of dirs) {
     if (!d.isDirectory()) continue
@@ -198,10 +228,10 @@ export async function listLibrarySkills(): Promise<SkillRef[]> {
       invalid = true
     }
     skills.push({
-      id: `local:library:${dir}`,
+      id: `local:${scope}:${dir}`,
       name: fm.name?.trim() || d.name,
       description: fm.description?.trim() || '',
-      scope: 'library',
+      scope,
       host: null,
       dir,
       resources: await walkResources(dir),
@@ -214,18 +244,53 @@ export async function listLibrarySkills(): Promise<SkillRef[]> {
   return skills
 }
 
-// Confine reads to the library root so a crafted `dir` can't escape it.
-function assertInLibrary(dir: string): void {
+/** Every skill in the library (empty when the store doesn't exist yet). */
+export async function listLibrarySkills(): Promise<SkillRef[]> {
+  return listSkillsIn(libraryRoot(), 'library')
+}
+
+/** Every skill staged by a Scan and awaiting approval, tagged with its source. */
+export async function listPendingSkills(): Promise<SkillRef[]> {
+  const [skills, meta] = await Promise.all([listSkillsIn(pendingRoot(), 'pending'), readPendingMeta()])
+  return skills.map((s) => {
+    const origin = meta[path.basename(s.dir)]
+    return origin ? { ...s, origin } : s
+  })
+}
+
+// Confine reads/writes to `root` so a crafted `dir` can't escape it.
+function assertWithin(root: string, dir: string): void {
   const resolved = path.resolve(dir)
-  const root = path.resolve(libraryRoot())
-  if (resolved !== root && !resolved.startsWith(root + path.sep)) {
-    throw new Error(`Refusing to read outside the skill library: ${dir}`)
+  const base = path.resolve(root)
+  if (resolved !== base && !resolved.startsWith(base + path.sep)) {
+    throw new Error(`Refusing to access outside ${base}: ${dir}`)
   }
+}
+
+// A skill folder that sits directly under `root` (not the root itself, and not
+// something nested deeper), so whole-folder moves/deletes can't overreach.
+function assertSkillDir(root: string, dir: string): string {
+  const resolved = path.resolve(dir)
+  const base = path.resolve(root)
+  if (path.dirname(resolved) !== base || resolved === base) {
+    throw new Error('Not a skill directory')
+  }
+  return resolved
 }
 
 /** Read a library skill's files (SKILL.md first, then resources). */
 export async function readLibrarySkill(dir: string): Promise<SkillFiles> {
-  assertInLibrary(dir)
+  assertWithin(libraryRoot(), dir)
+  return readSkillDir(dir)
+}
+
+/** Read a pending skill's files, for reviewing it before approval. */
+export async function readPendingSkill(dir: string): Promise<SkillFiles> {
+  assertWithin(pendingRoot(), dir)
+  return readSkillDir(dir)
+}
+
+async function readSkillDir(dir: string): Promise<SkillFiles> {
   const resources = await walkResources(dir)
   const rels = ['SKILL.md', ...resources.map((r) => r.rel)]
   const files: SkillFile[] = []
@@ -268,11 +333,16 @@ async function exists(p: string): Promise<boolean> {
   }
 }
 
-/** Whether the library already contains a skill with this (sanitized) name. Lets
- *  a Scan treat a same-named source as an already-collected duplicate. */
+/** Whether the library — or the pending area — already holds a skill with this
+ *  (sanitized) name. Lets a Scan treat a same-named source as an
+ *  already-collected duplicate. */
 export async function libraryHasSkill(name: string): Promise<boolean> {
   try {
-    return await exists(path.join(libraryRoot(), sanitizeName(name)))
+    const clean = sanitizeName(name)
+    return (
+      (await exists(path.join(libraryRoot(), clean))) ||
+      (await exists(path.join(pendingRoot(), clean)))
+    )
   } catch {
     return false // unsanitizable name → nothing to collide with
   }
@@ -328,7 +398,7 @@ function resolveWithin(dir: string, rel: string): string {
 
 /** Overwrite (or create) one text file within a library skill. */
 export async function writeLibraryFile(dir: string, rel: string, content: string): Promise<void> {
-  assertInLibrary(dir)
+  assertWithin(libraryRoot(), dir)
   const target = resolveWithin(dir, rel)
   await fsp.mkdir(path.dirname(target), { recursive: true })
   await fsp.writeFile(target, content, 'utf8')
@@ -336,27 +406,16 @@ export async function writeLibraryFile(dir: string, rel: string, content: string
 
 /** Permanently delete a library skill (its whole directory). */
 export async function deleteLibrarySkill(dir: string): Promise<void> {
-  assertInLibrary(dir)
-  const resolved = path.resolve(dir)
-  const root = path.resolve(libraryRoot())
-  if (path.dirname(resolved) !== root || resolved === root) {
-    throw new Error('Not a library skill directory')
-  }
+  const resolved = assertSkillDir(libraryRoot(), dir)
   await fsp.rm(resolved, { recursive: true, force: true })
   await setSkillActive(resolved, false).catch(() => {})
 }
 
-/** Copy a skill's files into the library under `name`, creating the folder.
- *  Backs both "import" (collect from a host/project) and "duplicate". Throws if
- *  the name is taken. `files` come from readSkill/readLibrarySkill. */
-export async function importIntoLibrary(
-  name: string,
-  files: SkillFile[],
-  active = false
-): Promise<SkillRef> {
+// Write `files` into a new folder `root/<name>`. Throws if the name is taken.
+async function writeSkillFolder(root: string, name: string, files: SkillFile[]): Promise<string> {
   const clean = sanitizeName(name)
-  const dir = path.join(libraryRoot(), clean)
-  if (await exists(dir)) throw new Error(`A library skill named "${clean}" already exists`)
+  const dir = path.join(root, clean)
+  if (await exists(dir)) throw new Error(`A skill named "${clean}" already exists`)
   await fsp.mkdir(dir, { recursive: true })
   for (const f of files) {
     // A truncated binary is only a prefix of the real bytes, so writing it would
@@ -370,8 +429,71 @@ export async function importIntoLibrary(
       await fsp.writeFile(target, f.text ?? '', 'utf8')
     }
   }
+  return dir
+}
+
+/** Copy a skill's files into the library under `name`, creating the folder.
+ *  Backs both "import" (collect from a host/project) and "duplicate". Throws if
+ *  the name is taken. `files` come from readSkill/readLibrarySkill. */
+export async function importIntoLibrary(
+  name: string,
+  files: SkillFile[],
+  active = false
+): Promise<SkillRef> {
+  const dir = await writeSkillFolder(libraryRoot(), name, files)
   const stat = await fsp.stat(dir)
   if (active) await setSkillActive(dir, true)
   // Description is re-derived on the next scan; leave empty here.
-  return refFor(dir, clean, '', stat.mtimeMs, active)
+  return refFor(dir, path.basename(dir), '', stat.mtimeMs, active)
+}
+
+/** Stage a scanned skill in the pending area for the user to approve. Throws if
+ *  a pending skill with that name already exists. */
+export async function stagePendingSkill(
+  name: string,
+  files: SkillFile[],
+  origin: SkillOrigin
+): Promise<void> {
+  const dir = await writeSkillFolder(pendingRoot(), name, files)
+  const meta = await readPendingMeta()
+  meta[path.basename(dir)] = origin
+  await writePendingMeta(meta)
+}
+
+async function dropPendingMeta(folder: string): Promise<void> {
+  const meta = await readPendingMeta()
+  if (!(folder in meta)) return
+  delete meta[folder]
+  await writePendingMeta(meta)
+}
+
+/** Approve a pending skill: move its folder into the library (inactive, as a
+ *  scanned skill always was). Throws if the library already has that name — the
+ *  user can rename or delete the library copy, then approve again. */
+export async function approvePendingSkill(dir: string): Promise<SkillRef> {
+  const src = assertSkillDir(pendingRoot(), dir)
+  const folder = path.basename(src)
+  const dest = path.join(libraryRoot(), folder)
+  if (await exists(dest)) throw new Error(`A library skill named "${folder}" already exists`)
+  await fsp.mkdir(libraryRoot(), { recursive: true })
+  try {
+    await fsp.rename(src, dest)
+  } catch (err: any) {
+    // userData and its subfolders share a volume, but fall back to copy+delete
+    // should a rename ever cross devices.
+    if (err?.code !== 'EXDEV') throw err
+    await fsp.cp(src, dest, { recursive: true })
+    await fsp.rm(src, { recursive: true, force: true })
+  }
+  await dropPendingMeta(folder)
+  const stat = await fsp.stat(path.join(dest, 'SKILL.md'))
+  return refFor(dest, folder, '', stat.mtimeMs, false)
+}
+
+/** Reject a pending skill: delete it. Its source stays in the collected ledger,
+ *  so the next scan won't stage it again. */
+export async function rejectPendingSkill(dir: string): Promise<void> {
+  const resolved = assertSkillDir(pendingRoot(), dir)
+  await fsp.rm(resolved, { recursive: true, force: true })
+  await dropPendingMeta(path.basename(resolved))
 }
