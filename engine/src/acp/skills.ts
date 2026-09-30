@@ -152,12 +152,21 @@ async function scanRoot(
 }
 
 /** Every skill on this host: personal (~/.claude/skills) + one entry per project's
- *  .claude/skills. Host tagging is applied by the main process. */
-export async function listSkills(): Promise<SkillRef[]> {
+ *  .claude/skills. Host tagging is applied by the main process.
+ *
+ *  Projects are discovered from Claude's conversation history, so a folder with
+ *  no conversation yet (e.g. a freshly-created worktree) isn't among them;
+ *  `extraCwd` adds such a folder explicitly so its skills are still listed. */
+export async function listSkills(extraCwd?: string): Promise<SkillRef[]> {
   const hostSkills = scanRoot(hostSkillsRoot(), 'host');
   const projects = await listAllProjects().catch(() => []);
+  const cwds = new Map<string, string>(); // resolved → as reported
+  for (const p of projects) cwds.set(path.resolve(p.cwd), p.cwd);
+  if (typeof extraCwd === 'string' && extraCwd && !cwds.has(path.resolve(extraCwd))) {
+    cwds.set(path.resolve(extraCwd), extraCwd);
+  }
   const projectSkills = await Promise.all(
-    projects.map((p) => scanRoot(projectSkillsRoot(p.cwd), 'project', p.cwd).catch(() => [])),
+    [...cwds.values()].map((cwd) => scanRoot(projectSkillsRoot(cwd), 'project', cwd).catch(() => [])),
   );
   return [...(await hostSkills), ...projectSkills.flat()];
 }

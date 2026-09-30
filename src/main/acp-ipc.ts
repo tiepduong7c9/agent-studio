@@ -248,16 +248,20 @@ export function registerAcpIpc(getWindow: () => BrowserWindow | null): AcpHub {
 
   // Skills available to one project/session on `host`: the host's personal
   // skills (~/.claude/skills) plus the project-level skills under `cwd`. Backs
-  // the right panel's per-session Skills tab.
+  // the right panel's per-session Skills tab. `cwd` is passed to the engine so
+  // it's scanned even before it has any conversation (a fresh worktree isn't in
+  // Claude's project history yet, so it would otherwise be skipped).
+  const samePath = (a: string | undefined, b: string) =>
+    !!a && a.replace(/[\\/]+$/, '') === b.replace(/[\\/]+$/, '')
   ipcMain.handle(
     'skills:forProject',
     async (_e, arg: { host: string | null; cwd: string }): Promise<SkillRef[]> => {
       const key = arg.host ? `ssh:${arg.host}` : LOCAL_HOST_KEY
       const engine = await connectHost(ensureHostConn(key))
       const host = arg.host ?? null
-      const list = await engine.sm.listSkills()
+      const list = await engine.sm.listSkills(arg.cwd)
       return list
-        .filter((s) => s.scope === 'host' || (s.scope === 'project' && s.projectPath === arg.cwd))
+        .filter((s) => s.scope === 'host' || (s.scope === 'project' && samePath(s.projectPath, arg.cwd)))
         .map((s) => ({ ...s, host, id: `${host ?? 'local'}:${s.id}` }))
     }
   )

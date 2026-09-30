@@ -192,7 +192,9 @@ export type EventFn<T> = (listener: (e: T) => void) => Disposable
 export interface ISessionManagerClient {
   list(): Promise<SessionMeta[]>
   listProjects(): Promise<ProjectConversations[]>
-  listSkills(): Promise<SkillRef[]>
+  /** `extraCwd` also scans that folder's .claude/skills even when it has no
+   *  conversations yet (e.g. a new worktree). Older engines ignore it. */
+  listSkills(extraCwd?: string): Promise<SkillRef[]>
   readSkill(dir: string): Promise<SkillFiles>
   getUsage(): Promise<AcpUsageDetail>
   create(opts: { cwd: string; name?: string }): Promise<SessionMeta>

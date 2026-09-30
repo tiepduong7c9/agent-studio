@@ -126,9 +126,10 @@ export class SessionManager {
   }
 
   // Every skill on this host: personal (~/.claude/skills) + each project's
-  // .claude/skills. Read straight off disk, independent of managed sessions.
-  listSkills(): Promise<SkillRef[]> {
-    return listSkills();
+  // .claude/skills (plus `extraCwd`'s, even if it has no conversations yet).
+  // Read straight off disk, independent of managed sessions.
+  listSkills(extraCwd?: string): Promise<SkillRef[]> {
+    return listSkills(extraCwd);
   }
 
   // A skill's files (SKILL.md + resources) for the viewer/editor. `dir` is an
