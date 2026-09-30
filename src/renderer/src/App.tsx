@@ -14,6 +14,7 @@ import { RemoteFolderPicker } from './components/RemoteFolderPicker'
 import { RightPanel } from './components/RightPanel'
 import { Sash } from './components/Sash'
 import { SessionsPanel } from './components/SessionsPanel'
+import { SessionsBoard } from './components/SessionsBoard'
 import { SessionSwitcher } from './components/SessionSwitcher'
 import { SshDialog } from './components/SshDialog'
 import { StatusBar } from './components/StatusBar'
@@ -93,10 +94,13 @@ export function App() {
   // Which step the command palette opens on: the sidebar + button jumps straight
   // to the New Session picker; the keyboard shortcut opens the command list.
   const [paletteStep, setPaletteStep] = useState<'commands' | 'targets'>('commands')
-  // Set when the palette is opened for a host already chosen in the sidebar's
-  // hosts strip, so its target list only offers folders on that host.
+  // Set when the palette is opened for a host already chosen on the sessions
+  // board, so its target list only offers folders on that host.
   const [paletteHost, setPaletteHost] = useState<{ host: string | null } | undefined>(undefined)
   const [sessionSwitcherOpen, setSessionSwitcherOpen] = useState(false)
+  // The full-window sessions board. Drawn over the panels rather than in place
+  // of them, so editors and terminals underneath keep their state.
+  const [boardOpen, setBoardOpen] = useState(false)
   // The untitled tab awaiting a save location (Ctrl/Cmd+S on a scratch buffer).
   const [saveAs, setSaveAs] = useState<Extract<EditorTab, { kind: 'file' }> | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -143,6 +147,10 @@ export function App() {
   // from the active tab's kind here would wrongly clear the highlight whenever a
   // non-chat tab is focused.
   const activeSid = useTabsStore((s) => s.activeSid)
+
+  // Opening any tab (a session picked in the switcher, one just created from the
+  // board's New session) means working in it — get the board out of the way.
+  useEffect(() => setBoardOpen(false), [activeId])
 
   // Selecting/opening a session means the user is now looking at it — clear its
   // "done" (unread-completion) marker. Deliberately not cleared on mere window
@@ -564,6 +572,10 @@ export function App() {
         // Ctrl/Cmd+E: jump to a session (VS Code-style quick-open).
         e.preventDefault()
         setSessionSwitcherOpen((v) => !v)
+      } else if ((e.ctrlKey || e.metaKey) && !e.altKey && e.shiftKey && (e.key === 'b' || e.key === 'B')) {
+        // Ctrl/Cmd+Shift+B: toggle the sessions board.
+        e.preventDefault()
+        setBoardOpen((v) => !v)
       }
     }
     window.addEventListener('keydown', onKey, { capture: true })
@@ -730,6 +742,8 @@ export function App() {
         rightVisible={rightVisible}
         onToggleLeft={() => setLeftVisible(!leftVisible)}
         onToggleRight={() => setRightVisible(!rightVisible)}
+        boardOpen={boardOpen}
+        onToggleBoard={() => setBoardOpen((v) => !v)}
       />
       {error && (
         <div className="error-banner">
@@ -752,11 +766,6 @@ export function App() {
                 onNewSessionFlow={() => {
                   setPaletteStep('targets')
                   setPaletteHost(undefined)
-                  setPaletteOpen(true)
-                }}
-                onNewSessionOnHost={(host) => {
-                  setPaletteStep('targets')
-                  setPaletteHost({ host })
                   setPaletteOpen(true)
                 }}
                 onDeleteSession={deleteSession}
@@ -790,6 +799,32 @@ export function App() {
               <RightPanel project={activeWorkspace} selection={selection} onSelect={onSelect} />
             </aside>
           </>
+        )}
+        {boardOpen && (
+          <SessionsBoard
+            sessions={sessions}
+            remoteHosts={remoteHosts}
+            engineStatus={engineStatus}
+            activeSid={activeSid}
+            onSelectSession={(sid) => {
+              setBoardOpen(false)
+              openChat(sid)
+            }}
+            onNewSessionFlow={() => {
+              setPaletteStep('targets')
+              setPaletteHost(undefined)
+              setPaletteOpen(true)
+            }}
+            onNewSessionOnHost={(host) => {
+              setPaletteStep('targets')
+              setPaletteHost({ host })
+              setPaletteOpen(true)
+            }}
+            onOpenSsh={() => setSshDialogOpen(true)}
+            onDisconnectRemote={disconnectRemote}
+            onReconnectRemote={reconnectRemote}
+            onClose={() => setBoardOpen(false)}
+          />
         )}
       </div>
       <StatusBar
@@ -829,6 +864,10 @@ export function App() {
           onGoToSession={() => {
             setPaletteOpen(false)
             setSessionSwitcherOpen(true)
+          }}
+          onOpenBoard={() => {
+            setPaletteOpen(false)
+            setBoardOpen(true)
           }}
           initialStep={paletteStep}
           hostFilter={paletteHost}
