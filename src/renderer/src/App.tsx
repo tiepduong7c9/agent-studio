@@ -14,7 +14,7 @@ import { RemoteFolderPicker } from './components/RemoteFolderPicker'
 import { RightPanel } from './components/RightPanel'
 import { Sash } from './components/Sash'
 import { SessionsPanel } from './components/SessionsPanel'
-import { SessionsBoard } from './components/SessionsBoard'
+import { SessionsBoard, useBoardNeedsCount } from './components/SessionsBoard'
 import { SessionSwitcher } from './components/SessionSwitcher'
 import { SshDialog } from './components/SshDialog'
 import { StatusBar } from './components/StatusBar'
@@ -35,6 +35,10 @@ import { workspaceForSession } from './workspace'
 import type { AcpEvent } from './acp/protocol'
 
 const MIN_PANEL_WIDTH = 170
+// The left sessions sidebar is deprecated in favour of the sessions board.
+// Kept (not deleted) so it can be switched back on: flip to true to restore
+// the sidebar on the left and the files/git panel on the right.
+const SESSIONS_SIDEBAR = false
 
 function clampWidth(w: number): number {
   return Math.min(Math.max(w, MIN_PANEL_WIDTH), Math.floor(window.innerWidth * 0.4))
@@ -127,6 +131,7 @@ export function App() {
   )
 
   const sessions = useSessionsStore((s) => s.sessions)
+  const boardNeedsCount = useBoardNeedsCount(sessions)
   const setSessions = useSessionsStore((s) => s.setSessions)
   const projects = useSessionsStore((s) => s.projects)
   const setProjects = useSessionsStore((s) => s.setProjects)
@@ -580,9 +585,11 @@ export function App() {
         // Ctrl/Cmd+E: jump to a session (VS Code-style quick-open).
         e.preventDefault()
         setSessionSwitcherOpen((v) => !v)
-      } else if ((e.ctrlKey || e.metaKey) && !e.altKey && e.shiftKey && (e.key === 'b' || e.key === 'B')) {
-        // Ctrl/Cmd+Shift+B: toggle the sessions board.
+      } else if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.code === 'Space') {
+        // Ctrl/Cmd+Space: toggle the sessions board. Stopped here so the editor
+        // doesn't also take it as "trigger suggest".
         e.preventDefault()
+        e.stopPropagation()
         setBoardOpen((v) => !v)
       }
     }
@@ -742,15 +749,29 @@ export function App() {
     }
   }, [setHostStatus])
 
+  // Without the sessions sidebar, the right panel (files/git) docks on the left
+  // in its place and the left toggle drives it.
+  const sideVisible = SESSIONS_SIDEBAR ? leftVisible : rightVisible
+  const sideWidth = SESSIONS_SIDEBAR ? leftWidth : rightWidth
+  const rightPanel = (
+    <aside
+      className={`panel panel-right ${SESSIONS_SIDEBAR ? '' : 'docked-left'}`}
+      style={{ width: rightWidth }}
+    >
+      <RightPanel project={activeWorkspace} selection={selection} onSelect={onSelect} />
+    </aside>
+  )
+
   return (
     <div className="app">
       <TitleBar
         activeWorkspace={activeWorkspace}
-        leftVisible={leftVisible}
-        rightVisible={rightVisible}
-        onToggleLeft={() => setLeftVisible(!leftVisible)}
+        leftVisible={sideVisible}
+        rightVisible={SESSIONS_SIDEBAR ? rightVisible : null}
+        onToggleLeft={() => (SESSIONS_SIDEBAR ? setLeftVisible(!leftVisible) : setRightVisible(!rightVisible))}
         onToggleRight={() => setRightVisible(!rightVisible)}
         boardOpen={boardOpen}
+        boardBadge={boardNeedsCount}
         onToggleBoard={() => setBoardOpen((v) => !v)}
       />
       {error && (
@@ -760,7 +781,16 @@ export function App() {
         </div>
       )}
       <div className="panels">
-        {leftVisible && !maximized && (
+        {!SESSIONS_SIDEBAR && rightVisible && !maximized && (
+          <>
+            {rightPanel}
+            <Sash
+              onResizeStart={() => (dragBase.current = rightWidth)}
+              onResize={(d) => setRightWidth(clampWidth(dragBase.current + d))}
+            />
+          </>
+        )}
+        {SESSIONS_SIDEBAR && leftVisible && !maximized && (
           <>
             <aside className="panel panel-left" style={{ width: leftWidth }}>
               <SessionsPanel
@@ -797,15 +827,13 @@ export function App() {
             onPickFolder={openLocal}
           />
         </main>
-        {rightVisible && !maximized && (
+        {SESSIONS_SIDEBAR && rightVisible && !maximized && (
           <>
             <Sash
               onResizeStart={() => (dragBase.current = rightWidth)}
               onResize={(d) => setRightWidth(clampWidth(dragBase.current - d))}
             />
-            <aside className="panel panel-right" style={{ width: rightWidth }}>
-              <RightPanel project={activeWorkspace} selection={selection} onSelect={onSelect} />
-            </aside>
+            {rightPanel}
           </>
         )}
         {boardOpen && (
@@ -838,10 +866,10 @@ export function App() {
       <StatusBar
         activeHost={activeWorkspace?.host ?? null}
         activeWorkspace={activeWorkspace}
-        leftWidth={leftWidth}
+        leftWidth={sideWidth}
         rightWidth={rightWidth}
-        leftVisible={leftVisible}
-        rightVisible={rightVisible}
+        leftVisible={sideVisible}
+        rightVisible={SESSIONS_SIDEBAR && rightVisible}
         maximized={maximized}
       />
       {sshDialogOpen && (
