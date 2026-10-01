@@ -5,10 +5,13 @@ import { ThemePicker } from './ThemePicker'
 interface Props {
   activeWorkspace: ProjectInfo | null
   leftVisible: boolean
-  rightVisible: boolean
+  /** null = no right panel (it's docked on the left); hides its toggle. */
+  rightVisible: boolean | null
   onToggleLeft: () => void
   onToggleRight: () => void
   boardOpen: boolean
+  /** Sessions that need you — shown as a count on the Board button. */
+  boardBadge: number
   onToggleBoard: () => void
 }
 
@@ -19,6 +22,7 @@ export function TitleBar({
   onToggleLeft,
   onToggleRight,
   boardOpen,
+  boardBadge,
   onToggleBoard
 }: Props) {
   const project = activeWorkspace
@@ -34,12 +38,13 @@ export function TitleBar({
             findable at a glance and reachable even with the sidebar hidden. */}
         <button
           className={`titlebar-board ${boardOpen ? 'active' : ''}`}
-          title={`${boardOpen ? 'Close' : 'Open'} Sessions Board (Ctrl+Shift+B)`}
+          title={`${boardOpen ? 'Close' : 'Open'} Sessions Board (Ctrl+Space)${boardBadge ? ` — ${boardBadge} need${boardBadge === 1 ? 's' : ''} you` : ''}`}
           aria-pressed={boardOpen}
           onClick={onToggleBoard}
         >
           <SquareKanban size={15} strokeWidth={2} />
           <span>Board</span>
+          {boardBadge > 0 && <span className="titlebar-board-badge">{boardBadge}</span>}
         </button>
       </div>
       <div className="titlebar-center">
@@ -54,11 +59,13 @@ export function TitleBar({
       </div>
       <div className="titlebar-side right">
         <ThemePicker />
-        <button
-          className={`icon-button codicon codicon-layout-sidebar-right${rightVisible ? '' : '-off'}`}
-          title="Toggle Right Panel"
-          onClick={onToggleRight}
-        />
+        {rightVisible !== null && (
+          <button
+            className={`icon-button codicon codicon-layout-sidebar-right${rightVisible ? '' : '-off'}`}
+            title="Toggle Right Panel"
+            onClick={onToggleRight}
+          />
+        )}
         <div className="window-controls">
           <button
             className="window-control codicon codicon-chrome-minimize"

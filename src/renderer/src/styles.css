@@ -128,6 +128,20 @@ body {
   border-color: var(--vscode-focusBorder);
 }
 
+.titlebar-board-badge {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--vscode-charts-orange, #d18616);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
 .titlebar-action {
   margin: 0 2px;
 }
@@ -244,6 +258,11 @@ body {
 .panel-left {
   flex-shrink: 0;
   background: var(--vscode-sideBar-background);
+  border-right: 1px solid var(--vscode-sideBar-border);
+}
+
+.panel-right.docked-left {
+  border-left: none;
   border-right: 1px solid var(--vscode-sideBar-border);
 }
 

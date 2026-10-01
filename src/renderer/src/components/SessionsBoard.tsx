@@ -1,5 +1,5 @@
-import { type MouseEvent, useEffect, useMemo, useState } from 'react'
-import { AlarmClock, Ellipsis } from 'lucide-react'
+import { type MouseEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { AlarmClock, Ellipsis, Pin } from 'lucide-react'
 import { create } from 'zustand'
 import type { SessionMeta } from '../../../shared/acp'
 import { useSessionsStore } from '../acp/sessions-store'
@@ -8,7 +8,8 @@ import { hostLabel, projectLabel, relTime, scheduleLabel, sessionActivity } from
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { useTagsStore } from '../tags-store'
 import { useViewPrefsStore } from '../view-prefs-store'
-import { CaptureBadges, renderTitle, SessionTagIcon } from './SessionsPanel'
+import { useGitInfoStore } from '../git-info-store'
+import { CaptureBadges, renderTitle, SessionTagIcon, WorktreeChip } from './SessionsPanel'
 import './SessionsBoard.css'
 
 // A full-window board of every session, one column per connectable host. The
@@ -21,6 +22,12 @@ import './SessionsBoard.css'
 // rest, with a floor so a busy column still shows some of its history.
 const CARD_CAP = 5
 const MIN_IDLE = 3
+
+// Pinned strip tile geometry (px) — must match .board-pin / .board-pin-more /
+// .board-pins-row gap in SessionsBoard.css; used to work out how many fit.
+const PIN_W = 212
+const PIN_MORE_W = 98
+const PIN_GAP = 8
 
 /** What a card is doing, from most to least urgent. Every session is exactly one. */
 type Lane = 'needs' | 'running' | 'scheduled' | 'idle'
@@ -51,6 +58,14 @@ const useSnoozeStore = create<{
     })
 }))
 
+/** How many sessions the board's "Needs me" filter would show — for the
+ *  title bar's Board button badge. */
+export function useBoardNeedsCount(sessions: SessionMeta[]): number {
+  const doneSessions = useSessionsStore((s) => s.doneSessions)
+  const snoozed = useSnoozeStore((s) => s.snoozed)
+  return sessions.filter((s) => laneOf(s, !!doneSessions[s.id]) === 'needs' && !snoozed[s.id]).length
+}
+
 interface Props {
   sessions: SessionMeta[]
   /** Connected SSH hosts ("user@host"). */
@@ -76,6 +91,14 @@ interface Card {
   done: boolean
   doneAt?: number
   snoozed: boolean
+  pinned: boolean
+}
+
+/** A pinned session whose host is offline: only cached metadata to show. */
+interface OfflinePin {
+  id: string
+  name: string
+  host: string
 }
 
 type HostState = 'connected' | 'reconnecting' | 'offline'
@@ -118,13 +141,188 @@ function cardStatus(c: Card): { cls: string; text: string } | null {
   return null
 }
 
+/** The pinned tile's one-word status. */
+function pinStatus(c: Card): { cls: string; text: string } {
+  const { s } = c
+  if (s.status === 'exited') return { cls: 'needs', text: 'Exited' }
+  if (s.claudeStatus === 'waiting') return c.snoozed ? { cls: 'snoozed', text: 'Snoozed' } : { cls: 'needs', text: 'Needs you' }
+  if (s.claudeStatus === 'working') return { cls: 'running', text: 'Running' }
+  if (c.done) return { cls: 'done', text: 'Done' }
+  if (s.schedule) return { cls: 'scheduled', text: 'Scheduled' }
+  return { cls: 'idle', text: s.status === 'suspended' ? 'Suspended' : 'Idle' }
+}
+
+/** Right-click on a card or pinned tile: pin / unpin. */
+function usePinMenu(onTogglePin: () => void, pinned: boolean) {
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  const open = (e: MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setMenu({ x: e.clientX, y: e.clientY })
+  }
+  const node = menu && (
+    <ContextMenu
+      x={menu.x}
+      y={menu.y}
+      items={[{ label: pinned ? 'Unpin' : 'Pin', run: onTogglePin }]}
+      onClose={() => setMenu(null)}
+    />
+  )
+  return { open, node }
+}
+
+function PinTile({ c, active, onOpen, onTogglePin }: { c: Card; active: boolean; onOpen: () => void; onTogglePin: () => void }) {
+  const { s } = c
+  const st = pinStatus(c)
+  const menu = usePinMenu(onTogglePin, true)
+  const asking = s.claudeStatus === 'waiting' && !c.snoozed
+  return (
+    <div
+      className={`board-pin lane-${c.lane} ${asking ? 'asking' : ''} ${active ? 'active' : ''}`}
+      role="button"
+      tabIndex={0}
+      title={s.name}
+      onClick={onOpen}
+      onContextMenu={menu.open}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') onOpen()
+      }}
+    >
+      <div className="board-pin-title">
+        <span className={`board-pin-dot ${st.cls}`} />
+        <span className="board-pin-name">{renderTitle(s.name)}</span>
+      </div>
+      <div className="board-pin-meta">
+        <span className="board-pin-host">{hostLabel(s.host)}</span>
+        <span className={`board-pin-status ${st.cls}`}>{st.text}</span>
+        <span className="board-card-time">{relTime(c.done && c.doneAt ? c.doneAt : sessionActivity(s))}</span>
+      </div>
+      {menu.node}
+    </div>
+  )
+}
+
+function OfflinePinTile({ p, onReconnect, onUnpin }: { p: OfflinePin; onReconnect: () => void; onUnpin: () => void }) {
+  const menu = usePinMenu(onUnpin, true)
+  return (
+    <div
+      className="board-pin offline"
+      role="button"
+      tabIndex={0}
+      title="Host disconnected — click to reconnect"
+      onClick={onReconnect}
+      onContextMenu={menu.open}
+    >
+      <div className="board-pin-title">
+        <span className="board-pin-dot idle" />
+        <span className="board-pin-name">{p.name}</span>
+      </div>
+      <div className="board-pin-meta">
+        <span className="board-pin-host">{hostLabel(p.host)}</span>
+        <span className="board-pin-status idle">Offline</span>
+      </div>
+      {menu.node}
+    </div>
+  )
+}
+
+/** The pinned sessions, across every host, as one row of compact tiles. What
+ *  doesn't fit collapses into a "+N more" tile; "Show all pinned" wraps them. */
+function PinnedStrip({
+  cards,
+  offline,
+  total,
+  activeSid,
+  onSelectSession,
+  onReconnectRemote,
+  onTogglePin
+}: {
+  cards: Card[]
+  offline: OfflinePin[]
+  /** Every pinned session, before the filter and search. */
+  total: number
+  activeSid: string | null
+  onSelectSession: (sid: string) => void
+  onReconnectRemote: (host: string) => void
+  onTogglePin: (sid: string) => void
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const rowRef = useRef<HTMLDivElement>(null)
+  const [width, setWidth] = useState(0)
+  useLayoutEffect(() => {
+    const el = rowRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => setWidth(el.clientWidth))
+    ro.observe(el)
+    setWidth(el.clientWidth)
+    return () => ro.disconnect()
+  }, [])
+
+  const count = cards.length + offline.length
+  const fitAll = Math.max(1, Math.floor((width + PIN_GAP) / (PIN_W + PIN_GAP)))
+  const fitWithMore = Math.max(1, Math.floor((width - PIN_MORE_W) / (PIN_W + PIN_GAP)))
+  const limit = expanded || count <= fitAll ? count : fitWithMore
+  const shownCards = cards.slice(0, limit)
+  const shownOffline = offline.slice(0, Math.max(0, limit - cards.length))
+  const hidden = count - shownCards.length - shownOffline.length
+
+  return (
+    <div className="board-pins">
+      <div className="board-pins-head">
+        <Pin size={12} strokeWidth={2.25} />
+        <span className="board-pins-label">Pinned</span>
+        <span className="board-pins-count">{total}</span>
+        <span className="topbar-spacer" />
+        {(hidden > 0 || expanded) && (
+          <button className="board-more" onClick={() => setExpanded((v) => !v)}>
+            {expanded ? 'Show less' : 'Show all pinned'}
+          </button>
+        )}
+      </div>
+      <div ref={rowRef} className={`board-pins-row ${expanded ? 'expanded' : ''}`}>
+        {shownCards.map((c) => (
+          <PinTile
+            key={c.s.id}
+            c={c}
+            active={c.s.id === activeSid}
+            onOpen={() => onSelectSession(c.s.id)}
+            onTogglePin={() => onTogglePin(c.s.id)}
+          />
+        ))}
+        {shownOffline.map((p) => (
+          <OfflinePinTile
+            key={p.id}
+            p={p}
+            onReconnect={() => onReconnectRemote(p.host)}
+            onUnpin={() => onTogglePin(p.id)}
+          />
+        ))}
+        {hidden > 0 && (
+          <button className="board-pin-more" onClick={() => setExpanded(true)}>
+            +{hidden} more
+          </button>
+        )}
+        {count === 0 && <div className="board-column-empty">No pinned sessions match</div>}
+      </div>
+    </div>
+  )
+}
+
+// Urgent first; a snoozed prompt sinks below the ones still asking. Within a
+// lane, most recent activity first.
+const byUrgency = (a: Card, b: Card): number =>
+  LANE_RANK[a.lane] - LANE_RANK[b.lane] ||
+  Number(a.snoozed) - Number(b.snoozed) ||
+  sessionActivity(b.s) - sessionActivity(a.s)
+
 function BoardCard({
   c,
   captures,
   tag,
   active,
   onOpen,
-  onLater
+  onLater,
+  onTogglePin
 }: {
   c: Card
   captures: Capture[]
@@ -133,9 +331,11 @@ function BoardCard({
   active: boolean
   onOpen: () => void
   onLater: () => void
+  onTogglePin: () => void
 }) {
   const { s } = c
   const status = cardStatus(c)
+  const menu = usePinMenu(onTogglePin, c.pinned)
   const time = relTime(c.done && c.doneAt ? c.doneAt : sessionActivity(s))
   const asking = s.claudeStatus === 'waiting' && !c.snoozed
   const project = (
@@ -143,6 +343,7 @@ function BoardCard({
       <SessionTagIcon tag={tag} />
       <span className="codicon codicon-folder" />
       <span className="board-card-project-name">{projectLabel(s.cwd)}</span>
+      <WorktreeChip cwd={s.cwd} host={s.host} />
     </span>
   )
   return (
@@ -151,11 +352,17 @@ function BoardCard({
       role="button"
       tabIndex={0}
       onClick={onOpen}
+      onContextMenu={menu.open}
       onKeyDown={(e) => {
         if (e.key === 'Enter') onOpen()
       }}
     >
       <div className="board-card-title-line">
+        {c.pinned && (
+          <span className="board-card-pin" title="Pinned">
+            <Pin size={12} strokeWidth={2.25} />
+          </span>
+        )}
         <span className="board-card-title">{renderTitle(s.name)}</span>
         {s.schedule && (
           <span className="board-card-schedule" title={scheduleLabel(s.schedule)}>
@@ -207,6 +414,7 @@ function BoardCard({
           </button>
         </div>
       )}
+      {menu.node}
     </div>
   )
 }
@@ -221,7 +429,8 @@ function BoardColumn({
   onSelectSession,
   onNewSessionOnHost,
   onDisconnectRemote,
-  onReconnectRemote
+  onReconnectRemote,
+  onTogglePin
 }: {
   col: Column
   filter: Filter
@@ -229,6 +438,7 @@ function BoardColumn({
   activeSid: string | null
   capturesFor: (sid: string) => Capture[]
   sessionTag: Record<string, string>
+  onTogglePin: (sid: string) => void
 } & Pick<Props, 'onSelectSession' | 'onNewSessionOnHost' | 'onDisconnectRemote' | 'onReconnectRemote'>) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [showAllIdle, setShowAllIdle] = useState(false)
@@ -294,6 +504,7 @@ function BoardColumn({
             active={c.s.id === activeSid}
             onOpen={() => onSelectSession(c.s.id)}
             onLater={() => snooze(c.s.id)}
+            onTogglePin={() => onTogglePin(c.s.id)}
           />
         ))}
         {col.cards.length === 0 && !offline && <div className="board-column-empty">{emptyText}</div>}
@@ -343,6 +554,9 @@ export function SessionsBoard({
   const capturesBySid = useCaptureStore((s) => s.capturesBySid)
   const sessionTag = useViewPrefsStore((s) => s.sessionTag)
   const tags = useTagsStore((s) => s.tags)
+  const pinnedSessions = useViewPrefsStore((s) => s.pinnedSessions)
+  const pinnedMeta = useViewPrefsStore((s) => s.pinnedMeta)
+  const togglePin = useViewPrefsStore((s) => s.togglePin)
   const snoozed = useSnoozeStore((s) => s.snoozed)
   const keepSnoozed = useSnoozeStore((s) => s.keepOnly)
   const [filter, setFilter] = useState<Filter>('all')
@@ -357,6 +571,14 @@ export function SessionsBoard({
     const t = setInterval(() => forceTick((n) => n + 1), 30_000)
     return () => clearInterval(t)
   }, [])
+
+  // Worktree chips are probed once per folder; re-probe on a slow interval so
+  // an agent switching branch shows up (the sidebar does the same).
+  const refreshGitInfo = useGitInfoStore((s) => s.refreshAll)
+  useEffect(() => {
+    const t = setInterval(refreshGitInfo, 60_000)
+    return () => clearInterval(t)
+  }, [refreshGitInfo])
 
   // A snooze only covers the prompt it was given for.
   useEffect(() => {
@@ -379,7 +601,7 @@ export function SessionsBoard({
   const q = query.trim().toLowerCase()
   const searching = q.length > 0
 
-  const { columns, totals } = useMemo(() => {
+  const { columns, totals, pins, offlinePins, pinTotal } = useMemo(() => {
     const matches = (s: SessionMeta): boolean =>
       !searching ||
       [s.name, s.cwd, hostLabel(s.host)].some((t) => t.toLowerCase().includes(q)) ||
@@ -391,6 +613,7 @@ export function SessionsBoard({
       filter === 'all' || (filter === 'needs' ? c.lane === 'needs' && !c.snoozed : c.lane !== 'idle')
 
     const totals: Record<Lane, number> = { needs: 0, running: 0, scheduled: 0, idle: 0 }
+    const pins: Card[] = []
     const hosts: (string | null)[] = [
       null,
       ...[...remoteHosts].sort((a, b) => hostLabel(a).localeCompare(hostLabel(b)))
@@ -403,23 +626,57 @@ export function SessionsBoard({
       for (const s of sessions) {
         if ((s.host ?? null) !== host) continue
         const done = !!doneSessions[s.id]
-        const card: Card = { s, lane: laneOf(s, done), done, doneAt: doneSessions[s.id], snoozed: !!snoozed[s.id] }
+        const card: Card = {
+          s,
+          lane: laneOf(s, done),
+          done,
+          doneAt: doneSessions[s.id],
+          snoozed: !!snoozed[s.id],
+          pinned: !!pinnedSessions[s.id]
+        }
         counts[card.lane]++
         totals[card.lane]++
-        if (matches(s) && passes(card)) cards.push(card)
+        if (matches(s) && passes(card)) {
+          cards.push(card)
+          if (card.pinned) pins.push(card)
+        }
       }
-      // Urgent first; a snoozed prompt sinks below the ones still asking.
-      // Within a lane, most recent activity first.
-      cards.sort(
-        (a, b) =>
-          LANE_RANK[a.lane] - LANE_RANK[b.lane] ||
-          Number(a.snoozed) - Number(b.snoozed) ||
-          sessionActivity(b.s) - sessionActivity(a.s)
-      )
+      cards.sort(byUrgency)
       return { host, label: hostLabel(host), state, cards, counts }
     })
-    return { columns, totals }
-  }, [sessions, remoteHosts, engineStatus, doneSessions, snoozed, capturesBySid, sessionTag, tags, filter, q, searching])
+    pins.sort(byUrgency)
+
+    // Pinned sessions on a known but disconnected host: the host pushes no
+    // live list, so they're drawn from cached metadata (as in the sidebar).
+    const liveIds = new Set(sessions.map((s) => s.id))
+    const knownHosts = new Set(remoteHosts)
+    const offlinePins: OfflinePin[] = []
+    for (const [id, meta] of Object.entries(pinnedMeta)) {
+      if (!pinnedSessions[id] || liveIds.has(id) || !meta.host) continue
+      if (!knownHosts.has(meta.host) || engineStatus[`ssh:${meta.host}`] === 'connected') continue
+      if (filter !== 'all') continue
+      if (searching && ![meta.name, meta.cwd, hostLabel(meta.host)].some((t) => t.toLowerCase().includes(q))) continue
+      offlinePins.push({ id, name: meta.name, host: meta.host })
+    }
+    const pinTotal = Object.keys(pinnedSessions).filter(
+      (id) => liveIds.has(id) || (pinnedMeta[id]?.host && knownHosts.has(pinnedMeta[id].host!))
+    ).length
+    return { columns, totals, pins, offlinePins, pinTotal }
+  }, [
+    sessions,
+    remoteHosts,
+    engineStatus,
+    doneSessions,
+    snoozed,
+    capturesBySid,
+    sessionTag,
+    tags,
+    pinnedSessions,
+    pinnedMeta,
+    filter,
+    q,
+    searching
+  ])
 
   const summary: { lane: Lane; text: string }[] = [
     { lane: 'running', text: `${totals.running} running` },
@@ -475,8 +732,18 @@ export function SessionsBoard({
         <button className="btn btn-primary board-new" onClick={onNewSessionFlow}>
           New session
         </button>
-        <button className="icon-button codicon codicon-close board-close" title="Close board (Esc)" onClick={onClose} />
       </div>
+      {pinTotal > 0 && (
+        <PinnedStrip
+          cards={pins}
+          offline={offlinePins}
+          total={pinTotal}
+          activeSid={activeSid}
+          onSelectSession={onSelectSession}
+          onReconnectRemote={onReconnectRemote}
+          onTogglePin={togglePin}
+        />
+      )}
       <div className="board-columns">
         {columns.map((col) => (
           <BoardColumn
@@ -491,6 +758,7 @@ export function SessionsBoard({
             onNewSessionOnHost={onNewSessionOnHost}
             onDisconnectRemote={onDisconnectRemote}
             onReconnectRemote={onReconnectRemote}
+            onTogglePin={togglePin}
           />
         ))}
         <button className="board-connect" onClick={onOpenSsh}>

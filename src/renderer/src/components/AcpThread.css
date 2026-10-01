@@ -29,7 +29,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.acp-header-actions { display: flex; gap: 2px; position: relative; }
+.acp-header-actions { display: flex; align-items: center; gap: 2px; position: relative; }
+.acp-header-actions .acp-session-badges { margin-right: 6px; }
 
 .acp-body {
   position: relative;

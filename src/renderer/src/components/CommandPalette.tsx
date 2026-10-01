@@ -38,7 +38,7 @@ interface Props {
   onBrowseLocal: () => void
   /** Open the session switcher (Ctrl/Cmd+E) to jump to an existing session. */
   onGoToSession: () => void
-  /** Open the full-window sessions board (Ctrl/Cmd+Shift+B). */
+  /** Open the full-window sessions board (Ctrl/Cmd+Space). */
   onOpenBoard: () => void
   /** Which step to open on: 'commands' (default) or straight into 'targets'
    *  (the New Session project picker), e.g. from the sidebar's + button. */
@@ -107,7 +107,7 @@ export function CommandPalette({
       key: 'open-board',
       icon: 'editor-layout',
       label: 'Open Sessions Board',
-      detail: 'Every host and session side by side (Ctrl/Cmd+Shift+B)',
+      detail: 'Every host and session side by side (Ctrl/Cmd+Space)',
       run: onOpenBoard
     })
     return items

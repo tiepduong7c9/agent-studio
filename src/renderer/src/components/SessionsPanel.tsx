@@ -98,7 +98,7 @@ export function CaptureBadges({ captures }: { captures: Capture[] }) {
 // task, not the project, so "(⑂ agent-studio)" is what places the row. A session
 // in the repo's main worktree needs nothing — its folder already names the repo.
 // The branch and both paths live in the tooltip rather than the row.
-function WorktreeChip({ cwd, host }: { cwd: string; host?: string | null }) {
+export function WorktreeChip({ cwd, host }: { cwd: string; host?: string | null }) {
   const ensure = useGitInfoStore((s) => s.ensure)
   const info = useGitInfoStore((s) => s.entries[gitInfoKey(cwd, host)]?.info ?? null)
   useEffect(() => ensure(cwd, host), [cwd, host, ensure])

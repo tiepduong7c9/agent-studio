@@ -23,6 +23,10 @@ import { useDrafts } from '../acp/drafts-store'
 import { fileTabId, planTabId, useTabsStore } from '../tabs-store'
 import type { ProjectInfo } from '../../../shared/types'
 import { SessionLinksButton } from './SessionLinksButton'
+import { CaptureBadges } from './SessionsPanel'
+import { useCaptureStore, type Capture } from '../capture-store'
+
+const NO_CAPTURES: Capture[] = []
 import './AcpThread.css'
 
 const acp = () => window.studio.acp
@@ -696,37 +700,25 @@ const MessageList = memo(function MessageList({
   )
 })
 
-function Header({ sid, title, onBeginResume }: { sid: string; title: string; onBeginResume: () => void }) {
-  const currentConvId = useAcpStore((s) => s.threads.get(sid)?.acpSessionId ?? null)
-  const [open, setOpen] = useState(false)
-  const [convs, setConvs] = useState<AcpConversation[] | null>(null)
-  const ref = useOutsideClose(open, () => setOpen(false))
-
-  const toggle = () => {
-    const next = !open
-    setOpen(next)
-    if (next) { setConvs(null); acp().listConversations(sid).then(setConvs) }
-  }
+// The thread's title bar. With the sessions sidebar gone, the session-level
+// controls live here: its PR / ticket badges, its links, and the unread flag.
+function Header({ sid, title, wsId }: { sid: string; title: string; wsId: string | null }) {
+  const captures = useCaptureStore((s) => s.capturesBySid[sid]) ?? NO_CAPTURES
+  const unread = useViewPrefsStore((s) => !!s.unreadSessions[sid])
+  const toggleUnread = useViewPrefsStore((s) => s.toggleUnread)
   return (
     <div className="acp-header">
       <div className="acp-header-title">{title}</div>
-      <div ref={ref} className="acp-header-actions">
-        <button className="acp-btn" title="Resume a conversation" onClick={toggle}><Clock size={15} /></button>
-        <button className="acp-btn" title="New conversation" onClick={() => acp().newConversation(sid)}><SquarePen size={15} /></button>
-        {open && (
-          <div className="acp-menu right">
-            <div className="acp-menu-label">Resume conversation</div>
-            {convs === null && <div className="acp-menu-item">Loading…</div>}
-            {convs && convs.length === 0 && <div className="acp-menu-item">No past conversations</div>}
-            {convs && convs.map((c) => (
-              <button key={c.sessionId} className={`acp-menu-item ${c.sessionId === currentConvId ? 'active' : ''}`}
-                onClick={() => { if (c.sessionId !== currentConvId) { onBeginResume(); acp().resumeConversation(sid, c.sessionId) } setOpen(false) }}>
-                {c.title || 'Untitled conversation'}
-                {c.sessionId === currentConvId && <Check size={12} style={{ marginLeft: 6 }} />}
-              </button>
-            ))}
-          </div>
-        )}
+      <div className="acp-header-actions">
+        <CaptureBadges captures={captures} />
+        <SessionLinksButton sid={sid} wsId={wsId} />
+        <button
+          className={`acp-btn acp-unread-toggle ${unread ? 'active' : ''}`}
+          title={unread ? 'Marked unread — click to mark read' : 'Mark as unread to follow up later'}
+          onClick={() => toggleUnread(sid)}
+        >
+          {unread ? <Mail size={14} /> : <MailOpen size={14} />}
+        </button>
       </div>
     </div>
   )
@@ -1097,7 +1089,7 @@ export function AcpThread({ sid, workspace = null, visible = true }: { sid: stri
 
   return (
     <div className="acp-thread" style={visible ? undefined : { visibility: 'hidden', pointerEvents: 'none' }}>
-      <Header sid={sid} title={sessionName || recap || 'New conversation'} onBeginResume={beginResume} />
+      <Header sid={sid} title={sessionName || recap || 'New conversation'} wsId={workspace?.id ?? wsId} />
 
       {engineStatus !== 'connected' && (
         <div className="acp-banner">
@@ -1242,15 +1234,6 @@ export function AcpThread({ sid, workspace = null, visible = true }: { sid: stri
                   {contextPct}% context
                 </span>
               )}
-              <span className="acp-input-sep" />
-              <SessionLinksButton sid={sid} wsId={workspace?.id ?? wsId} />
-              <button
-                className={`acp-btn acp-unread-toggle ${unread ? 'active' : ''}`}
-                title={unread ? 'Marked unread — click to mark read' : 'Mark as unread to follow up later'}
-                onClick={() => toggleUnread(sid)}
-              >
-                {unread ? <Mail size={14} /> : <MailOpen size={14} />}
-              </button>
               <span className="acp-input-spacer" />
               {working ? (
                 <button className="acp-send" title="Stop" onClick={() => acp().cancel(sid)}><Square size={14} /></button>

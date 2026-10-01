@@ -8,13 +8,24 @@
   --board-scheduled: var(--vscode-charts-purple, #b180d7);
   --board-idle: var(--vscode-descriptionForeground);
   --board-online: var(--vscode-charts-green, #3fb950);
+  /* Cards sit on the editor colour; the body behind them is a shade darker,
+     so cards read as raised. */
+  --board-surface: var(--vscode-editor-background);
+  --board-body: color-mix(in srgb, #000 7%, var(--vscode-editor-background));
+  --board-border: color-mix(in srgb, var(--vscode-foreground) 13%, transparent);
+  --board-needs-bg: color-mix(in srgb, var(--board-needs) 11%, var(--board-surface));
+  --board-needs-border: color-mix(in srgb, var(--board-needs) 50%, transparent);
+  /* Lane text a step toward the foreground, so it reads on a tinted card. */
+  --board-needs-text: color-mix(in srgb, var(--board-needs) 72%, var(--vscode-foreground));
+  --board-running-text: color-mix(in srgb, var(--board-running) 85%, var(--vscode-foreground));
+  --board-scheduled-text: color-mix(in srgb, var(--board-scheduled) 80%, var(--vscode-foreground));
   position: absolute;
   inset: 0;
   z-index: 20;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: var(--vscode-editor-background);
+  background: var(--board-body);
 }
 
 .board-toolbar {
@@ -86,13 +97,125 @@
   min-width: 120px;
 }
 .board-new { flex-shrink: 0; }
-.board-close {
+
+/* Pinned strip: every pinned session across hosts, one row of compact tiles
+   between the toolbar and the columns. */
+.board-pins {
   flex-shrink: 0;
-  font-size: 16px;
-  padding: 3px;
-  border-radius: 4px;
+  padding: 10px 20px 12px;
+  border-bottom: 1px solid var(--board-border);
 }
-.board-close:hover { background: var(--vscode-toolbar-hoverBackground); }
+.board-pins-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+}
+.board-pins-label {
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.board-pins-count { font-variant-numeric: tabular-nums; }
+.board-pins-head .board-more { padding: 0; }
+.board-pins-row {
+  display: flex;
+  gap: 8px; /* PIN_GAP */
+  overflow: hidden;
+}
+.board-pins-row.expanded {
+  flex-wrap: wrap;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+.board-pin {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 0 0 212px; /* PIN_W */
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--board-border);
+  border-radius: 7px;
+  background: var(--board-surface);
+  cursor: pointer;
+  outline: none;
+}
+.board-pin:hover { border-color: color-mix(in srgb, var(--vscode-foreground) 30%, transparent); }
+.board-pin:focus-visible { border-color: var(--vscode-focusBorder); }
+.board-pin.lane-running { border-color: color-mix(in srgb, var(--board-running) 45%, transparent); }
+.board-pin.lane-needs { border-color: var(--board-needs-border); }
+.board-pin.asking {
+  border-color: var(--board-needs-border);
+  background: var(--board-needs-bg);
+}
+.board-pin.active { box-shadow: 0 0 0 1px var(--vscode-focusBorder); }
+.board-pin.offline { opacity: 0.6; }
+.board-pin-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.board-pin-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.board-pin-dot {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--board-idle);
+  opacity: 0.6;
+}
+.board-pin-dot.running { background: var(--board-running); opacity: 1; }
+.board-pin-dot.running { animation: acp-dot-pulse 1.4s ease-out infinite; }
+.board-pin-dot.needs,
+.board-pin-dot.done { background: var(--board-needs); opacity: 1; }
+.board-pin-dot.scheduled { background: var(--board-scheduled); opacity: 1; }
+.board-pin-meta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--vscode-descriptionForeground);
+}
+.board-pin-host {
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--vscode-foreground) 8%, transparent);
+  color: var(--vscode-foreground);
+}
+.board-pin-status { white-space: nowrap; }
+.board-pin-status.running { color: var(--board-running-text); }
+.board-pin-status.needs,
+.board-pin-status.done { color: var(--board-needs-text); }
+.board-pin-status.scheduled { color: var(--board-scheduled-text); }
+.board-pin-more {
+  flex: 0 0 98px; /* PIN_MORE_W */
+  border: 1px dashed color-mix(in srgb, var(--vscode-foreground) 25%, transparent);
+  border-radius: 7px;
+  background: none;
+  color: var(--vscode-textLink-foreground);
+  font-family: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.board-pin-more:hover { border-color: var(--vscode-textLink-foreground); }
 
 /* Columns scroll sideways as a row; each column scrolls its own cards. */
 .board-columns {
@@ -107,7 +230,9 @@
 .board-column {
   display: flex;
   flex-direction: column;
-  flex: 0 0 300px;
+  /* Hosts share the width, within readable bounds; past that, scroll. */
+  flex: 1 0 200px;
+  max-width: 320px;
   max-height: 100%;
   min-height: 0;
 }
@@ -190,9 +315,10 @@
   gap: 5px;
   flex-shrink: 0;
   padding: 10px 12px;
-  border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border, rgba(128, 128, 128, 0.25)));
+  border: 1px solid var(--board-border);
   border-radius: 7px;
-  background: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
+  background: var(--board-surface);
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.03);
   cursor: pointer;
   outline: none;
 }
@@ -200,14 +326,27 @@
   border-color: color-mix(in srgb, var(--vscode-foreground) 30%, transparent);
 }
 .board-card:focus-visible { border-color: var(--vscode-focusBorder); }
-.board-card.lane-running { border-color: color-mix(in srgb, var(--board-running) 60%, transparent); }
+.board-card.lane-running { border-color: color-mix(in srgb, var(--board-running) 45%, transparent); }
+/* Every "needs you" card (done, exited, waiting) wears the header's gold; the
+   one blocked on an approval also gets the tint below. */
+.board-card.lane-needs { border-color: var(--board-needs-border); }
 /* Blocked on you: the one card that should pull the eye. */
 .board-card.asking {
-  border-color: color-mix(in srgb, var(--board-needs) 55%, transparent);
-  background: color-mix(in srgb, var(--board-needs) 10%, var(--vscode-editorWidget-background, transparent));
+  border-color: var(--board-needs-border);
+  background: var(--board-needs-bg);
 }
 .board-card.active { box-shadow: 0 0 0 1px var(--vscode-focusBorder); }
-.board-card.suspended { opacity: 0.75; }
+/* Idle cards are the board's plain white; suspended ones (process stopped,
+   resumes on open) step back into the body colour with a dashed edge — set
+   apart from idle without fading their text. */
+.board-card.lane-idle { border-color: color-mix(in srgb, var(--vscode-foreground) 18%, transparent); }
+.board-card.suspended {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--vscode-foreground) 28%, transparent);
+  background: color-mix(in srgb, #000 3%, var(--board-body));
+  box-shadow: none;
+}
+.board-card.suspended .board-card-title { color: color-mix(in srgb, var(--vscode-foreground) 78%, transparent); }
 
 .board-card-title-line {
   display: flex;
@@ -228,6 +367,12 @@
   overflow-wrap: anywhere;
 }
 .board-card-title-line .acp-session-badges { margin-top: 1px; }
+.board-card-pin {
+  display: inline-flex;
+  flex-shrink: 0;
+  margin: 3px -3px 0 0;
+  color: var(--vscode-descriptionForeground);
+}
 .board-card-schedule {
   display: inline-flex;
   flex-shrink: 0;
@@ -249,8 +394,11 @@
   gap: 5px;
   min-width: 0;
 }
-.board-card-project .codicon { font-size: 13px; flex-shrink: 0; }
+.board-card-project > .codicon { font-size: 13px; flex-shrink: 0; }
+.board-card-project .acp-session-worktree { margin-left: 0; }
 .board-card-project-name {
+  flex: 0 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -276,11 +424,15 @@
   border-radius: 50%;
   background: currentColor;
 }
-.board-card-status.running { color: var(--board-running); }
+.board-card-status.running { color: var(--board-running-text); }
 .board-card-status.running .board-card-status-dot { animation: acp-dot-pulse 1.4s ease-out infinite; }
-.board-card-status.needs { color: var(--board-needs); }
-.board-card-status.done { color: var(--board-running); }
-.board-card-status.scheduled { color: var(--board-scheduled); }
+.board-card-status.running .board-card-status-dot { background: var(--board-running); }
+.board-card-status.needs,
+.board-card-status.done { color: var(--board-needs-text); }
+.board-card-status.needs .board-card-status-dot,
+.board-card-status.done .board-card-status-dot { background: var(--board-needs); }
+.board-card-status.scheduled { color: var(--board-scheduled-text); }
+.board-card-status.scheduled .board-card-status-dot { background: var(--board-scheduled); }
 .board-card-status.snoozed { color: var(--board-idle); }
 
 .board-card-actions {
@@ -304,7 +456,7 @@
 .board-column-new,
 .board-connect {
   padding: 9px;
-  border: 1px dashed var(--vscode-widget-border, rgba(128, 128, 128, 0.45));
+  border: 1px dashed color-mix(in srgb, var(--vscode-foreground) 25%, transparent);
   border-radius: 7px;
   background: none;
   color: var(--vscode-descriptionForeground);
@@ -318,7 +470,11 @@
   border-color: color-mix(in srgb, var(--vscode-foreground) 40%, transparent);
 }
 .board-column-new:disabled { opacity: 0.5; cursor: default; }
-.board-column-reconnect { padding: 7px; }
+.board-column-reconnect {
+  padding: 7px;
+  border: 1px solid var(--board-border);
+  background: var(--board-surface);
+}
 .board-connect {
   display: inline-flex;
   align-items: center;
