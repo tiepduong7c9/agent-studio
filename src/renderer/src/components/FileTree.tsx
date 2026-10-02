@@ -519,10 +519,19 @@ export const FileTree = forwardRef<PanelHandle, Props>(function FileTree(
     collapseAll() {
       const tree = treeRef.current
       if (!tree) return
-      // Collapse everything under the project, then re-open the project so its
-      // top-level entries stay visible (matches VS Code's Collapse All).
-      tree.collapse(project, true)
-      tree.expand(project).catch(() => {})
+      // Collapse each top-level folder (recursively) and leave the project open,
+      // so its entries stay visible — VS Code's Collapse All. Collapsing the
+      // project itself and re-expanding it doesn't work: the re-expand reloads
+      // the children and restores their old expanded state.
+      let root: any
+      try {
+        root = tree.getNode(project)
+      } catch {
+        return
+      }
+      for (const c of root.children ?? []) {
+        if (c.collapsible && !c.collapsed) tree.collapse(c.element, true)
+      }
     }
   }))
 

@@ -13,6 +13,9 @@
   --board-surface: var(--vscode-editor-background);
   --board-body: color-mix(in srgb, #000 7%, var(--vscode-editor-background));
   --board-border: color-mix(in srgb, var(--vscode-foreground) 13%, transparent);
+  /* Status tints: light mode needs more than a coloured border to read, so
+     running and needs-you cards also take their lane colour as a wash. */
+  --board-running-bg: color-mix(in srgb, var(--board-running) 8%, var(--board-surface));
   --board-needs-bg: color-mix(in srgb, var(--board-needs) 11%, var(--board-surface));
   --board-needs-border: color-mix(in srgb, var(--board-needs) 50%, transparent);
   /* Lane text a step toward the foreground, so it reads on a tinted card. */
@@ -27,45 +30,6 @@
   min-height: 0;
   background: var(--board-body);
 }
-
-.board-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-shrink: 0;
-  height: 48px;
-  padding: 0 16px 0 20px;
-  border-bottom: 1px solid var(--vscode-panel-border, var(--vscode-widget-border, transparent));
-  background: var(--vscode-sideBar-background);
-}
-.board-title {
-  font-size: 15px;
-  font-weight: 600;
-}
-.board-summary {
-  display: flex;
-  gap: 14px;
-  min-width: 0;
-  overflow: hidden;
-  font-size: 12.5px;
-  color: var(--vscode-foreground);
-  white-space: nowrap;
-}
-.board-summary-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.board-summary-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: currentColor;
-}
-.board-summary-item.lane-running .board-summary-dot { color: var(--board-running); }
-.board-summary-item.lane-needs .board-summary-dot { color: var(--board-needs); }
-.board-summary-item.lane-scheduled .board-summary-dot { color: var(--board-scheduled); }
-.board-summary-item.lane-idle .board-summary-dot { color: var(--board-idle); opacity: 0.6; }
 
 /* Segmented filter: All / Active only / Needs me. */
 .board-filters {
@@ -92,18 +56,38 @@
   font-weight: 600;
   box-shadow: 0 0 0 0.5px var(--vscode-widget-border, rgba(128, 128, 128, 0.35));
 }
-.board-search {
-  flex: 0 1 220px;
-  min-width: 120px;
+/* Count pills on "Active only" / "Needs me", in their lane colours. */
+.board-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
-.board-new { flex-shrink: 0; }
+.board-filter-count {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 5px;
+  box-sizing: border-box;
+  border-radius: 8px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.board-filter-count.active {
+  background: color-mix(in srgb, var(--vscode-charts-blue, #3794ff) 18%, transparent);
+  color: color-mix(in srgb, var(--vscode-charts-blue, #3794ff) 80%, var(--vscode-foreground));
+}
+.board-filter-count.needs {
+  background: var(--vscode-charts-orange, #d18616);
+  color: #fff;
+}
 
 /* Pinned strip: every pinned session across hosts, one row of compact tiles
-   between the toolbar and the columns. */
+   above the columns. */
 .board-pins {
   flex-shrink: 0;
-  padding: 10px 20px 12px;
-  border-bottom: 1px solid var(--board-border);
+  padding: 14px 20px 4px;
 }
 .board-pins-head {
   display: flex;
@@ -145,9 +129,11 @@
 }
 .board-pin:hover { border-color: color-mix(in srgb, var(--vscode-foreground) 30%, transparent); }
 .board-pin:focus-visible { border-color: var(--vscode-focusBorder); }
-.board-pin.lane-running { border-color: color-mix(in srgb, var(--board-running) 45%, transparent); }
-.board-pin.lane-needs { border-color: var(--board-needs-border); }
-.board-pin.asking {
+.board-pin.lane-running {
+  border-color: color-mix(in srgb, var(--board-running) 45%, transparent);
+  background: var(--board-running-bg);
+}
+.board-pin.lane-needs {
   border-color: var(--board-needs-border);
   background: var(--board-needs-bg);
 }
@@ -326,15 +312,18 @@
   border-color: color-mix(in srgb, var(--vscode-foreground) 30%, transparent);
 }
 .board-card:focus-visible { border-color: var(--vscode-focusBorder); }
-.board-card.lane-running { border-color: color-mix(in srgb, var(--board-running) 45%, transparent); }
+.board-card.lane-running {
+  border-color: color-mix(in srgb, var(--board-running) 45%, transparent);
+  background: var(--board-running-bg);
+}
 /* Every "needs you" card (done, exited, waiting) wears the header's gold; the
-   one blocked on an approval also gets the tint below. */
-.board-card.lane-needs { border-color: var(--board-needs-border); }
-/* Blocked on you: the one card that should pull the eye. */
-.board-card.asking {
+   one blocked on an approval gets a firmer edge on top. */
+.board-card.lane-needs {
   border-color: var(--board-needs-border);
   background: var(--board-needs-bg);
 }
+/* Blocked on you: the one card that should pull the eye. */
+.board-card.asking { border-color: color-mix(in srgb, var(--board-needs) 75%, transparent); }
 .board-card.active { box-shadow: 0 0 0 1px var(--vscode-focusBorder); }
 /* Idle cards are the board's plain white; suspended ones (process stopped,
    resumes on open) step back into the body colour with a dashed edge — set
@@ -367,6 +356,25 @@
   overflow-wrap: anywhere;
 }
 .board-card-title-line .acp-session-badges { margin-top: 1px; }
+.board-card-unread {
+  display: inline-flex;
+  flex-shrink: 0;
+  margin: 3px -3px 0 0;
+  color: var(--vscode-textLink-foreground);
+}
+.board-card-rename {
+  flex: 1;
+  min-width: 0;
+  padding: 1px 4px;
+  border: 1px solid var(--vscode-focusBorder);
+  border-radius: 4px;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  font-family: inherit;
+  font-size: 13px;
+  outline: none;
+}
+.board-card-status.busy { color: var(--vscode-descriptionForeground); font-style: italic; }
 .board-card-pin {
   display: inline-flex;
   flex-shrink: 0;

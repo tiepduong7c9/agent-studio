@@ -1,5 +1,5 @@
 import { type MouseEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { AlarmClock, Ellipsis, Pin } from 'lucide-react'
+import { AlarmClock, Ellipsis, Mail, Pin } from 'lucide-react'
 import { create } from 'zustand'
 import type { SessionMeta } from '../../../shared/acp'
 import { useSessionsStore } from '../acp/sessions-store'
@@ -10,6 +10,7 @@ import { useTagsStore } from '../tags-store'
 import { useViewPrefsStore } from '../view-prefs-store'
 import { useGitInfoStore } from '../git-info-store'
 import { CaptureBadges, renderTitle, SessionTagIcon, WorktreeChip } from './SessionsPanel'
+import { useSessionMenu } from './session-actions'
 import './SessionsBoard.css'
 
 // A full-window board of every session, one column per connectable host. The
@@ -30,7 +31,7 @@ const PIN_MORE_W = 98
 const PIN_GAP = 8
 
 /** What a card is doing, from most to least urgent. Every session is exactly one. */
-type Lane = 'needs' | 'running' | 'scheduled' | 'idle'
+export type Lane = 'needs' | 'running' | 'scheduled' | 'idle'
 const LANE_RANK: Record<Lane, number> = { needs: 0, running: 1, scheduled: 2, idle: 3 }
 
 type Filter = 'all' | 'active' | 'needs'
@@ -58,8 +59,72 @@ const useSnoozeStore = create<{
     })
 }))
 
+// The board's filter and search live in the title bar while the board is open,
+// so they're shared state rather than the board's own. Kept for the app's
+// lifetime: reopening the board picks up where it was.
+export const useBoardStore = create<{
+  filter: Filter
+  query: string
+  setFilter: (f: Filter) => void
+  setQuery: (q: string) => void
+}>((set) => ({
+  filter: 'all',
+  query: '',
+  setFilter: (filter) => set({ filter }),
+  setQuery: (query) => set({ query })
+}))
+
+/** The title bar's search box while the board is open. */
+export function BoardSearch() {
+  const query = useBoardStore((s) => s.query)
+  const setQuery = useBoardStore((s) => s.setQuery)
+  return (
+    <div className="titlebar-search">
+      <span className="codicon codicon-search" />
+      <input
+        className="titlebar-search-input"
+        type="text"
+        placeholder="Search sessions, projects, hosts"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        spellCheck={false}
+        autoFocus
+      />
+      {query && (
+        <button className="icon-button codicon codicon-close" title="Clear" onClick={() => setQuery('')} />
+      )}
+    </div>
+  )
+}
+
+/** The title bar's All / Active only / Needs me switch, with live counts. */
+export function BoardFilters({ sessions }: { sessions: SessionMeta[] }) {
+  const filter = useBoardStore((s) => s.filter)
+  const setFilter = useBoardStore((s) => s.setFilter)
+  const doneSessions = useSessionsStore((s) => s.doneSessions)
+  const needs = useBoardNeedsCount(sessions)
+  const active = sessions.filter((s) => laneOf(s, !!doneSessions[s.id]) !== 'idle').length
+  const count: Record<Filter, number | null> = { all: null, active, needs }
+  return (
+    <div className="board-filters" role="tablist">
+      {FILTERS.map((f) => (
+        <button
+          key={f.key}
+          role="tab"
+          aria-selected={filter === f.key}
+          className={`board-filter ${filter === f.key ? 'active' : ''}`}
+          onClick={() => setFilter(f.key)}
+        >
+          {f.label}
+          {!!count[f.key] && <span className={`board-filter-count ${f.key}`}>{count[f.key]}</span>}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 /** How many sessions the board's "Needs me" filter would show — for the
- *  title bar's Board button badge. */
+ *  board icon's badge. */
 export function useBoardNeedsCount(sessions: SessionMeta[]): number {
   const doneSessions = useSessionsStore((s) => s.doneSessions)
   const snoozed = useSnoozeStore((s) => s.snoozed)
@@ -75,12 +140,12 @@ interface Props {
   activeSid: string | null
   /** Open a session's chat (the board closes itself). */
   onSelectSession: (sid: string) => void
-  onNewSessionFlow: () => void
   /** Start the New Session flow scoped to a host (null = local machine). */
   onNewSessionOnHost: (host: string | null) => void
   onOpenSsh: () => void
   onDisconnectRemote: (host: string) => void
   onReconnectRemote: (host: string) => void
+  onDeleteSession: (sid: string) => void
   onClose: () => void
 }
 
@@ -112,7 +177,7 @@ interface Column {
   counts: Record<Lane, number>
 }
 
-function laneOf(s: SessionMeta, done: boolean): Lane {
+export function laneOf(s: SessionMeta, done: boolean): Lane {
   if (s.status === 'exited' || s.claudeStatus === 'waiting' || done) return 'needs'
   if (s.claudeStatus === 'working') return 'running'
   if (s.schedule) return 'scheduled'
@@ -152,7 +217,8 @@ function pinStatus(c: Card): { cls: string; text: string } {
   return { cls: 'idle', text: s.status === 'suspended' ? 'Suspended' : 'Idle' }
 }
 
-/** Right-click on a card or pinned tile: pin / unpin. */
+/** Right-click on an offline pinned tile: there's no live session to act on,
+ *  so unpin is all it offers. */
 function usePinMenu(onTogglePin: () => void, pinned: boolean) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const open = (e: MouseEvent) => {
@@ -171,10 +237,10 @@ function usePinMenu(onTogglePin: () => void, pinned: boolean) {
   return { open, node }
 }
 
-function PinTile({ c, active, onOpen, onTogglePin }: { c: Card; active: boolean; onOpen: () => void; onTogglePin: () => void }) {
+function PinTile({ c, active, onOpen, onDelete }: { c: Card; active: boolean; onOpen: () => void; onDelete: () => void }) {
   const { s } = c
   const st = pinStatus(c)
-  const menu = usePinMenu(onTogglePin, true)
+  const menu = useSessionMenu(s, onDelete)
   const asking = s.claudeStatus === 'waiting' && !c.snoozed
   return (
     <div
@@ -235,7 +301,8 @@ function PinnedStrip({
   activeSid,
   onSelectSession,
   onReconnectRemote,
-  onTogglePin
+  onTogglePin,
+  onDeleteSession
 }: {
   cards: Card[]
   offline: OfflinePin[]
@@ -245,6 +312,7 @@ function PinnedStrip({
   onSelectSession: (sid: string) => void
   onReconnectRemote: (host: string) => void
   onTogglePin: (sid: string) => void
+  onDeleteSession: (sid: string) => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const rowRef = useRef<HTMLDivElement>(null)
@@ -286,7 +354,7 @@ function PinnedStrip({
             c={c}
             active={c.s.id === activeSid}
             onOpen={() => onSelectSession(c.s.id)}
-            onTogglePin={() => onTogglePin(c.s.id)}
+            onDelete={() => onDeleteSession(c.s.id)}
           />
         ))}
         {shownOffline.map((p) => (
@@ -322,7 +390,7 @@ function BoardCard({
   active,
   onOpen,
   onLater,
-  onTogglePin
+  onDelete
 }: {
   c: Card
   captures: Capture[]
@@ -331,11 +399,12 @@ function BoardCard({
   active: boolean
   onOpen: () => void
   onLater: () => void
-  onTogglePin: () => void
+  onDelete: () => void
 }) {
   const { s } = c
-  const status = cardStatus(c)
-  const menu = usePinMenu(onTogglePin, c.pinned)
+  const menu = useSessionMenu(s, onDelete)
+  const status = menu.busy ? { cls: 'busy', text: `${menu.busy}…` } : cardStatus(c)
+  const unread = useViewPrefsStore((st) => !!st.unreadSessions[s.id])
   const time = relTime(c.done && c.doneAt ? c.doneAt : sessionActivity(s))
   const asking = s.claudeStatus === 'waiting' && !c.snoozed
   const project = (
@@ -351,19 +420,43 @@ function BoardCard({
       className={`board-card lane-${c.lane} ${asking ? 'asking' : ''} ${active ? 'active' : ''} ${s.status === 'suspended' ? 'suspended' : ''}`}
       role="button"
       tabIndex={0}
-      onClick={onOpen}
+      onClick={menu.editing ? undefined : onOpen}
       onContextMenu={menu.open}
       onKeyDown={(e) => {
-        if (e.key === 'Enter') onOpen()
+        if (e.key === 'Enter' && !menu.editing) onOpen()
       }}
     >
       <div className="board-card-title-line">
+        {unread && (
+          <span className="board-card-unread" title="Marked unread">
+            <Mail size={12} strokeWidth={2.25} />
+          </span>
+        )}
         {c.pinned && (
           <span className="board-card-pin" title="Pinned">
             <Pin size={12} strokeWidth={2.25} />
           </span>
         )}
-        <span className="board-card-title">{renderTitle(s.name)}</span>
+        {menu.editing ? (
+          <input
+            className="board-card-rename"
+            defaultValue={s.name}
+            autoFocus
+            spellCheck={false}
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              e.stopPropagation()
+              if (e.key === 'Enter') menu.commitRename(e.currentTarget.value)
+              else if (e.key === 'Escape') {
+                e.preventDefault()
+                menu.cancelRename()
+              }
+            }}
+            onBlur={(e) => menu.commitRename(e.currentTarget.value)}
+          />
+        ) : (
+          <span className="board-card-title">{renderTitle(s.name)}</span>
+        )}
         {s.schedule && (
           <span className="board-card-schedule" title={scheduleLabel(s.schedule)}>
             <AlarmClock size={13} strokeWidth={2.25} />
@@ -430,7 +523,7 @@ function BoardColumn({
   onNewSessionOnHost,
   onDisconnectRemote,
   onReconnectRemote,
-  onTogglePin
+  onDeleteSession
 }: {
   col: Column
   filter: Filter
@@ -438,7 +531,7 @@ function BoardColumn({
   activeSid: string | null
   capturesFor: (sid: string) => Capture[]
   sessionTag: Record<string, string>
-  onTogglePin: (sid: string) => void
+  onDeleteSession: (sid: string) => void
 } & Pick<Props, 'onSelectSession' | 'onNewSessionOnHost' | 'onDisconnectRemote' | 'onReconnectRemote'>) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [showAllIdle, setShowAllIdle] = useState(false)
@@ -504,7 +597,7 @@ function BoardColumn({
             active={c.s.id === activeSid}
             onOpen={() => onSelectSession(c.s.id)}
             onLater={() => snooze(c.s.id)}
-            onTogglePin={() => onTogglePin(c.s.id)}
+            onDelete={() => onDeleteSession(c.s.id)}
           />
         ))}
         {col.cards.length === 0 && !offline && <div className="board-column-empty">{emptyText}</div>}
@@ -543,11 +636,11 @@ export function SessionsBoard({
   engineStatus,
   activeSid,
   onSelectSession,
-  onNewSessionFlow,
   onNewSessionOnHost,
   onOpenSsh,
   onDisconnectRemote,
   onReconnectRemote,
+  onDeleteSession,
   onClose
 }: Props) {
   const doneSessions = useSessionsStore((s) => s.doneSessions)
@@ -559,8 +652,9 @@ export function SessionsBoard({
   const togglePin = useViewPrefsStore((s) => s.togglePin)
   const snoozed = useSnoozeStore((s) => s.snoozed)
   const keepSnoozed = useSnoozeStore((s) => s.keepOnly)
-  const [filter, setFilter] = useState<Filter>('all')
-  const [query, setQuery] = useState('')
+  const filter = useBoardStore((s) => s.filter)
+  const query = useBoardStore((s) => s.query)
+  const setQuery = useBoardStore((s) => s.setQuery)
 
   const NO_CAPTURES: Capture[] = []
   const capturesFor = (sid: string): Capture[] => capturesBySid[sid] ?? NO_CAPTURES
@@ -596,12 +690,12 @@ export function SessionsBoard({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [query, onClose])
+  }, [query, setQuery, onClose])
 
   const q = query.trim().toLowerCase()
   const searching = q.length > 0
 
-  const { columns, totals, pins, offlinePins, pinTotal } = useMemo(() => {
+  const { columns, pins, offlinePins, pinTotal } = useMemo(() => {
     const matches = (s: SessionMeta): boolean =>
       !searching ||
       [s.name, s.cwd, hostLabel(s.host)].some((t) => t.toLowerCase().includes(q)) ||
@@ -661,7 +755,7 @@ export function SessionsBoard({
     const pinTotal = Object.keys(pinnedSessions).filter(
       (id) => liveIds.has(id) || (pinnedMeta[id]?.host && knownHosts.has(pinnedMeta[id].host!))
     ).length
-    return { columns, totals, pins, offlinePins, pinTotal }
+    return { columns, pins, offlinePins, pinTotal }
   }, [
     sessions,
     remoteHosts,
@@ -678,61 +772,8 @@ export function SessionsBoard({
     searching
   ])
 
-  const summary: { lane: Lane; text: string }[] = [
-    { lane: 'running', text: `${totals.running} running` },
-    { lane: 'needs', text: `${totals.needs} needs you` },
-    { lane: 'scheduled', text: `${totals.scheduled} scheduled` },
-    { lane: 'idle', text: `${totals.idle} idle` }
-  ]
-
   return (
     <div className="sessions-board">
-      <div className="board-toolbar">
-        <span className="board-title">Sessions</span>
-        <span className="board-summary">
-          {summary.map((p) => (
-            <span key={p.lane} className={`board-summary-item lane-${p.lane}`}>
-              <span className="board-summary-dot" />
-              {p.text}
-            </span>
-          ))}
-        </span>
-        <span className="topbar-spacer" />
-        <div className="board-filters" role="tablist">
-          {FILTERS.map((f) => (
-            <button
-              key={f.key}
-              role="tab"
-              aria-selected={filter === f.key}
-              className={`board-filter ${filter === f.key ? 'active' : ''}`}
-              onClick={() => setFilter(f.key)}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
-        <div className="sessions-search board-search">
-          <span className="codicon codicon-search sessions-search-icon" />
-          <input
-            className="sessions-search-input"
-            type="text"
-            placeholder="Search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            spellCheck={false}
-          />
-          {query && (
-            <button
-              className="icon-button codicon codicon-close sessions-search-clear"
-              title="Clear"
-              onClick={() => setQuery('')}
-            />
-          )}
-        </div>
-        <button className="btn btn-primary board-new" onClick={onNewSessionFlow}>
-          New session
-        </button>
-      </div>
       {pinTotal > 0 && (
         <PinnedStrip
           cards={pins}
@@ -742,6 +783,7 @@ export function SessionsBoard({
           onSelectSession={onSelectSession}
           onReconnectRemote={onReconnectRemote}
           onTogglePin={togglePin}
+          onDeleteSession={onDeleteSession}
         />
       )}
       <div className="board-columns">
@@ -758,7 +800,7 @@ export function SessionsBoard({
             onNewSessionOnHost={onNewSessionOnHost}
             onDisconnectRemote={onDisconnectRemote}
             onReconnectRemote={onReconnectRemote}
-            onTogglePin={togglePin}
+            onDeleteSession={onDeleteSession}
           />
         ))}
         <button className="board-connect" onClick={onOpenSsh}>
