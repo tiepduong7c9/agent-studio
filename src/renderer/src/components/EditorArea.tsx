@@ -214,7 +214,10 @@ export function EditorArea({ workspaces, sessionWorkspaces, onCreateSession, onP
 
   return (
     <div className="editor-area">
-      {tabs.length > 0 && (
+      {/* A lone chat needs no tab strip: the title bar already names the
+          session and carries its actions. The strip appears once a second
+          tool (file, terminal, diff…) opens beside it. */}
+      {tabs.length > 0 && !(tabs.length === 1 && tabs[0].kind === 'chat') && (
         <div className="tab-strip" role="tablist">
           <div className="tab-list">
             {tabs.map((tab) => (
@@ -291,11 +294,15 @@ export function EditorArea({ workspaces, sessionWorkspaces, onCreateSession, onP
                 onClick={() => downloadFile(fileTab)}
               />
             )}
-            <button
-              className={`icon-button codicon ${maximized ? 'codicon-screen-normal' : 'codicon-screen-full'}`}
-              title={maximized ? 'Restore panel' : 'Maximize editor'}
-              onClick={toggleMaximize}
-            />
+            {/* A session's tabs maximize from the title bar; this one covers
+                tabs outside any session. */}
+            {!activeSid && (
+              <button
+                className={`icon-button codicon ${maximized ? 'codicon-screen-normal' : 'codicon-screen-full'}`}
+                title={maximized ? 'Restore panel' : 'Maximize editor'}
+                onClick={toggleMaximize}
+              />
+            )}
           </div>
         </div>
       )}

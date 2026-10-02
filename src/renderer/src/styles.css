@@ -48,7 +48,8 @@ body {
 .titlebar {
   display: flex;
   align-items: center;
-  height: 40px;
+  gap: 8px;
+  height: 44px;
   padding: 0 8px;
   background: var(--vscode-titleBar-activeBackground);
   color: var(--vscode-titleBar-activeForeground);
@@ -57,9 +58,177 @@ body {
 }
 
 .titlebar button,
-.titlebar .command-center {
+.titlebar input,
+.titlebar .command-center,
+.titlebar .titlebar-pill,
+.titlebar .board-filters {
   -webkit-app-region: no-drag;
 }
+
+/* Board breadcrumb: "Agent Studio › Sessions". */
+.titlebar-crumbs {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 6px;
+  font-size: 13px;
+  color: var(--vscode-descriptionForeground);
+  white-space: nowrap;
+}
+.titlebar-crumbs-current {
+  color: var(--vscode-titleBar-activeForeground);
+  font-weight: 600;
+}
+
+/* The board's search, centred where the session pill sits otherwise. */
+.titlebar-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: min(38vw, 480px);
+  height: 28px;
+  padding: 0 8px 0 10px;
+  box-sizing: border-box;
+  border: 1px solid var(--vscode-commandCenter-border, var(--vscode-widget-border, transparent));
+  border-radius: 7px;
+  background: var(--vscode-commandCenter-background, var(--vscode-input-background));
+  color: var(--vscode-descriptionForeground);
+}
+.titlebar-search:focus-within { border-color: var(--vscode-focusBorder); }
+.titlebar-search-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: none;
+  color: var(--vscode-foreground);
+  font-family: inherit;
+  font-size: 12.5px;
+}
+.titlebar-search .icon-button { font-size: 13px; padding: 1px; }
+.titlebar-new {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  margin-left: 4px;
+}
+
+/* The session pill: dot · host › project › title …… status ⌄. Clicking it
+   opens the session switcher. */
+.titlebar-pill {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: min(50vw, 680px);
+  height: 28px;
+  padding: 0 10px 0 12px;
+  box-sizing: border-box;
+  border: 1px solid var(--vscode-commandCenter-border, transparent);
+  border-radius: 7px;
+  background: var(--vscode-commandCenter-background, var(--vscode-input-background));
+  color: var(--vscode-commandCenter-foreground, var(--vscode-foreground));
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+  outline: none;
+}
+.titlebar-pill:hover { border-color: color-mix(in srgb, var(--vscode-foreground) 25%, transparent); }
+.titlebar-pill:focus-visible { border-color: var(--vscode-focusBorder); }
+.titlebar-pill-dot {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--vscode-descriptionForeground);
+  opacity: 0.6;
+}
+.titlebar-pill-dot.lane-running {
+  background: var(--vscode-charts-blue, #3794ff);
+  opacity: 1;
+  animation: acp-dot-pulse 1.4s ease-out infinite;
+}
+.titlebar-pill-dot.lane-needs { background: var(--vscode-charts-orange, #d18616); opacity: 1; }
+.titlebar-pill-dot.lane-scheduled { background: var(--vscode-charts-purple, #b180d7); opacity: 1; }
+.titlebar-pill-crumb {
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--vscode-descriptionForeground);
+}
+.titlebar-pill-sep { flex-shrink: 0; color: var(--vscode-descriptionForeground); opacity: 0.6; }
+.titlebar-pill-title {
+  flex: 0 1 auto;
+  min-width: 40px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+.titlebar-pill-rename {
+  flex: 1;
+  min-width: 80px;
+  padding: 1px 4px;
+  border: 1px solid var(--vscode-focusBorder);
+  border-radius: 4px;
+  outline: none;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  font-family: inherit;
+  font-size: 13px;
+}
+.titlebar-pill-unread { display: inline-flex; flex-shrink: 0; color: var(--vscode-textLink-foreground); }
+.titlebar-pill .acp-session-badges { flex-shrink: 0; }
+.titlebar-pill-spacer { flex: 1; }
+.titlebar-pill-status {
+  flex-shrink: 0;
+  font-size: 12.5px;
+  color: var(--vscode-descriptionForeground);
+}
+.titlebar-pill-status.running { color: var(--vscode-charts-blue, #3794ff); }
+.titlebar-pill-status.needs { color: color-mix(in srgb, var(--vscode-charts-orange, #d18616) 75%, var(--vscode-foreground)); }
+.titlebar-pill-status.scheduled { color: var(--vscode-charts-purple, #b180d7); }
+.titlebar-pill-chevron { flex-shrink: 0; color: var(--vscode-descriptionForeground); }
+
+/* Session actions: links, tag, pin, maximize, more. */
+.titlebar-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* Divider before the window buttons. Its margins even out the visible gap on
+   each side: the icon buttons before it pad their glyphs by ~7px, the window
+   buttons after it by ~13px; a text button (New) has none, so it gets more. */
+.titlebar-sep {
+  flex-shrink: 0;
+  width: 1px;
+  height: 20px;
+  margin-left: 6px;
+  background: var(--vscode-titleBar-border, var(--vscode-widget-border, rgba(128, 128, 128, 0.3)));
+}
+.titlebar-new + .titlebar-sep { margin-left: 10px; }
+.titlebar-action-btn,
+.titlebar-actions .acp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  width: 30px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: var(--vscode-titleBar-activeForeground, var(--vscode-foreground));
+  cursor: pointer;
+}
+.titlebar-action-btn:hover,
+.titlebar-actions .acp-btn:hover { background: var(--vscode-toolbar-hoverBackground); }
+.titlebar-action-btn.active { color: var(--vscode-textLink-foreground); }
+/* The links button carries a count badge, so it grows past the square. */
+.titlebar-actions .acp-btn { width: auto; min-width: 30px; padding: 0 6px; gap: 3px; }
 
 .titlebar-side {
   display: flex;
@@ -149,7 +318,6 @@ body {
 .window-controls {
   display: flex;
   align-self: stretch;
-  margin-left: 8px;
 }
 
 .window-control {
@@ -259,6 +427,82 @@ body {
   flex-shrink: 0;
   background: var(--vscode-sideBar-background);
   border-right: 1px solid var(--vscode-sideBar-border);
+}
+
+/* VS Code-style activity bar: picks the side panel's view; gear at the bottom. */
+.activity-bar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 0 0 48px; /* ACTIVITY_BAR_WIDTH */
+  box-sizing: border-box;
+  padding: 4px 0;
+  background: var(--vscode-activityBar-background, var(--vscode-sideBar-background));
+  border-right: 1px solid var(--vscode-activityBar-border, var(--vscode-sideBar-border, transparent));
+}
+.activity-bar-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border: none;
+  background: none;
+  color: var(--vscode-activityBar-inactiveForeground, var(--vscode-descriptionForeground));
+  cursor: pointer;
+}
+.activity-bar-item:hover,
+.activity-bar-item.open { color: var(--vscode-activityBar-foreground, var(--vscode-foreground)); }
+.activity-bar-item.active { color: var(--vscode-activityBar-foreground, var(--vscode-foreground)); }
+.activity-bar-item.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--vscode-activityBar-activeBorder, var(--vscode-focusBorder));
+}
+.activity-bar-spacer { flex: 1; }
+.activity-bar-sep {
+  width: 24px;
+  height: 1px;
+  margin: 4px 0;
+  background: var(--vscode-activityBar-border, var(--vscode-sideBar-border, rgba(128, 128, 128, 0.3)));
+}
+/* VS Code's activity badge: a small pill over the icon's bottom-right. */
+.activity-bar-badge {
+  position: absolute;
+  right: 6px;
+  bottom: 7px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  border-radius: 8px;
+  background: var(--vscode-activityBarBadge-background, var(--vscode-charts-orange, #d18616));
+  color: var(--vscode-activityBarBadge-foreground, #fff);
+  font-size: 9.5px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+/* The board covers the panels but leaves the activity bar, so its icon still
+   shows the board as the active view and toggles it shut. */
+.activity-bar ~ .sessions-board { left: 48px; }
+/* Docked beside the activity bar, the panel gets a little more breathing room. */
+.panel-right.docked-left .right-panel-header { padding-left: 16px; }
+.panel-right.docked-left .right-panel-body { padding-left: 6px; }
+
+.right-panel-title {
+  padding-left: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--vscode-sideBarTitle-foreground, var(--vscode-foreground));
 }
 
 .panel-right.docked-left {
@@ -3558,3 +3802,4 @@ body {
 .session-skill-check {
   margin-top: 3px;
 }
+.titlebar-actions .acp-links-toggle svg { width: 16px; height: 16px; }

@@ -11,27 +11,6 @@
   color: var(--vscode-foreground);
 }
 
-.acp-header {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--vscode-sideBar-border);
-  background: var(--vscode-sideBar-background);
-}
-.acp-header-title {
-  flex: 1 1 auto;
-  min-width: 0;
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.acp-header-actions { display: flex; align-items: center; gap: 2px; position: relative; }
-.acp-header-actions .acp-session-badges { margin-right: 6px; }
-
 .acp-body {
   position: relative;
   flex: 1 1 auto;

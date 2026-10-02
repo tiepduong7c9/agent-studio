@@ -9,9 +9,15 @@ interface Props {
   project: ProjectInfo | null
   selection: Selection | null
   onSelect: SelectHandler
+  /** The view to show, driven from outside (the activity bar). When given,
+   *  the header shows the view's title instead of its own tab strip. */
+  tab?: PanelTab
 }
 
-type Tab = 'changes' | 'files' | 'skills'
+export type PanelTab = 'changes' | 'files' | 'skills'
+type Tab = PanelTab
+
+const TAB_TITLES: Record<PanelTab, string> = { files: 'Explorer', changes: 'Source Control', skills: 'Skills' }
 
 // Imperative handle both trees expose so the shared header buttons
 // (refresh, collapse-all) can drive whichever panel is active.
@@ -20,8 +26,9 @@ export interface PanelHandle {
   refresh: () => void
 }
 
-export function RightPanel({ project, selection, onSelect }: Props) {
-  const [tab, setTab] = useState<Tab>('files')
+export function RightPanel({ project, selection, onSelect, tab: tabProp }: Props) {
+  const [ownTab, setTab] = useState<Tab>('files')
+  const tab = tabProp ?? ownTab
   const [searching, setSearching] = useState(false)
   const [query, setQuery] = useState('')
   const treeRef = useRef<PanelHandle>(null)
@@ -48,24 +55,30 @@ export function RightPanel({ project, selection, onSelect }: Props) {
   return (
     <div className="right-panel">
       <div className="right-panel-header">
-        <button
-          className={`panel-tab ${tab === 'changes' ? 'active' : ''}`}
-          onClick={() => setTab('changes')}
-        >
-          Changes
-        </button>
-        <button
-          className={`panel-tab ${tab === 'files' ? 'active' : ''}`}
-          onClick={() => setTab('files')}
-        >
-          Files
-        </button>
-        <button
-          className={`panel-tab ${tab === 'skills' ? 'active' : ''}`}
-          onClick={() => setTab('skills')}
-        >
-          Skills
-        </button>
+        {tabProp ? (
+          <span className="right-panel-title">{TAB_TITLES[tabProp]}</span>
+        ) : (
+          <>
+            <button
+              className={`panel-tab ${tab === 'changes' ? 'active' : ''}`}
+              onClick={() => setTab('changes')}
+            >
+              Changes
+            </button>
+            <button
+              className={`panel-tab ${tab === 'files' ? 'active' : ''}`}
+              onClick={() => setTab('files')}
+            >
+              Files
+            </button>
+            <button
+              className={`panel-tab ${tab === 'skills' ? 'active' : ''}`}
+              onClick={() => setTab('skills')}
+            >
+              Skills
+            </button>
+          </>
+        )}
         <span className="topbar-spacer" />
         <button
           className={`icon-button codicon codicon-search ${searching ? 'active' : ''}`}

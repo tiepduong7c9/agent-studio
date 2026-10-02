@@ -11,6 +11,7 @@ import { ContextMenu, type MenuItem } from './ContextMenu'
 import { AboutDialog, ConfirmDialog } from './Dialogs'
 import { CapturePatternsDialog } from './CapturePatternsDialog'
 import { TagsDialog } from './TagsDialog'
+import { tagMenuItems } from './session-actions'
 import { RemoteHostsDialog } from './RemoteHostsDialog'
 import { SkillsManager } from './SkillsManager'
 
@@ -243,25 +244,7 @@ function LiveRow({ s, captures, active, pinned, done, doneAt, unread, tag, tags,
   const items: MenuItem[] = [
     { label: pinned ? 'Unpin' : 'Pin', run: onTogglePin },
     { label: unread ? 'Mark as read' : 'Mark as unread', run: onToggleUnread },
-    {
-      label: 'Tag',
-      // One tag at a time, so this reads as a radio group: picking another
-      // replaces the current one, and picking the current one clears it.
-      submenu: [
-        ...tags.map((t) => {
-          const Icon = t.icon ?? Tag
-          return {
-            label: tagLabel(t),
-            checked: tag === t.id,
-            icon: <Icon size={13} strokeWidth={2.25} style={{ color: tagColorVar(t.color) }} />,
-            run: () => onSetTag(tag === t.id ? null : t.id)
-          }
-        }),
-        { separator: true as const },
-        { label: 'No tag', checked: !tag, run: () => onSetTag(null) },
-        { label: 'Manage tags…', run: onManageTags }
-      ]
-    },
+    { label: 'Tag', submenu: tagMenuItems(tags, tag, onSetTag, onManageTags) },
     { separator: true },
     { label: 'Rename', run: () => setEditing(true) },
     { label: 'Regenerate title', enabled: !busy && !restarting, run: () => void regenerateTitle() },

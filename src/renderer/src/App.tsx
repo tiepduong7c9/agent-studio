@@ -11,7 +11,8 @@ import { CommandPalette } from './components/CommandPalette'
 import { EditorArea } from './components/EditorArea'
 import { QuickOpen } from './components/QuickOpen'
 import { RemoteFolderPicker } from './components/RemoteFolderPicker'
-import { RightPanel } from './components/RightPanel'
+import { RightPanel, type PanelTab } from './components/RightPanel'
+import { ActivityBar } from './components/ActivityBar'
 import { Sash } from './components/Sash'
 import { SessionsPanel } from './components/SessionsPanel'
 import { SessionsBoard, useBoardNeedsCount } from './components/SessionsBoard'
@@ -39,6 +40,8 @@ const MIN_PANEL_WIDTH = 170
 // Kept (not deleted) so it can be switched back on: flip to true to restore
 // the sidebar on the left and the files/git panel on the right.
 const SESSIONS_SIDEBAR = false
+/** Width of the activity bar (incl. its border) — matches .activity-bar. */
+const ACTIVITY_BAR_WIDTH = 48
 
 function clampWidth(w: number): number {
   return Math.min(Math.max(w, MIN_PANEL_WIDTH), Math.floor(window.innerWidth * 0.4))
@@ -112,6 +115,8 @@ export function App() {
   const [rightWidth, setRightWidth] = useState(340)
   const [leftVisible, setLeftVisible] = useState(true)
   const [rightVisible, setRightVisible] = useState(true)
+  // The side panel's view, picked from the activity bar.
+  const [panelTab, setPanelTab] = useState<PanelTab>('files')
   const dragBase = useRef(0)
   // Gate pruning of persisted view-prefs/tabs until the engine has actually
   // reported its sessions. Without this, the initial empty list (before
@@ -142,6 +147,7 @@ export function App() {
   const tabs = useTabsStore((s) => s.tabs)
   const activeId = useTabsStore((s) => s.activeId)
   const maximized = useTabsStore((s) => s.maximized)
+  const toggleMaximize = useTabsStore((s) => s.toggleMaximize)
   const openTab = useTabsStore((s) => s.open)
   const pruneChats = useTabsStore((s) => s.pruneChats)
   const pruneWorkspace = useTabsStore((s) => s.pruneWorkspace)
@@ -749,16 +755,25 @@ export function App() {
     }
   }, [setHostStatus])
 
+  // The session named in the title bar: the one whose tabs are on screen.
+  const titleSession = activeSid ? (sessions.find((s) => s.id === activeSid) ?? null) : null
+  const titleSessionWsId =
+    tabs.find((t) => t.kind === 'chat' && t.sid === activeSid)?.wsId ?? null
+
   // Without the sessions sidebar, the right panel (files/git) docks on the left
   // in its place and the left toggle drives it.
   const sideVisible = SESSIONS_SIDEBAR ? leftVisible : rightVisible
-  const sideWidth = SESSIONS_SIDEBAR ? leftWidth : rightWidth
   const rightPanel = (
     <aside
       className={`panel panel-right ${SESSIONS_SIDEBAR ? '' : 'docked-left'}`}
       style={{ width: rightWidth }}
     >
-      <RightPanel project={activeWorkspace} selection={selection} onSelect={onSelect} />
+      <RightPanel
+        project={activeWorkspace}
+        selection={selection}
+        onSelect={onSelect}
+        tab={SESSIONS_SIDEBAR ? undefined : panelTab}
+      />
     </aside>
   )
 
@@ -770,9 +785,22 @@ export function App() {
         rightVisible={SESSIONS_SIDEBAR ? rightVisible : null}
         onToggleLeft={() => (SESSIONS_SIDEBAR ? setLeftVisible(!leftVisible) : setRightVisible(!rightVisible))}
         onToggleRight={() => setRightVisible(!rightVisible)}
+        showBoard={SESSIONS_SIDEBAR}
         boardOpen={boardOpen}
         boardBadge={boardNeedsCount}
         onToggleBoard={() => setBoardOpen((v) => !v)}
+        sessions={sessions}
+        session={titleSession}
+        sessionWsId={activeWorkspace?.id ?? titleSessionWsId}
+        onOpenSessionSwitcher={() => setSessionSwitcherOpen(true)}
+        onNewSession={() => {
+          setPaletteStep('targets')
+          setPaletteHost(undefined)
+          setPaletteOpen(true)
+        }}
+        onDeleteSession={deleteSession}
+        maximized={maximized}
+        onToggleMaximize={toggleMaximize}
       />
       {error && (
         <div className="error-banner">
@@ -781,6 +809,33 @@ export function App() {
         </div>
       )}
       <div className="panels">
+        {!SESSIONS_SIDEBAR && !maximized && (
+          <ActivityBar
+            boardOpen={boardOpen}
+            boardBadge={boardNeedsCount}
+            onToggleBoard={() => setBoardOpen((v) => !v)}
+            tab={panelTab}
+            panelVisible={rightVisible}
+            onSelect={(t) => {
+              // VS Code: the active view's icon toggles the panel; another shows
+              // it. Either way, picking a view leaves the board.
+              if (boardOpen) {
+                setBoardOpen(false)
+                setPanelTab(t)
+                setRightVisible(true)
+              } else if (t === panelTab && rightVisible) setRightVisible(false)
+              else {
+                setPanelTab(t)
+                setRightVisible(true)
+              }
+            }}
+            remoteHosts={remoteHosts}
+            engineStatus={engineStatus}
+            onOpenSsh={() => setSshDialogOpen(true)}
+            onDisconnectRemote={disconnectRemote}
+            onReconnectRemote={reconnectRemote}
+          />
+        )}
         {!SESSIONS_SIDEBAR && rightVisible && !maximized && (
           <>
             {rightPanel}
@@ -846,11 +901,6 @@ export function App() {
               setBoardOpen(false)
               openChat(sid)
             }}
-            onNewSessionFlow={() => {
-              setPaletteStep('targets')
-              setPaletteHost(undefined)
-              setPaletteOpen(true)
-            }}
             onNewSessionOnHost={(host) => {
               setPaletteStep('targets')
               setPaletteHost({ host })
@@ -859,6 +909,7 @@ export function App() {
             onOpenSsh={() => setSshDialogOpen(true)}
             onDisconnectRemote={disconnectRemote}
             onReconnectRemote={reconnectRemote}
+            onDeleteSession={deleteSession}
             onClose={() => setBoardOpen(false)}
           />
         )}
@@ -866,9 +917,9 @@ export function App() {
       <StatusBar
         activeHost={activeWorkspace?.host ?? null}
         activeWorkspace={activeWorkspace}
-        leftWidth={sideWidth}
+        leftWidth={SESSIONS_SIDEBAR ? leftWidth : ACTIVITY_BAR_WIDTH + (rightVisible ? rightWidth : 0)}
         rightWidth={rightWidth}
-        leftVisible={sideVisible}
+        leftVisible={SESSIONS_SIDEBAR ? leftVisible : true}
         rightVisible={SESSIONS_SIDEBAR && rightVisible}
         maximized={maximized}
       />
