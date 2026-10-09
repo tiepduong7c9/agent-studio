@@ -1,4 +1,4 @@
-import { type MouseEvent, type ReactNode, useState } from 'react'
+import { type MouseEvent, type ReactNode, type SyntheticEvent, useState } from 'react'
 import { Tag } from 'lucide-react'
 import type { SessionMeta } from '../../../shared/acp'
 import { tagColorVar, tagLabel, useTagsStore, type SessionTag } from '../tags-store'
@@ -92,8 +92,13 @@ export function useSessionMenu(s: SessionMeta, onDelete: () => void) {
     { label: 'Delete Session', run: () => setConfirming(true) }
   ]
 
+  // The menu is portaled and the dialogs render in place, but React events
+  // still bubble up the component tree — into the board card's onClick/Enter,
+  // which would open the session. Fence them off; display:contents keeps the
+  // wrapper out of the host's layout.
+  const stop = (e: SyntheticEvent) => e.stopPropagation()
   const node: ReactNode = (
-    <>
+    <div style={{ display: 'contents' }} onClick={stop} onKeyDown={stop} onContextMenu={stop}>
       {menu && <ContextMenu x={menu.x} y={menu.y} items={items} onClose={() => setMenu(null)} />}
       {confirming && (
         <ConfirmDialog
@@ -109,7 +114,7 @@ export function useSessionMenu(s: SessionMeta, onDelete: () => void) {
         />
       )}
       {tagsOpen && <TagsDialog onClose={() => setTagsOpen(false)} />}
-    </>
+    </div>
   )
 
   return {
