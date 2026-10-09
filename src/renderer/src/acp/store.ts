@@ -85,12 +85,16 @@ export const useAcpStore = create<AcpStore>((set) => ({
     // Carry over any live events that arrived via appendEvent after the daemon
     // captured this snapshot but before it was applied — otherwise this
     // wholesale replace would silently drop them (the attach-gap race).
+    // Events below seqBase are a pre-restart adapter's thread, which the
+    // resumed adapter replays itself — keeping them would show it twice.
+    const seqBase = snap.seqBase ?? 0
     if (prev) {
       for (const e of prev.events) {
-        if (typeof e.seq === 'number' && e.seq > snapMax) events.push(e)
+        if (typeof e.seq === 'number' && e.seq > snapMax && e.seq >= seqBase) events.push(e)
       }
     }
-    const lastSeq = events.reduce((m, e) => (typeof e.seq === 'number' && e.seq > m ? e.seq : m), -1)
+    // Floored at seqBase so a pre-restart event still in flight is dropped as seen.
+    const lastSeq = events.reduce((m, e) => (typeof e.seq === 'number' && e.seq > m ? e.seq : m), seqBase - 1)
     threads.set(sid, {
       events,
       claudeStatus: snap.claudeStatus,

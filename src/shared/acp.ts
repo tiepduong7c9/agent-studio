@@ -103,6 +103,9 @@ export interface AcpSnapshot {
   usage?: AcpUsage | null
   schedule?: SessionSchedule | null
   loading?: boolean
+  /** First seq of the adapter that produced this snapshot. Held events below it
+   *  are from before a restart and are discarded. */
+  seqBase?: number
 }
 
 export interface AcpConversation {

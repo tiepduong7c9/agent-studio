@@ -161,7 +161,7 @@ function adapterEntry() {
 }
 
 class AcpSession {
-  constructor({ cwd, env }) {
+  constructor({ cwd, env, seqStart = 0 }) {
     this.cwd = cwd;
     this._env = env || process.env;
     this.listeners = new Set();      // shared with the SessionManager session record
@@ -188,7 +188,8 @@ class AcpSession {
     this._loadSupported = false;
     this._pending = new Map();       // requestId -> resolve(outcome) — permission prompts
     this._pendingElicit = new Map(); // requestId -> resolve(response) — elicitation forms
-    this._seq = 0;                   // monotonic id per stored event (browser dedupes on it)
+    this._seq = seqStart;            // monotonic id per stored event (browser dedupes on it)
+    this._seqBase = seqStart;        // first seq of this thread — a restarted adapter continues the old one's numbering
     this._promptInFlight = false;    // true while a prompt() turn owns the status
     this._hasPrompted = false;       // true once the user has sent a prompt this life (gates background-activity tracking off during resume replay)
     this._bgIdleTimer = null;        // debounce back to idle after post-turn background work drains
@@ -921,6 +922,7 @@ class AcpSession {
   _resetThread() {
     this.history = [];
     this._seq = 0;
+    this._seqBase = 0;
     clearTimeout(this._bgIdleTimer);
     clearTimeout(this._bgTaskWatchdog);
     this._openToolCalls.clear();
@@ -1214,6 +1216,9 @@ class AcpSession {
       // True while a resume is still replaying history; the snapshot is empty
       // now and the conversation will stream in via subsequent acp_event frames.
       loading: this._resumeRequested && !this.isReady,
+      // Events below this seq belong to a previous adapter (before a restart);
+      // the browser drops any it still holds rather than mixing two threads.
+      seqBase: this._seqBase,
     };
   }
 

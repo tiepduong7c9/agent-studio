@@ -86,10 +86,10 @@ export class SessionManager {
   }
 
   // Re-spawn a suspended session's adapter and load its prior conversation.
-  private _resume(rec: SessionRecord): boolean {
+  private _resume(rec: SessionRecord, seqStart = 0): boolean {
     if (rec.meta.status !== 'suspended') return rec.meta.status === 'running';
     const { meta } = rec;
-    const acp = new AcpSession({ cwd: meta.cwd, env: this._childEnv(meta.id) });
+    const acp = new AcpSession({ cwd: meta.cwd, env: this._childEnv(meta.id), seqStart });
     rec.acp = acp;
     meta.status = 'running';
     meta.resumedAt = new Date().toISOString();
@@ -246,11 +246,15 @@ export class SessionManager {
     // fires asynchronously, and its listener would otherwise flip the freshly
     // resumed session's status back to 'suspended' after _resume set 'running'.
     if (rec.statusListener) { try { rec.acp.listeners.delete(rec.statusListener); } catch { /* ignore */ } }
+    // Carry the event seq over: an attached browser dedupes on it, so a fresh
+    // adapter counting from 0 again would have its replay and every new event
+    // dropped as already-seen until it passed the old thread's last seq.
+    const seqStart = rec.acp._seq ?? 0;
     try { rec.acp.kill(); } catch { /* ignore */ }
     rec.meta.status = 'suspended';
     delete rec.meta.claudeStatus;
     delete rec.meta.schedule;
-    return this._resume(rec);
+    return this._resume(rec, seqStart);
   }
 
   // Suspend every live session (daemon shutdown): the adapters exit but the
