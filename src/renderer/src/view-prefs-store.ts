@@ -44,6 +44,8 @@ interface ViewPrefsState {
   showHidden: boolean
   /** Changes panel layout: flat list of files or a nested folder tree. */
   changesViewMode: 'list' | 'tree'
+  /** The session view's bar of other running / needs-you sessions. */
+  activeBarVisible: boolean
 
   togglePin: (sid: string) => void
   /** Flag/unflag a session as unread (follow-up-later). */
@@ -64,6 +66,7 @@ interface ViewPrefsState {
   setFocusMode: (on: boolean) => void
   setShowHidden: (on: boolean) => void
   setChangesViewMode: (mode: 'list' | 'tree') => void
+  setActiveBarVisible: (on: boolean) => void
   /** Drop pin/hide keys and cached pin metadata for sessions that no longer
    *  exist, so stale keys can't accumulate (mirrors how dead sessions' chat tabs
    *  are pruned). Only safe to call once every host is connected — see the
@@ -104,6 +107,7 @@ export const useViewPrefsStore = create<ViewPrefsState>()(
       focusMode: false,
       showHidden: false,
       changesViewMode: 'list',
+      activeBarVisible: true,
 
       // Unpinning also drops the cached metadata (nothing to render offline).
       togglePin: (sid) =>
@@ -160,6 +164,7 @@ export const useViewPrefsStore = create<ViewPrefsState>()(
       setFocusMode: (on) => set({ focusMode: on }),
       setShowHidden: (on) => set({ showHidden: on }),
       setChangesViewMode: (mode) => set({ changesViewMode: mode }),
+      setActiveBarVisible: (on) => set({ activeBarVisible: on }),
 
       pruneSessions: (liveIds) =>
         set((s) => {

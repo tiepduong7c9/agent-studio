@@ -314,6 +314,15 @@ body {
 .titlebar-action {
   margin: 0 2px;
 }
+.titlebar-action-badge {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  min-width: 14px;
+  height: 14px;
+  font-size: 9.5px;
+  line-height: 14px;
+}
 
 .window-controls {
   display: flex;

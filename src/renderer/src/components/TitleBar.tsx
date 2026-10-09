@@ -1,10 +1,11 @@
-import { ChevronDown, Ellipsis, Mail, Maximize2, Minimize2, Plus, Pin, SquareKanban } from 'lucide-react'
+import { ChevronDown, Ellipsis, Mail, Maximize2, Minimize2, PanelTop, Plus, Pin, SquareKanban } from 'lucide-react'
 import type { SessionMeta } from '../../../shared/acp'
 import type { ProjectInfo } from '../../../shared/types'
 import { useSessionsStore } from '../acp/sessions-store'
 import { useCaptureStore, type Capture } from '../capture-store'
 import { hostLabel, projectLabel, relTime, sessionActivity } from '../session-format'
 import { useViewPrefsStore } from '../view-prefs-store'
+import { useActiveSessions } from './ActiveSessionsBar'
 import { BoardFilters, BoardSearch, laneOf } from './SessionsBoard'
 import { CaptureBadges, renderTitle } from './SessionsPanel'
 import { SessionLinksButton } from './SessionLinksButton'
@@ -109,14 +110,35 @@ function SessionPill({ s, onOpen, menu }: { s: SessionMeta; onOpen: () => void; 
   )
 }
 
+/** Shows/hides the active sessions bar. While it's hidden, a badge counts the
+ *  other sessions that need you, so there's a cue to bring it back. */
+function ActiveBarToggle({ s, sessions }: { s: SessionMeta; sessions: SessionMeta[] }) {
+  const visible = useViewPrefsStore((st) => st.activeBarVisible)
+  const setVisible = useViewPrefsStore((st) => st.setActiveBarVisible)
+  const { needs } = useActiveSessions(sessions, s.id)
+  return (
+    <button
+      className={`titlebar-action-btn ${visible ? 'active' : ''}`}
+      title={`${visible ? 'Hide' : 'Show'} running & needs-you sessions${!visible && needs.length ? ` — ${needs.length} need${needs.length === 1 ? 's' : ''} you` : ''}`}
+      aria-pressed={visible}
+      onClick={() => setVisible(!visible)}
+    >
+      <PanelTop size={16} strokeWidth={2} />
+      {!visible && needs.length > 0 && <span className="titlebar-board-badge titlebar-action-badge">{needs.length}</span>}
+    </button>
+  )
+}
+
 function SessionActions({
   s,
+  sessions,
   wsId,
   menu,
   maximized,
   onToggleMaximize
 }: {
   s: SessionMeta
+  sessions: SessionMeta[]
   wsId: string | null
   menu: ReturnType<typeof useSessionMenu>
   maximized: boolean
@@ -136,6 +158,7 @@ function SessionActions({
       >
         <Pin size={16} strokeWidth={2} fill={pinned ? 'currentColor' : 'none'} />
       </button>
+      <ActiveBarToggle s={s} sessions={sessions} />
       <button
         className="titlebar-action-btn"
         title={maximized ? 'Restore panels' : 'Maximize editor'}
@@ -154,6 +177,7 @@ function SessionActions({
  *  menu edits the title in the pill. */
 function SessionTitle({
   s,
+  sessions,
   wsId,
   onOpenSwitcher,
   onDelete,
@@ -161,6 +185,7 @@ function SessionTitle({
   onToggleMaximize
 }: {
   s: SessionMeta
+  sessions: SessionMeta[]
   wsId: string | null
   onOpenSwitcher: () => void
   onDelete: () => void
@@ -174,7 +199,7 @@ function SessionTitle({
         <SessionPill s={s} onOpen={onOpenSwitcher} menu={menu} />
       </div>
       <div className="titlebar-side right">
-        <SessionActions s={s} wsId={wsId} menu={menu} maximized={maximized} onToggleMaximize={onToggleMaximize} />
+        <SessionActions s={s} sessions={sessions} wsId={wsId} menu={menu} maximized={maximized} onToggleMaximize={onToggleMaximize} />
         <WindowControls />
       </div>
       {menu.node}
@@ -274,6 +299,7 @@ export function TitleBar({
         <SessionTitle
           key={session.id}
           s={session}
+          sessions={sessions}
           wsId={sessionWsId}
           onOpenSwitcher={onOpenSessionSwitcher}
           onDelete={() => onDeleteSession(session.id)}

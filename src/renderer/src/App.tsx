@@ -12,6 +12,7 @@ import { EditorArea } from './components/EditorArea'
 import { QuickOpen } from './components/QuickOpen'
 import { RemoteFolderPicker } from './components/RemoteFolderPicker'
 import { RightPanel, type PanelTab } from './components/RightPanel'
+import { ActiveSessionsBar } from './components/ActiveSessionsBar'
 import { ActivityBar } from './components/ActivityBar'
 import { Sash } from './components/Sash'
 import { SessionsPanel } from './components/SessionsPanel'
@@ -755,6 +756,8 @@ export function App() {
     }
   }, [setHostStatus])
 
+  const activeBarVisible = useViewPrefsStore((s) => s.activeBarVisible)
+
   // The session named in the title bar: the one whose tabs are on screen.
   const titleSession = activeSid ? (sessions.find((s) => s.id === activeSid) ?? null) : null
   const titleSessionWsId =
@@ -802,6 +805,14 @@ export function App() {
         maximized={maximized}
         onToggleMaximize={toggleMaximize}
       />
+      {titleSession && !boardOpen && activeBarVisible && (
+        <ActiveSessionsBar
+          sessions={sessions}
+          currentSid={titleSession.id}
+          onSelectSession={openChat}
+          onDeleteSession={deleteSession}
+        />
+      )}
       {error && (
         <div className="error-banner">
           {error}
