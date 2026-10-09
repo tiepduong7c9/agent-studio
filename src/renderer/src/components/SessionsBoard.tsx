@@ -44,7 +44,7 @@ const FILTERS: { key: Filter; label: string }[] = [
 // "Later" on a waiting card: take it out of "Needs me" without answering it.
 // Kept for the app's lifetime (not persisted) and only while the session is
 // still waiting — once it moves on, a later prompt asks afresh.
-const useSnoozeStore = create<{
+export const useSnoozeStore = create<{
   snoozed: Record<string, true>
   snooze: (sid: string) => void
   keepOnly: (sids: Set<string>) => void

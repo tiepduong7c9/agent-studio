@@ -1,0 +1,137 @@
+/* ── Active sessions bar ───────────────────────────────
+   A strip under the title bar, the same height, listing the other sessions
+   that need you or are running as small cards. Colours follow the board's
+   lanes: amber needs you, blue running. */
+.active-bar {
+  --ab-running: var(--vscode-charts-blue, #3794ff);
+  --ab-needs: var(--vscode-charts-orange, #d18616);
+  --ab-surface: var(--vscode-editor-background);
+  --ab-border: color-mix(in srgb, var(--vscode-foreground) 13%, transparent);
+  --ab-running-text: color-mix(in srgb, var(--ab-running) 85%, var(--vscode-foreground));
+  --ab-needs-text: color-mix(in srgb, var(--ab-needs) 72%, var(--vscode-foreground));
+  display: flex;
+  align-items: center;
+  gap: 6px; /* CHIP_GAP */
+  height: 44px;
+  padding: 0 8px 0 12px;
+  flex-shrink: 0;
+  overflow: hidden;
+  background: var(--vscode-titleBar-activeBackground);
+  border-top: 1px solid var(--ab-border);
+  border-bottom: 1px solid var(--ab-border);
+}
+.active-bar-label {
+  flex-shrink: 0;
+  margin-right: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.active-bar-label.needs { color: var(--ab-needs-text); }
+.active-bar-label.running { color: var(--ab-running-text); }
+.active-bar-label-count { margin-left: 4px; opacity: 0.7; font-variant-numeric: tabular-nums; }
+.active-bar-sep {
+  flex-shrink: 0;
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
+  background: var(--ab-border);
+}
+.active-bar-card {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 1 230px;
+  min-width: 150px; /* CHIP_MIN */
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--ab-border);
+  border-radius: 6px;
+  background: var(--ab-surface);
+  font-size: 12px;
+  cursor: pointer;
+  outline: none;
+}
+.active-bar-card.running {
+  border-color: color-mix(in srgb, var(--ab-running) 45%, transparent);
+  background: color-mix(in srgb, var(--ab-running) 8%, var(--ab-surface));
+}
+.active-bar-card.needs {
+  border-color: color-mix(in srgb, var(--ab-needs) 50%, transparent);
+  background: color-mix(in srgb, var(--ab-needs) 11%, var(--ab-surface));
+}
+.active-bar-card:hover { border-color: color-mix(in srgb, var(--vscode-foreground) 35%, transparent); }
+.active-bar-card:focus-visible { border-color: var(--vscode-focusBorder); }
+.active-bar-dot {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+.active-bar-dot.running { background: var(--ab-running); animation: acp-dot-pulse 1.4s ease-out infinite; }
+.active-bar-dot.needs { background: var(--ab-needs); }
+.active-bar-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.active-bar-rename {
+  flex: 1;
+  min-width: 0;
+  padding: 1px 4px;
+  border: 1px solid var(--vscode-focusBorder);
+  border-radius: 3px;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  font: inherit;
+  outline: none;
+}
+.active-bar-host {
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--vscode-foreground) 8%, transparent);
+  font-size: 10.5px;
+}
+.active-bar-more {
+  flex-shrink: 0;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px dashed color-mix(in srgb, var(--vscode-foreground) 25%, transparent);
+  border-radius: 6px;
+  background: none;
+  color: var(--vscode-textLink-foreground);
+  font-family: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.active-bar-more:hover { background: var(--vscode-toolbar-hoverBackground); }
+.active-bar-close {
+  flex-shrink: 0;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: var(--vscode-descriptionForeground);
+  cursor: pointer;
+}
+.active-bar-close:hover { background: var(--vscode-toolbar-hoverBackground); color: var(--vscode-foreground); }
+.active-bar-menu-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; }
+.active-bar-menu-dot.running { background: var(--vscode-charts-blue, #3794ff); }
+.active-bar-menu-dot.needs { background: var(--vscode-charts-orange, #d18616); }
