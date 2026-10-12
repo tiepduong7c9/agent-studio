@@ -43,4 +43,5 @@ jobs:
       - name: Build and publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_OPTIONS: --max-old-space-size=6144  # renderer build OOMs at the default heap
         run: npm run dist -- --publish always
