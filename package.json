@@ -76,6 +76,13 @@
         "build/linux/rpm-posttrans.sh"
       ]
     },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "icon": "build/mac/icon.png",
+      "identity": null
+    },
     "win": {
       "target": [
         "nsis"
