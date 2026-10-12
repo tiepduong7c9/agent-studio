@@ -83,6 +83,7 @@
       "icon": "build/mac/icon.png",
       "identity": null
     },
+    "afterPack": "build/mac/adhoc-sign.cjs",
     "win": {
       "target": [
         "nsis"
