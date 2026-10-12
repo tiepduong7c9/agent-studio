@@ -91,6 +91,11 @@ const SDK_STATE_FILTER = [
 // debounce fallback is suppressed too, stranding the status at 'working'.
 const SDK_STATE_META = { claudeCode: { emitRawSDKMessages: SDK_STATE_FILTER } };
 
+// ACP's RequestError.resourceNotFound — loadSession on a transcript that's gone.
+function isResourceNotFound(err) {
+  return !!err && (err.code === -32002 || /^Resource not found/.test(err.message || ''));
+}
+
 // The tools the agent uses to schedule its own future wake-ups: `/loop` without
 // an interval self-paces with ScheduleWakeup, while `/loop <interval>` and
 // one-shot reminders ("remind me at 3pm") go through CronCreate. Neither ACP nor
@@ -326,12 +331,23 @@ class AcpSession {
     });
     this._loadSupported = !!(init.agentCapabilities && init.agentCapabilities.loadSession);
 
+    // A transcript that no longer exists (~/.claude wiped, conversation deleted)
+    // can never load, so retrying would leave the session stuck; start fresh.
+    let resumed = false;
     if (resumeSessionId && this._loadSupported) {
       this.acpSessionId = resumeSessionId;
-      const res = await this._conn.loadSession({ sessionId: resumeSessionId, cwd: this.cwd, mcpServers: [], _meta: SDK_STATE_META });
-      if (res && res.modes) this.modeState = res.modes;
-      if (res) this._applyConfigOptions(res.configOptions);
-    } else {
+      try {
+        const res = await this._conn.loadSession({ sessionId: resumeSessionId, cwd: this.cwd, mcpServers: [], _meta: SDK_STATE_META });
+        if (res && res.modes) this.modeState = res.modes;
+        if (res) this._applyConfigOptions(res.configOptions);
+        resumed = true;
+      } catch (err) {
+        if (!isResourceNotFound(err)) throw err;
+        this._resumeRequested = false;
+        this._emit({ type: 'acp_error', message: `Previous conversation ${resumeSessionId} no longer exists; started a new one.` });
+      }
+    }
+    if (!resumed) {
       const res = await this._conn.newSession({ cwd: this.cwd, mcpServers: [], _meta: SDK_STATE_META });
       this.acpSessionId = res.sessionId;
       if (res.modes) this.modeState = res.modes;
