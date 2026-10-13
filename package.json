@@ -80,7 +80,7 @@
       "target": [
         "dmg"
       ],
-      "icon": "build/mac/icon.png",
+      "icon": "build/mac/icon.icns",
       "identity": null
     },
     "afterPack": "build/mac/adhoc-sign.cjs",
