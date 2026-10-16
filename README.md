@@ -199,3 +199,12 @@ engine/        session engine daemon
   src/acp/     ACP session manager + Claude agent driver
   src/channels/  VS Code-style IPC channels
 ```
+
+## License
+
+Agent Studio is released under the [MIT License](LICENSE).
+
+It includes code and assets from Visual Studio Code (MIT), Codicons (CC BY 4.0),
+and Seti UI (MIT). See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for their
+copyright notices and licenses. The Claude Agent SDK it uses is not covered by this
+license and is subject to Anthropic's terms.

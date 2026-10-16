@@ -3,6 +3,7 @@
   "version": "0.5.7",
   "description": "Agent Studio desktop app",
   "author": "Tiep Duong <dmtmd2010@yahoo.com.vn>",
+  "license": "MIT",
   "main": "out/main/index.js",
   "private": true,
   "scripts": {
