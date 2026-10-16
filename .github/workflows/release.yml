@@ -33,6 +33,29 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y rpm
 
+      # Release builds are signed with a long-lived self-signed certificate (see
+      # build/mac/sign.cjs) so macOS keeps privacy grants across updates.
+      # Imported into a throwaway keychain; skipped when the secret isn't set.
+      - name: Import signing certificate (macOS)
+        if: runner.os == 'macOS'
+        env:
+          MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 }}
+          MAC_CERT_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+        run: |
+          if [ -z "$MAC_CERT_P12" ]; then echo "No MAC_CERT_P12 secret; ad-hoc signing."; exit 0; fi
+          KC="$RUNNER_TEMP/signing.keychain-db"
+          KC_PW="$(openssl rand -hex 16)"
+          echo "$MAC_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KC_PW" "$KC"
+          security set-keychain-settings -lut 21600 "$KC"
+          security unlock-keychain -p "$KC_PW" "$KC"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KC" -P "$MAC_CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KC_PW" "$KC" > /dev/null
+          security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/cert.p12"
+          echo "MAC_SIGN_IDENTITY=Agent Studio Self-Signed" >> "$GITHUB_ENV"
+          echo "MAC_SIGN_KEYCHAIN=$KC" >> "$GITHUB_ENV"
+
       - name: Install dependencies
         run: |
           npm ci
