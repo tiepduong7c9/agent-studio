@@ -138,6 +138,9 @@ export function App() {
 
   const sessions = useSessionsStore((s) => s.sessions)
   const boardNeedsCount = useBoardNeedsCount(sessions)
+  // Mirror the count onto the dock icon so it's visible while the app is in
+  // the background.
+  useEffect(() => { window.studio.setBadgeCount(boardNeedsCount).catch(() => {}) }, [boardNeedsCount])
   const setSessions = useSessionsStore((s) => s.setSessions)
   const projects = useSessionsStore((s) => s.projects)
   const setProjects = useSessionsStore((s) => s.setProjects)

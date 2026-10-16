@@ -138,6 +138,8 @@ const api = {
     ipcRenderer.on('fs:progress', h)
     return () => ipcRenderer.removeListener('fs:progress', h)
   },
+  /** Set the app icon's badge count (macOS dock); 0 clears it. */
+  setBadgeCount: (count: number): Promise<Result<void>> => ipcRenderer.invoke('app:badge', count),
   /** Fire a native OS notification for a background session state change. */
   notify: (opts: { sid: string; title: string; body: string }): Promise<Result<void>> =>
     ipcRenderer.invoke('app:notify', opts),
