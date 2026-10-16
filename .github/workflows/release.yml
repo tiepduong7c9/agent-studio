@@ -17,8 +17,6 @@ jobs:
         include:
           - name: linux-x64
             os: ubuntu-latest        # AppImage, deb, rpm (x86_64)
-          - name: linux-arm64
-            os: ubuntu-24.04-arm     # AppImage, deb, rpm (aarch64)
           - name: windows-x64
             os: windows-latest       # nsis .exe
           - name: macos-arm64
