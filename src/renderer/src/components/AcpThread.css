@@ -24,6 +24,35 @@
   overflow-y: auto;
   overflow-anchor: none;
 }
+/* Copy/Mention actions floating above a text selection in the thread. */
+.acp-sel-pop {
+  position: absolute;
+  z-index: 5;
+  transform: translate(-50%, calc(-100% - 6px));
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--vscode-editorWidget-border, var(--vscode-input-border, var(--vscode-sideBar-border)));
+  border-radius: 8px;
+  background: var(--vscode-editorWidget-background, var(--vscode-input-background));
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+}
+.acp-sel-pop.below { transform: translate(-50%, 6px); }
+.acp-sel-pop button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--vscode-foreground);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.acp-sel-pop button:hover { background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground)); }
+
 .acp-overlay {
   position: absolute;
   inset: 0;
