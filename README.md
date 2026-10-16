@@ -131,7 +131,7 @@ captures the window and quits. If Electron
 fails with `Cannot read properties of undefined (reading 'whenReady')`, unset
 `ELECTRON_RUN_AS_NODE` (it leaks from IDE extension hosts).
 
-The rest of the look and feel is extracted from the VS Code reference checkout in `vscode/`:
+The rest of the look and feel is extracted from the [VS Code source](https://github.com/microsoft/vscode):
 
 - codicon icon font (codepoints from `src/vs/base/common/codiconsLibrary.ts`)
 - Light Modern / Dark Modern workbench palettes (`extensions/theme-defaults/themes/`)
@@ -199,6 +199,3 @@ engine/        session engine daemon
   src/acp/     ACP session manager + Claude agent driver
   src/channels/  VS Code-style IPC channels
 ```
-
-The `vscode/` folder is a reference checkout of VS Code and is not part of the build
-(it is git-ignored).
