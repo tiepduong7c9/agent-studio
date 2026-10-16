@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
   AlertTriangle, BrainCircuit, Check, ChevronDown, ChevronRight, CircleHelp, CircleSlash,
-  Clock, Copy, Cpu, FileText, FolderTree, Gauge, Globe, ListTodo, Loader2, Pencil, Search,
+  AtSign, Clock, Copy, Cpu, FileText, FolderTree, Gauge, Globe, ListTodo, Loader2, Pencil, Search,
   ShieldQuestion, Square, SquareArrowOutUpRight, Terminal, Trash2, Wrench, X, ArrowUp, Zap
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -742,6 +742,10 @@ export function AcpThread({ sid, workspace = null, visible = true }: { sid: stri
   const [mentionOpen, setMentionOpen] = useState(false)
   const [mentionHighlight, setMentionHighlight] = useState(0)
   const [skills, setSkills] = useState<SkillRef[]>([])
+  // Floating Copy/Mention actions over text selected in the thread, positioned
+  // relative to .acp-body: above the selection, or below it when there's no room.
+  const [selPop, setSelPop] = useState<{ text: string; top: number; left: number; below: boolean } | null>(null)
+  const bodyRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
   const stickRef = useRef(true)
@@ -876,6 +880,7 @@ export function AcpThread({ sid, workspace = null, visible = true }: { sid: stri
 
   // Auto-scroll while parked at the bottom.
   const onScroll = () => {
+    setSelPop(null)
     const el = scrollRef.current
     if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
   }
@@ -1028,6 +1033,67 @@ export function AcpThread({ sid, workspace = null, visible = true }: { sid: stri
     requestAnimationFrame(() => taRef.current?.focus())
   }
 
+  // Show the selection popover once a mouse/keyboard selection inside the thread
+  // settles. Deferred a tick so a click that collapses the selection is seen.
+  const updateSelPop = () => {
+    setTimeout(() => {
+      const sel = window.getSelection()
+      const scroll = scrollRef.current
+      const body = bodyRef.current
+      const text = sel?.toString().trim() ?? ''
+      if (!sel || sel.isCollapsed || !text || !scroll || !body ||
+          !scroll.contains(sel.anchorNode) || !scroll.contains(sel.focusNode)) {
+        setSelPop(null)
+        return
+      }
+      const r = sel.getRangeAt(0).getBoundingClientRect()
+      const b = body.getBoundingClientRect()
+      const below = r.top - b.top < 40
+      setSelPop({
+        text,
+        below,
+        top: below ? Math.min(r.bottom - b.top, b.height - 40) : r.top - b.top,
+        left: Math.min(Math.max(r.left + r.width / 2 - b.left, 60), b.width - 60)
+      })
+    }, 0)
+  }
+  // Drop the popover when the selection goes away (click elsewhere, Escape, …).
+  useEffect(() => {
+    if (!selPop) return
+    const onChange = () => { if (window.getSelection()?.isCollapsed) setSelPop(null) }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setSelPop(null) }
+    document.addEventListener('selectionchange', onChange)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('selectionchange', onChange)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [selPop])
+
+  const copySelection = () => {
+    if (selPop) navigator.clipboard?.writeText(selPop.text).catch(() => {})
+    window.getSelection()?.removeAllRanges()
+    setSelPop(null)
+  }
+  // Quote the selection into the composer as a markdown blockquote, caret after
+  // it, so the user can follow up on that specific part of the conversation.
+  const mentionSelection = () => {
+    if (!selPop) return
+    const quote = selPop.text.split('\n').map((l) => `> ${l}`).join('\n')
+    const sep = !draft ? '' : draft.endsWith('\n\n') ? '' : draft.endsWith('\n') ? '\n' : '\n\n'
+    const text = `${draft}${sep}${quote}\n\n`
+    setDraft(text)
+    window.getSelection()?.removeAllRanges()
+    setSelPop(null)
+    requestAnimationFrame(() => {
+      const el = taRef.current
+      if (!el) return
+      el.focus()
+      el.setSelectionRange(text.length, text.length)
+      autoGrow(el)
+    })
+  }
+
   const answerPermission = useCallback((requestId: string, optionId: string | null) => {
     acp().permissionResponse(sid, requestId, optionId)
     resolvePermissionLocal(sid, requestId, optionId)
@@ -1063,12 +1129,23 @@ export function AcpThread({ sid, workspace = null, visible = true }: { sid: stri
         </div>
       )}
 
-      <div className="acp-body">
-        <div ref={scrollRef} className="acp-scroll" onScroll={onScroll}>
+      <div ref={bodyRef} className="acp-body">
+        <div ref={scrollRef} className="acp-scroll" onScroll={onScroll} onMouseUp={updateSelPop} onKeyUp={updateSelPop}>
           <FileRefContext.Provider value={fileCtx}>
             <MessageList items={items} working={working} onAnswerPermission={answerPermission} onAnswerElicitation={answerElicitation} onOpenPlan={openPlan} />
           </FileRefContext.Provider>
         </div>
+        {selPop && (
+          <div
+            className={`acp-sel-pop${selPop.below ? ' below' : ''}`}
+            style={{ top: selPop.top, left: selPop.left }}
+            // Keep the text selection alive while clicking an action.
+            onMouseDown={(e) => e.preventDefault()}
+          >
+            <button type="button" onClick={copySelection}><Copy size={12} />Copy</button>
+            <button type="button" onClick={mentionSelection}><AtSign size={12} />Mention</button>
+          </div>
+        )}
         {resuming && (
           <div className="acp-overlay">
             <span className="acp-spinner" />
