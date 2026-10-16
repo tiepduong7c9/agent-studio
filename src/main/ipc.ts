@@ -385,6 +385,12 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null, hub: 
 
   handle('app:version', async () => app.getVersion())
 
+  // The board's "needs you" count, mirrored onto the macOS dock icon (and the
+  // Unity launcher on Linux, where supported). 0 clears the badge.
+  handle('app:badge', async (count: number) => {
+    app.setBadgeCount(Math.max(0, Math.floor(count) || 0))
+  })
+
   // Upload local files/folders into `destDir` on the project host. `sourcePaths`
   // comes from a drag-drop (paths already chosen); when absent, a native open
   // dialog collects them. Existing files with the same name are overwritten.
