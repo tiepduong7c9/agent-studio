@@ -7,7 +7,7 @@ import { hostLabel, projectLabel, relTime, sessionActivity } from '../session-fo
 import { useViewPrefsStore } from '../view-prefs-store'
 import { useActiveSessions } from './ActiveSessionsBar'
 import { BoardFilters, BoardSearch, laneOf } from './SessionsBoard'
-import { CaptureBadges, renderTitle } from './SessionsPanel'
+import { CaptureBadges, ControllerBadge, renderTitle } from './SessionsPanel'
 import { SessionLinksButton } from './SessionLinksButton'
 import { TagButton, useSessionMenu } from './session-actions'
 import { ThemePicker } from './ThemePicker'
@@ -97,6 +97,7 @@ function SessionPill({ s, onOpen, menu }: { s: SessionMeta; onOpen: () => void; 
       ) : (
         <span className="titlebar-pill-title">{renderTitle(s.name)}</span>
       )}
+      <ControllerBadge s={s} />
       {unread && (
         <span className="titlebar-pill-unread" title="Marked unread">
           <Mail size={12} strokeWidth={2.25} />

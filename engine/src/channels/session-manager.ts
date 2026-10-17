@@ -6,7 +6,7 @@
 import type { IChannel, IServerChannel } from '../net.js';
 import type { Event } from '../net.js';
 import type { SessionManager } from '../acp/session-manager.js';
-import type { AcpConversation, AcpEvent, AcpSnapshot, AcpUsageDetail, CreateSessionOptions, ProjectConversations, SessionMeta, SkillFiles, SkillRef } from '../acp/types.js';
+import type { AcpConversation, AcpEvent, AcpSnapshot, AcpUsageDetail, CreateSessionOptions, ProjectConversations, SessionMeta, SkillFiles, SkillRef, StudioRequest, StudioResult } from '../acp/types.js';
 
 export const SESSION_MANAGER_CHANNEL = 'sessionManager';
 
@@ -36,6 +36,10 @@ export class SessionManagerChannel implements IServerChannel {
       case 'regenerateTitle': return this.manager.regenerateTitle(arg as string);
       case 'kill': return this.manager.kill(arg as string);
       case 'restart': return this.manager.restart(arg as string);
+      case 'setController': return this.manager.setController(arg as string | null);
+      case 'studioRequest': return this.manager.studioRequest(arg.callerSid, arg.tool, arg.args);
+      case 'studioClaim': return this.manager.studioClaim(arg as string);
+      case 'studioRespond': this.manager.studioRespond(arg.id, arg.result); return;
       default: throw new Error(`sessionManager channel: unknown command '${command}'`);
     }
   }
@@ -44,6 +48,7 @@ export class SessionManagerChannel implements IServerChannel {
     switch (event) {
       case 'onDidChangeSessions': return this.manager.onDidChangeSessions;
       case 'onSessionEvent': return this.manager.onSessionEvent(arg as string);
+      case 'onStudioRequest': return this.manager.onStudioRequest;
       default: throw new Error(`sessionManager channel: no event '${event}'`);
     }
   }
@@ -75,8 +80,16 @@ export interface ISessionManagerClient {
   regenerateTitle(sid: string): Promise<SessionMeta | null>;
   kill(sid: string): Promise<boolean>;
   restart(sid: string): Promise<boolean>;
+  /** Make a session the controller (null = none); returns the ids whose role changed. */
+  setController(sid: string | null): Promise<string[]>;
+  /** Relay an agent-studio MCP tool call to the app (used by studio-mcp.js). */
+  studioRequest(callerSid: string, tool: string, args: Record<string, unknown>): Promise<StudioResult>;
+  /** Claim a relayed request before acting on it; false = another app has it. */
+  studioClaim(id: string): Promise<boolean>;
+  studioRespond(id: string, result: StudioResult): Promise<void>;
   onDidChangeSessions: Event<SessionMeta[]>;
   onSessionEvent(sid: string): Event<AcpEvent>;
+  onStudioRequest: Event<StudioRequest>;
 }
 
 export function createSessionManagerClient(channel: IChannel): ISessionManagerClient {
@@ -102,7 +115,12 @@ export function createSessionManagerClient(channel: IChannel): ISessionManagerCl
     regenerateTitle: (sid) => channel.call('regenerateTitle', sid),
     kill: (sid) => channel.call('kill', sid),
     restart: (sid) => channel.call('restart', sid),
+    setController: (sid) => channel.call('setController', sid),
+    studioRequest: (callerSid, tool, args) => channel.call('studioRequest', { callerSid, tool, args }),
+    studioClaim: (id) => channel.call('studioClaim', id),
+    studioRespond: (id, result) => channel.call('studioRespond', { id, result }),
     onDidChangeSessions: channel.listen('onDidChangeSessions'),
     onSessionEvent: (sid) => channel.listen('onSessionEvent', sid),
+    onStudioRequest: channel.listen('onStudioRequest'),
   };
 }

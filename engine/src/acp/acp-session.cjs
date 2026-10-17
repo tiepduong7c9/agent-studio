@@ -161,9 +161,10 @@ function adapterEntry() {
 }
 
 class AcpSession {
-  constructor({ cwd, env, seqStart = 0 }) {
+  constructor({ cwd, env, seqStart = 0, mcpServers = [] }) {
     this.cwd = cwd;
     this._env = env || process.env;
+    this._mcpServers = mcpServers;   // ACP McpServer[] every session/new + session/load passes
     this.listeners = new Set();      // shared with the SessionManager session record
     this.history = [];               // ordered thread events for replay on attach
     this.claudeStatus = undefined;   // undefined = idle/never-prompted (green), like PTY
@@ -326,13 +327,25 @@ class AcpSession {
     });
     this._loadSupported = !!(init.agentCapabilities && init.agentCapabilities.loadSession);
 
+    // A session that was never prompted has no transcript on disk yet, so the
+    // adapter can't load it ("Resource not found") — e.g. restarting a fresh
+    // session, or making one the controller. There's nothing to restore, so
+    // start a new conversation instead of failing the resume.
+    let loaded = false;
     if (resumeSessionId && this._loadSupported) {
-      this.acpSessionId = resumeSessionId;
-      const res = await this._conn.loadSession({ sessionId: resumeSessionId, cwd: this.cwd, mcpServers: [], _meta: SDK_STATE_META });
-      if (res && res.modes) this.modeState = res.modes;
-      if (res) this._applyConfigOptions(res.configOptions);
-    } else {
-      const res = await this._conn.newSession({ cwd: this.cwd, mcpServers: [], _meta: SDK_STATE_META });
+      try {
+        const res = await this._conn.loadSession({ sessionId: resumeSessionId, cwd: this.cwd, mcpServers: this._mcpServers, _meta: SDK_STATE_META });
+        this.acpSessionId = resumeSessionId;
+        if (res && res.modes) this.modeState = res.modes;
+        if (res) this._applyConfigOptions(res.configOptions);
+        loaded = true;
+      } catch (err) {
+        const msg = (err && (err.message || (err.data && err.data.message))) || String(err);
+        if (!/not found/i.test(msg)) throw err;
+      }
+    }
+    if (!loaded) {
+      const res = await this._conn.newSession({ cwd: this.cwd, mcpServers: this._mcpServers, _meta: SDK_STATE_META });
       this.acpSessionId = res.sessionId;
       if (res.modes) this.modeState = res.modes;
       this._applyConfigOptions(res.configOptions);
@@ -943,7 +956,7 @@ class AcpSession {
   async newConversation() {
     await this.ready();
     if (!this._conn) return;
-    const res = await this._conn.newSession({ cwd: this.cwd, mcpServers: [], _meta: SDK_STATE_META });
+    const res = await this._conn.newSession({ cwd: this.cwd, mcpServers: this._mcpServers, _meta: SDK_STATE_META });
     this.acpSessionId = res.sessionId;
     if (res.modes) this.modeState = res.modes;
     this._resetThread();
@@ -960,7 +973,7 @@ class AcpSession {
     this.acpSessionId = sessionId;
     this._resetThread();
     try {
-      const res = await this._conn.loadSession({ sessionId, cwd: this.cwd, mcpServers: [], _meta: SDK_STATE_META });
+      const res = await this._conn.loadSession({ sessionId, cwd: this.cwd, mcpServers: this._mcpServers, _meta: SDK_STATE_META });
       if (res && res.modes) { this.modeState = res.modes; this._emitMode(); }
       if (res) { this._applyConfigOptions(res.configOptions); this._emitModel(); }
       this._refreshModel();

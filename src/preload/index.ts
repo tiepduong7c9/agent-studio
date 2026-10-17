@@ -293,6 +293,9 @@ const api = {
     /** Restart the session's adapter to pick up host-side config changes (e.g.
      *  newly-added MCP servers), reloading the prior conversation. */
     restart: (sid: string): Promise<boolean> => ipcRenderer.invoke('acp:restart', sid),
+    /** Make a local session the controller — the one session given the
+     *  agent-studio MCP tools — or clear the role with null. */
+    setController: (sid: string | null): Promise<void> => ipcRenderer.invoke('acp:setController', sid),
     /** Subscribe to per-session thread events; returns an unsubscribe fn. */
     onEvent: (cb: (payload: AcpEventPayload) => void): (() => void) => {
       const h = (_e: unknown, payload: AcpEventPayload) => cb(payload)

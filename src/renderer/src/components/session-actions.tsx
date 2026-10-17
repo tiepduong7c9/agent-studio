@@ -88,6 +88,18 @@ export function useSessionMenu(s: SessionMeta, onDelete: () => void) {
     // Re-spawns the adapter so it re-reads host-side config (e.g. new MCP
     // servers); the conversation reloads, but an in-flight turn is dropped.
     { label: 'Restart session', enabled: !busy, run: () => void run('restarting', () => window.studio.acp.restart(s.id)) },
+    // The controller gets the agent-studio MCP tools to see and drive other
+    // sessions. One at a time, local sessions only; switching restarts the
+    // sessions involved (conversations reload) so their tools change.
+    ...(s.host
+      ? []
+      : [
+          {
+            label: s.controller ? 'Remove Controller Role' : 'Make Controller Session',
+            enabled: !busy,
+            run: () => void run('restarting', () => window.studio.acp.setController(s.controller ? null : s.id))
+          }
+        ]),
     { separator: true },
     { label: 'Delete Session', run: () => setConfirming(true) }
   ]

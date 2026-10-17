@@ -7,19 +7,20 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
 import { nanoid } from 'nanoid';
 // CommonJS ACP driver, copied verbatim from ccremote; default export is the class.
 import AcpSession from './acp-session.cjs';
 import { Emitter, Event } from '../vendor/vs/base/common/event.js';
 import { toDisposable, IDisposable } from '../vendor/vs/base/common/lifecycle.js';
-import { STATE_DIR, SESSIONS_FILE } from '../constants.js';
+import { STATE_DIR, SESSIONS_FILE, SOCKET_PATH } from '../constants.js';
 import { listAllProjects } from './projects.js';
 import { listSkills, readSkill } from './skills.js';
 // CommonJS usage fetcher (account + rate-limit windows); esbuild interops the named export.
 import { getUsageDetail } from './usage.cjs';
 // CommonJS out-of-band title generator (subscription-OAuth call to /v1/messages).
 import { generateTitle } from './title.cjs';
-import type { AcpConversation, AcpEvent, AcpSnapshot, AcpUsageDetail, ClaudeStatus, CreateSessionOptions, ProjectConversations, SessionMeta, SessionSchedule, SkillFiles, SkillRef } from './types.js';
+import type { AcpConversation, AcpEvent, AcpSnapshot, AcpUsageDetail, ClaudeStatus, CreateSessionOptions, ProjectConversations, SessionMeta, SessionSchedule, SkillFiles, SkillRef, StudioRequest, StudioResult } from './types.js';
 
 const ADJECTIVES = ['amber', 'arctic', 'bold', 'brave', 'bright', 'calm', 'cool', 'crisp', 'dawn', 'deep', 'fast', 'fierce', 'gentle', 'golden', 'grand', 'hidden', 'jade', 'keen', 'lively', 'lucid', 'mellow', 'misty', 'noble', 'quiet', 'rapid', 'royal', 'shady', 'sharp', 'silent', 'silver', 'sleek', 'solar', 'still', 'sturdy', 'swift', 'teal', 'vivid', 'warm', 'wild', 'wise'];
 const ANIMALS = ['bear', 'bison', 'boar', 'cobra', 'crane', 'crow', 'deer', 'dove', 'eagle', 'elk', 'falcon', 'finch', 'fox', 'goat', 'goose', 'hawk', 'heron', 'hound', 'jay', 'kite', 'lark', 'lion', 'lynx', 'mink', 'moose', 'newt', 'orca', 'otter', 'owl', 'panda', 'puma', 'quail', 'raven', 'robin', 'seal', 'shark', 'snipe', 'stag', 'swan', 'tiger', 'trout', 'viper', 'vole', 'wasp', 'weasel', 'whale', 'wolf', 'wren'];
@@ -29,6 +30,12 @@ function randomName(): string {
   const animal = ANIMALS[Math.floor(Math.random() * ANIMALS.length)];
   return `${adj}-${animal}`;
 }
+
+// The agent-studio MCP server (dist/studio-mcp.js), bundled beside the daemon.
+const STUDIO_MCP_SCRIPT = path.join(path.dirname(fileURLToPath(import.meta.url)), 'studio-mcp.js');
+// How long a relayed tool call may wait for the app (wait_for_session can
+// legitimately take up to its 30 min cap).
+const STUDIO_REQUEST_TIMEOUT_MS = 35 * 60_000;
 
 interface SessionRecord {
   meta: SessionMeta;
@@ -42,6 +49,14 @@ export class SessionManager {
   private readonly _onDidChangeSessions = new Emitter<SessionMeta[]>();
   /** Fires whenever the session list or any session's status changes. */
   readonly onDidChangeSessions: Event<SessionMeta[]> = this._onDidChangeSessions.event;
+
+  // Agent-studio MCP tool calls waiting on the desktop app: an app claims one
+  // (so two apps attached to this host never both act on it), then responds.
+  // When the last app unsubscribes (it quit or its connection dropped), fail
+  // whatever it was handling rather than leave those tool calls hanging.
+  private readonly _onStudioRequest = new Emitter<StudioRequest>({ onDidRemoveLastListener: () => this._failStudioPending() });
+  readonly onStudioRequest: Event<StudioRequest> = this._onStudioRequest.event;
+  private readonly _studioPending = new Map<string, { claimed: boolean; resolve: (r: StudioResult) => void; timer: NodeJS.Timeout }>();
 
   constructor() {
     fs.mkdirSync(STATE_DIR, { recursive: true });
@@ -68,7 +83,7 @@ export class SessionManager {
       cwd, acpSessionId: null, claudeStatus: undefined,
       createdAt: new Date().toISOString(), lastAttachedAt: null,
     };
-    const acp = new AcpSession({ cwd, env: this._childEnv(id) });
+    const acp = new AcpSession({ cwd, env: this._childEnv(id), mcpServers: this._mcpServers(meta) });
     const rec: SessionRecord = { meta, acp };
     this._registerStatusMirror(rec);
     this._sessions.set(id, rec);
@@ -89,7 +104,7 @@ export class SessionManager {
   private _resume(rec: SessionRecord, seqStart = 0): boolean {
     if (rec.meta.status !== 'suspended') return rec.meta.status === 'running';
     const { meta } = rec;
-    const acp = new AcpSession({ cwd: meta.cwd, env: this._childEnv(meta.id), seqStart });
+    const acp = new AcpSession({ cwd: meta.cwd, env: this._childEnv(meta.id), seqStart, mcpServers: this._mcpServers(meta) });
     rec.acp = acp;
     meta.status = 'running';
     meta.resumedAt = new Date().toISOString();
@@ -326,6 +341,86 @@ export class SessionManager {
     return { ...process.env, PATH: parts.join(path.delimiter), AGENT_STUDIO_SID: sid };
   }
 
+  // The MCP servers a session gets. Only the controller session gets
+  // agent-studio, which lets its agent list, read, prompt, and start sessions
+  // across all hosts (see studio-mcp.ts) — one session, so agents can't drive
+  // each other in loops or spawn sessions that spawn more. It runs under the
+  // daemon's own node and talks back over the daemon socket, so it needs no
+  // ports. Only the engine the desktop app runs on its own machine offers it
+  // (ensureDaemon's studioMcp sets AGENT_STUDIO_MCP=1).
+  private _mcpServers(meta: SessionMeta): any[] {
+    if (!meta.controller || process.env.AGENT_STUDIO_MCP !== '1' || !fs.existsSync(STUDIO_MCP_SCRIPT)) return [];
+    const env = [
+      { name: 'AGENT_STUDIO_SID', value: meta.id },
+      { name: 'AGENT_STUDIO_SOCKET', value: SOCKET_PATH },
+    ];
+    // The daemon may be Electron running as node; the server must be too.
+    if (process.env.ELECTRON_RUN_AS_NODE) env.push({ name: 'ELECTRON_RUN_AS_NODE', value: '1' });
+    return [{ name: 'agent-studio', command: process.execPath, args: [STUDIO_MCP_SCRIPT], env }];
+  }
+
+  /** Make `id` the controller session (null = none), clearing any other. The
+   *  role only reaches an adapter at spawn, so returns the ids whose role
+   *  changed; the caller restarts the live ones (it re-wires their events). */
+  setController(id: string | null): string[] {
+    if (id && !this._sessions.has(id)) throw new Error(`Unknown session ${id}`);
+    const changed: string[] = [];
+    for (const rec of this._sessions.values()) {
+      const want = rec.meta.id === id;
+      if (!!rec.meta.controller === want) continue;
+      if (want) rec.meta.controller = true;
+      else delete rec.meta.controller;
+      changed.push(rec.meta.id);
+    }
+    if (changed.length) this._changed();
+    return changed;
+  }
+
+  // ── agent-studio MCP relay ────────────────────────────────────────────────
+  // A session's MCP server calls studioRequest; the desktop app, subscribed to
+  // onStudioRequest, claims and answers it. The app does the work because only
+  // it is connected to every host.
+
+  studioRequest(callerSid: string, tool: string, args: Record<string, unknown>): Promise<StudioResult> {
+    if (!this._onStudioRequest.hasListeners()) {
+      return Promise.resolve({
+        isError: true,
+        text: 'The Agent Studio desktop app is not connected to this host right now, so sessions cannot be controlled. Open Agent Studio (and connect this host) and try again.',
+      });
+    }
+    const id = nanoid(10);
+    return new Promise<StudioResult>((resolve) => {
+      const timer = setTimeout(() => {
+        this._studioPending.delete(id);
+        resolve({ isError: true, text: 'Agent Studio did not answer in time.' });
+      }, STUDIO_REQUEST_TIMEOUT_MS);
+      this._studioPending.set(id, { claimed: false, resolve, timer });
+      this._onStudioRequest.fire({ id, callerSid, tool, args: args || {} });
+    });
+  }
+
+  /** First caller wins; later apps get false and must not act on the request. */
+  studioClaim(id: string): boolean {
+    const p = this._studioPending.get(id);
+    if (!p || p.claimed) return false;
+    p.claimed = true;
+    return true;
+  }
+
+  private _failStudioPending(): void {
+    for (const id of [...this._studioPending.keys()]) {
+      this.studioRespond(id, { isError: true, text: 'Agent Studio disconnected before it could finish this.' });
+    }
+  }
+
+  studioRespond(id: string, result: StudioResult): void {
+    const p = this._studioPending.get(id);
+    if (!p) return;
+    this._studioPending.delete(id);
+    clearTimeout(p.timer);
+    p.resolve(result);
+  }
+
   private _changed(): void {
     this._persist();
     this._onDidChangeSessions.fire(this.list());
@@ -348,7 +443,7 @@ export class SessionManager {
         delete meta.claudeStatus;
         delete meta.schedule;
         // Recreate a dormant AcpSession; it spawns lazily on first attach (_resume).
-        const acp = new AcpSession({ cwd: meta.cwd, env: this._childEnv(meta.id) });
+        const acp = new AcpSession({ cwd: meta.cwd, env: this._childEnv(meta.id), mcpServers: this._mcpServers(meta) });
         const rec: SessionRecord = { meta, acp };
         this._registerStatusMirror(rec);
         this._sessions.set(meta.id, rec);

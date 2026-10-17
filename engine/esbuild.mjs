@@ -22,7 +22,7 @@ const jsToTs = {
 };
 
 await esbuild.build({
-  entryPoints: ['src/daemon.ts', 'src/cli.ts', 'src/client.ts', 'src/smoke.ts', 'src/smoke-acp.ts', 'src/smoke-tunnel.ts'],
+  entryPoints: ['src/daemon.ts', 'src/cli.ts', 'src/client.ts', 'src/smoke.ts', 'src/smoke-acp.ts', 'src/smoke-tunnel.ts', 'src/studio-mcp.ts'],
   outdir: 'dist',
   bundle: true,
   platform: 'node',

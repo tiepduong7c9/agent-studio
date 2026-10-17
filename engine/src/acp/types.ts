@@ -19,6 +19,9 @@ export interface SessionMeta {
   lastAttachedAt?: string | null;
   resumedAt?: string;
   exitCode?: number;
+  /** The controller session: the one session (on the desktop app's machine)
+   *  that gets the agent-studio MCP tools to see and drive the others. */
+  controller?: boolean;
 }
 
 export interface SessionCron {
@@ -116,6 +119,22 @@ export interface ProjectConversations {
   /** Host the project lives on; decorated in the main process (null = local). */
   host?: string | null;
   conversations: AcpConversation[];
+}
+
+/** A tool call from a session's agent-studio MCP server, relayed to the
+ *  connected desktop app (which can see every host) to carry out. */
+export interface StudioRequest {
+  id: string;
+  /** The session whose agent made the call. */
+  callerSid: string;
+  tool: string;
+  args: Record<string, unknown>;
+}
+
+/** The app's answer to a StudioRequest: text for the agent, or an error. */
+export interface StudioResult {
+  text: string;
+  isError?: boolean;
 }
 
 export interface CreateSessionOptions {
