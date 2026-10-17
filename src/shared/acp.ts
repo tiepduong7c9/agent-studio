@@ -23,6 +23,9 @@ export interface SessionMeta {
   lastAttachedAt?: string | null
   resumedAt?: string
   exitCode?: number
+  /** The controller session: the one local session that gets the agent-studio
+   *  MCP tools to see and drive the others. */
+  controller?: boolean
 }
 
 export interface SessionCron {
@@ -240,6 +243,8 @@ export interface ISessionManagerClient {
   regenerateTitle(sid: string): Promise<SessionMeta | null>
   kill(sid: string): Promise<boolean>
   restart(sid: string): Promise<boolean>
+  /** Make a session the controller (null = none); returns the ids whose role changed. */
+  setController(sid: string | null): Promise<string[]>
   /** Claim a relayed agent-studio MCP call before acting; false = another app has it. */
   studioClaim(id: string): Promise<boolean>
   studioRespond(id: string, result: StudioResult): Promise<void>

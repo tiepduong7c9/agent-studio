@@ -6,7 +6,7 @@ import { hostLabel, projectLabel } from '../session-format'
 import { useViewPrefsStore } from '../view-prefs-store'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { laneOf, useSnoozeStore } from './SessionsBoard'
-import { renderTitle } from './SessionsPanel'
+import { ControllerBadge, renderTitle } from './SessionsPanel'
 import { useSessionMenu } from './session-actions'
 import './ActiveSessionsBar.css'
 
@@ -100,6 +100,7 @@ function Card({
       ) : (
         <span className="active-bar-name">{menu.busy ? `${menu.busy}…` : renderTitle(s.name)}</span>
       )}
+      <ControllerBadge s={s} />
       <span className="active-bar-host">{hostLabel(s.host)}</span>
       {menu.node}
     </div>

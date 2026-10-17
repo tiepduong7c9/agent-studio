@@ -19,6 +19,9 @@ export interface SessionMeta {
   lastAttachedAt?: string | null;
   resumedAt?: string;
   exitCode?: number;
+  /** The controller session: the one session (on the desktop app's machine)
+   *  that gets the agent-studio MCP tools to see and drive the others. */
+  controller?: boolean;
 }
 
 export interface SessionCron {

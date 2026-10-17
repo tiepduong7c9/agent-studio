@@ -497,7 +497,7 @@ export function registerAcpIpc(getWindow: () => BrowserWindow | null): AcpHub {
   // it (as connectHost does on reconnect) so thread events — message chunks,
   // tool calls, permission prompts — keep reaching the renderer, then push a
   // resync snapshot (the resumed adapter streams its replayed history in).
-  ipcMain.handle('acp:restart', async (_e, sid: string) => {
+  const restartSid = async (sid: string): Promise<boolean> => {
     const hc = await hcForSid(sid)
     // Await the swap before re-forwarding: the client call resolves once the
     // engine has replaced rec.acp, so the new forwarder binds to the fresh
@@ -510,6 +510,19 @@ export function registerAcpIpc(getWindow: () => BrowserWindow | null): AcpHub {
       if (snapshot) send('acp:resync', { sid, snapshot })
     }
     return ok
+  }
+  ipcMain.handle('acp:restart', async (_e, sid: string) => restartSid(sid))
+
+  // Make a local session the controller (the one with the agent-studio MCP
+  // tools), or clear the role. The engine only hands MCP servers to an adapter
+  // when it spawns, so live sessions whose role changed are restarted (their
+  // conversation reloads). Dormant ones pick it up when they next resume.
+  ipcMain.handle('acp:setController', async (_e, sid: string | null) => {
+    if (sid && sidToHost.get(sid) !== LOCAL_HOST_KEY) throw new Error('Only a session on this machine can be the controller')
+    const e = await connectHost(ensureHostConn(LOCAL_HOST_KEY))
+    const changed = await e.sm.setController(sid)
+    const live = new Set(mergedList().filter((m) => m.status === 'running').map((m) => m.id))
+    await Promise.all(changed.filter((id) => live.has(id)).map((id) => restartSid(id).catch(() => false)))
   })
 
   return {

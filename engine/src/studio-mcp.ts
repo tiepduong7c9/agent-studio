@@ -1,7 +1,7 @@
-// The agent-studio MCP server, attached to every session (see SessionManager.
-// _mcpServers). It lets a session's agent see and drive the other sessions in
-// Agent Studio — on every host, not just this one — so you can ask one session
-// to check on, prompt, or start another.
+// The agent-studio MCP server, attached to the controller session only (see
+// SessionManager._mcpServers). It lets that session's agent see and drive the
+// other sessions in Agent Studio — on every host, not just this one — so you
+// can ask it to check on, prompt, or start others.
 //
 // Claude Code spawns this as a stdio MCP server on the session's own host. It
 // only defines the tools: each call is relayed over the daemon socket to the
@@ -112,9 +112,10 @@ const TOOLS = [
 ];
 
 const INSTRUCTIONS =
-  'Agent Studio runs many Claude sessions side by side, on this machine and on SSH hosts. These tools let you see and ' +
-  'drive the other sessions: list them, read what they have been doing, send them messages, wait for them, or start new ' +
-  'ones. Permission prompts in other sessions still go to the user — you cannot approve them.';
+  'Agent Studio runs many Claude sessions side by side, on this machine and on SSH hosts. You are the controller session: ' +
+  'these tools let you see and drive the others — list them, read what they have been doing, send them messages, wait ' +
+  'for them, or start new ones. The other sessions cannot message you back. Permission prompts in other sessions still ' +
+  'go to the user — you cannot approve them.';
 
 // ── daemon connection (lazy, reused across calls) ──────────────────────────────
 

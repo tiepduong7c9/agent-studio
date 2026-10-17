@@ -9,7 +9,7 @@ import { ContextMenu, type MenuItem } from './ContextMenu'
 import { useTagsStore } from '../tags-store'
 import { useViewPrefsStore } from '../view-prefs-store'
 import { useGitInfoStore } from '../git-info-store'
-import { CaptureBadges, renderTitle, SessionTagIcon, WorktreeChip } from './SessionsPanel'
+import { CaptureBadges, ControllerBadge, renderTitle, SessionTagIcon, WorktreeChip } from './SessionsPanel'
 import { useSessionMenu } from './session-actions'
 import './SessionsBoard.css'
 
@@ -257,6 +257,7 @@ function PinTile({ c, active, onOpen, onDelete }: { c: Card; active: boolean; on
       <div className="board-pin-title">
         <span className={`board-pin-dot ${st.cls}`} />
         <span className="board-pin-name">{renderTitle(s.name)}</span>
+        <ControllerBadge s={s} />
       </div>
       <div className="board-pin-meta">
         <span className="board-pin-host">{hostLabel(s.host)}</span>
@@ -457,6 +458,7 @@ function BoardCard({
         ) : (
           <span className="board-card-title">{renderTitle(s.name)}</span>
         )}
+        <ControllerBadge s={s} />
         {s.schedule && (
           <span className="board-card-schedule" title={scheduleLabel(s.schedule)}>
             <AlarmClock size={13} strokeWidth={2.25} />

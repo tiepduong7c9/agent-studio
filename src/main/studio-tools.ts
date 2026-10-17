@@ -1,10 +1,12 @@
 import type { AcpEvent, AcpSnapshot, SessionMeta, StudioRequest, StudioResult } from '../shared/acp'
 
-// The agent-studio MCP tools, carried out by the app. A session's MCP server
-// (engine/src/studio-mcp.ts) defines the tools; its engine relays each call
-// here, because only the app is connected to every host. Kept free of Electron
-// and the IPC layer — acp-ipc supplies the operations — so it can be exercised
-// against a bare engine.
+// The agent-studio MCP tools, carried out by the app. The controller session's
+// MCP server (engine/src/studio-mcp.ts) defines the tools; its engine relays
+// each call here, because only the app is connected to every host. Only the
+// controller may call them — it's the one session given the server, and this
+// is checked again here so moving the role takes effect at once. Kept free of
+// Electron and the IPC layer — acp-ipc supplies the operations — so it can be
+// exercised against a bare engine.
 
 export interface StudioOps {
   /** Every session on every connected host, host-decorated. */
@@ -37,6 +39,8 @@ const hostKeyOf = (host: string | null | undefined): string =>
 const DEFAULT_WAIT_S = 300
 const MAX_WAIT_S = 1800
 const MAX_TEXT = 4000
+// How long a session gets to take a delivered message (a dormant one resumes first).
+const TAKE_MESSAGE_S = 60
 
 const ok = (text: string): StudioResult => ({ text })
 const err = (text: string): StudioResult => ({ text, isError: true })
@@ -114,7 +118,7 @@ function turnsOf(events: AcpEvent[]): Turn[] {
 }
 
 function describe(s: SessionMeta, callerSid?: string): string {
-  const self = s.id === callerSid ? ' (this session)' : ''
+  const self = s.id === callerSid ? ' (this session, the controller)' : ''
   return `"${s.name}"${self} — id: ${s.id} · status: ${laneOf(s)} · host: ${hostLabel(s)} · folder: ${s.cwd}`
 }
 
@@ -150,29 +154,28 @@ export function createStudioTools(ops: StudioOps) {
     return Math.min(MAX_WAIT_S, Math.max(1, Math.round(n)))
   }
 
-  // Resolve once `sid` stops working: it finished the turn ('done'), paused for
-  // the user ('waiting'), or its process ended ('exited'). With `start`, the
-  // turn is begun after subscribing (so no status change is missed) and a
-  // leftover 'idle' from before it is ignored until the turn shows as working.
-  const waitForTurn = async (
-    sid: string,
-    seconds: number,
-    start?: () => Promise<void>
-  ): Promise<'done' | 'waiting' | 'exited' | 'timeout'> => {
-    let seenWorking = !start
-    let finish: (r: 'done' | 'waiting' | 'exited' | 'timeout') => void = () => {}
-    const result = new Promise<'done' | 'waiting' | 'exited' | 'timeout'>((r) => { finish = r })
+  type Outcome = 'done' | 'waiting' | 'exited' | 'timeout'
+
+  // Follow `sid` until it stops working: it finished its turn ('done'), paused
+  // for the user ('waiting'), or its process ended ('exited'). Returns `follow`,
+  // which starts tracking once the caller knows the turn has begun, and `result`.
+  const tracker = async (sid: string, seconds: number) => {
+    let following = false
+    let finish: (r: Outcome) => void = () => {}
+    const result = new Promise<Outcome>((r) => { finish = r })
     let stopTimer: NodeJS.Timeout | undefined
+    let followedAt = 0
+    let onEvent: (e: AcpEvent) => void = () => {}
     const unwatch = await ops.watch(sid, (e) => {
+      onEvent(e)
+      if (!following) return
       if (e.type === 'acp_status') {
-        if (e.claudeStatus === 'working') seenWorking = true
-        else if (e.claudeStatus === 'waiting') finish('waiting')
-        else if (seenWorking) finish('done')
-      } else if (e.type === 'acp_permission' || e.type === 'acp_elicitation') {
-        if (!e.resolved) finish('waiting')
+        if (e.claudeStatus === 'waiting') finish('waiting')
+        else if (e.claudeStatus === 'idle') finish('done')
+      } else if ((e.type === 'acp_permission' || e.type === 'acp_elicitation') && !e.resolved) {
+        finish('waiting')
       } else if (e.type === 'acp_stop' || e.type === 'acp_error') {
         // The idle status normally follows; don't hang if it never does.
-        seenWorking = true
         clearTimeout(stopTimer)
         stopTimer = setTimeout(() => finish('done'), 2000)
       } else if (e.type === 'exit') {
@@ -180,28 +183,73 @@ export function createStudioTools(ops: StudioOps) {
       }
     })
     // Belt and braces: the session list carries status too (e.g. if the event
-    // stream drops across a reconnect).
-    const startedAt = Date.now()
+    // stream drops across a reconnect). Give the list a moment to catch up
+    // with the turn starting before trusting a not-working status from it.
     const poll = setInterval(async () => {
+      if (!following || Date.now() - followedAt < 4000) return
       const s = await find(sid).catch(() => null)
-      if (!s) return finish('exited')
-      if (s.claudeStatus === 'working') seenWorking = true
+      if (!s) finish('exited')
       else if (s.claudeStatus === 'waiting') finish('waiting')
-      else if (seenWorking || Date.now() - startedAt > 15_000) finish('done')
+      else if (s.claudeStatus !== 'working') finish('done')
     }, 3000)
     const timer = setTimeout(() => finish('timeout'), seconds * 1000)
+    return {
+      result,
+      follow: () => { following = true; followedAt = Date.now() },
+      onEvent: (fn: (e: AcpEvent) => void) => { onEvent = fn },
+      finish,
+      dispose: () => { clearInterval(poll); clearTimeout(timer); clearTimeout(stopTimer); unwatch() }
+    }
+  }
+
+  // Sessions an agent message is currently being delivered to. Checking "is it
+  // busy?" and then prompting isn't atomic, so without this two sends (e.g. the
+  // controller's parallel tool calls) could both land mid-turn.
+  const delivering = new Set<string>()
+
+  // Send `blocks` to `sid`. Resolves 'sent' once the session has taken the
+  // message (its own acp_user for it shows up), or — with `wait` — once that
+  // turn ends. Only events after our message count, so a status left over from
+  // before it (e.g. while a dormant session resumes) can't end the wait early.
+  const deliver = async (sid: string, blocks: { type: string; text: string }[], wait: number | null): Promise<Outcome | 'sent' | 'busy' | 'failed'> => {
+    if (delivering.has(sid)) return 'busy'
+    delivering.add(sid)
+    const t = await tracker(sid, wait ?? TAKE_MESSAGE_S)
+    let taken = false
+    // However long the caller will wait for the reply, the message itself must
+    // be taken promptly — otherwise the session never started its turn.
+    const takeTimer = setTimeout(() => { if (!taken) t.finish('timeout') }, TAKE_MESSAGE_S * 1000)
     try {
-      if (start) await start()
-      else {
-        const s = await find(sid)
-        if (!s || s.claudeStatus !== 'working') finish(s?.claudeStatus === 'waiting' ? 'waiting' : 'done')
-      }
-      return await result
+      t.onEvent((e) => {
+        if (taken || e.type !== 'acp_user' || blockText(e.blocks) !== blocks[0].text) return
+        taken = true
+        delivering.delete(sid)
+        if (wait === null) t.finish('done')
+        else t.follow()
+      })
+      await ops.prompt(sid, blocks)
+      const outcome = await t.result
+      if (!taken) return 'failed'
+      return wait === null ? 'sent' : outcome
     } finally {
-      clearInterval(poll)
-      clearTimeout(timer)
-      clearTimeout(stopTimer)
-      unwatch()
+      clearTimeout(takeTimer)
+      delivering.delete(sid)
+      t.dispose()
+    }
+  }
+
+  // Wait for a turn already under way (no message sent by us).
+  const waitForTurn = async (sid: string, seconds: number): Promise<Outcome> => {
+    const t = await tracker(sid, seconds)
+    try {
+      t.follow()
+      const s = await find(sid)
+      if (!s) return 'exited'
+      if (s.claudeStatus === 'waiting') return 'waiting'
+      if (s.claudeStatus !== 'working') return 'done'
+      return await t.result
+    } finally {
+      t.dispose()
     }
   }
 
@@ -248,12 +296,11 @@ export function createStudioTools(ops: StudioOps) {
       if (s.claudeStatus === 'working') return err(`Session "${s.name}" is in the middle of a turn. Call wait_for_session first, then send.`)
       if (s.claudeStatus === 'waiting') return err(`Session "${s.name}" is waiting for the user to answer a prompt in Agent Studio; it can't take a new message until they do.`)
       const blocks = labelled(await find(callerSid), callerSid, args.message)
-      if (!args.wait) {
-        await ops.prompt(s.id, blocks)
-        return ok(`Sent to "${s.name}" (${s.id}). Use wait_for_session or read_session to see the reply.`)
-      }
       const seconds = waitSeconds(args.timeout_seconds)
-      const outcome = await waitForTurn(s.id, seconds, () => ops.prompt(s.id, blocks))
+      const outcome = await deliver(s.id, blocks, args.wait ? seconds : null)
+      if (outcome === 'busy') return err(`Another message to "${s.name}" is still being delivered. Wait for it, then try again.`)
+      if (outcome === 'failed') return err(`"${s.name}" didn't take the message (it may have failed to start). Check it with read_session.`)
+      if (outcome === 'sent') return ok(`Sent to "${s.name}" (${s.id}). Use wait_for_session or read_session to see the reply.`)
       return ok(await outcomeText(s, outcome, seconds))
     },
 
@@ -278,12 +325,10 @@ export function createStudioTools(ops: StudioOps) {
       const where = `"${meta.name}" (${meta.id}) on ${key === 'local' ? 'local' : key.slice(4)} in ${meta.cwd}`
       if (typeof args.message !== 'string' || !args.message.trim()) return ok(`Started session ${where}.`)
       const blocks = labelled(await find(callerSid), callerSid, args.message)
-      if (!args.wait) {
-        await ops.prompt(meta.id, blocks)
-        return ok(`Started session ${where} and sent the message. Use wait_for_session or read_session to see the reply.`)
-      }
       const seconds = waitSeconds(args.timeout_seconds)
-      const outcome = await waitForTurn(meta.id, seconds, () => ops.prompt(meta.id, blocks))
+      const outcome = await deliver(meta.id, blocks, args.wait ? seconds : null)
+      if (outcome === 'busy' || outcome === 'failed') return err(`Started session ${where}, but it didn't take the message. Check it with read_session.`)
+      if (outcome === 'sent') return ok(`Started session ${where} and sent the message. Use wait_for_session or read_session to see the reply.`)
       return ok(`Started session ${where}.\n\n${await outcomeText(meta, outcome, seconds)}`)
     },
 
@@ -301,6 +346,10 @@ export function createStudioTools(ops: StudioOps) {
     const tool = tools[req.tool]
     if (!tool) return err(`Unknown tool: ${req.tool}`)
     try {
+      const caller = await find(req.callerSid)
+      if (!caller?.controller || caller.host) {
+        return err('Only the controller session can use the Agent Studio tools. In Agent Studio, right-click a session on this machine and choose "Make Controller Session".')
+      }
       return await tool({ ...req, args: req.args || {} })
     } catch (e: any) {
       return err(`Agent Studio couldn't do that: ${e?.message || e}`)

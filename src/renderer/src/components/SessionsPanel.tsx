@@ -1,5 +1,5 @@
 import { type KeyboardEvent, type MouseEvent, useEffect, useMemo, useRef, useState } from 'react'
-import { AlarmClock, Hash, Info, Tag } from 'lucide-react'
+import { AlarmClock, Hash, Info, Network, Tag } from 'lucide-react'
 import type { AcpConversation, ProjectConversations, SessionMeta } from '../../../shared/acp'
 import { useSessionsStore } from '../acp/sessions-store'
 import { useViewPrefsStore } from '../view-prefs-store'
@@ -48,6 +48,17 @@ export function renderTitle(name: string) {
     ) : (
       part
     )
+  )
+}
+
+/** Marks the controller session — the one with the agent-studio MCP tools,
+ *  which can see and drive the other sessions. */
+export function ControllerBadge({ s }: { s: SessionMeta }) {
+  if (!s.controller) return null
+  return (
+    <span className="session-controller-badge" title="Controller session: can see and drive other sessions">
+      <Network size={12} strokeWidth={2.25} />
+    </span>
   )
 }
 
@@ -282,6 +293,7 @@ function LiveRow({ s, captures, active, pinned, done, doneAt, unread, tag, tags,
           <span className="acp-session-main">
             <span className="acp-session-title-line">
               <span className="acp-session-name">{renderTitle(s.name)}</span>
+              <ControllerBadge s={s} />
               <CaptureBadges captures={captures} />
               {/* This session wakes itself later — a /loop or a cron it armed.
                   Sits alongside the status dot rather than replacing it: a
