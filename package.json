@@ -3,6 +3,7 @@
   "version": "0.5.7",
   "description": "Agent Studio desktop app",
   "author": "Tiep Duong <dmtmd2010@yahoo.com.vn>",
+  "license": "MIT",
   "main": "out/main/index.js",
   "private": true,
   "scripts": {
@@ -83,7 +84,7 @@
       "icon": "build/mac/icon.icns",
       "identity": null
     },
-    "afterPack": "build/mac/adhoc-sign.cjs",
+    "afterPack": "build/mac/sign.cjs",
     "win": {
       "target": [
         "nsis"
