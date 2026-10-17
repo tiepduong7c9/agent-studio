@@ -17,6 +17,7 @@ import {
   LOCAL_HOST_KEY,
   type Engine
 } from './engine'
+import { createStudioTools } from './studio-tools'
 import {
   addCollectedKeys,
   approvePendingSkill,
@@ -61,6 +62,8 @@ interface HostConn {
   /** Per-session event forwarders, keyed by sid. */
   subs: Map<string, Disposable>
   sessionsSub: Disposable | null
+  /** Agent-studio MCP calls relayed from this host's sessions. */
+  studioSub: Disposable | null
   /** This host's last known session list, host-decorated. */
   sessions: SessionMeta[]
   reconnecting: boolean
@@ -103,7 +106,7 @@ export function registerAcpIpc(getWindow: () => BrowserWindow | null): AcpHub {
   const ensureHostConn = (key: string): HostConn => {
     let hc = hosts.get(key)
     if (!hc) {
-      hc = { key, engine: null, connecting: null, subs: new Map(), sessionsSub: null, sessions: [], reconnecting: false }
+      hc = { key, engine: null, connecting: null, subs: new Map(), sessionsSub: null, studioSub: null, sessions: [], reconnecting: false }
       hosts.set(key, hc)
     }
     return hc
@@ -116,6 +119,15 @@ export function registerAcpIpc(getWindow: () => BrowserWindow | null): AcpHub {
     hc.sessionsSub = e.sm.onDidChangeSessions((list) => {
       hc.sessions = decorate(list, hc.key)
       rebuildAndBroadcast()
+    })
+    // A session on this host called an agent-studio MCP tool. Claim it first:
+    // another Agent Studio window/machine attached to the same engine may also
+    // see the request, and only one of us should act on it.
+    hc.studioSub?.dispose()
+    hc.studioSub = e.sm.onStudioRequest(async (req) => {
+      if (!(await e.sm.studioClaim(req.id).catch(() => false))) return
+      const result = await runStudioTool(req)
+      await e.sm.studioRespond(req.id, result).catch(() => {})
     })
     const onDrop = () => handleDrop(hc, e)
     e.stream.once('close', onDrop)
@@ -169,6 +181,25 @@ export function registerAcpIpc(getWindow: () => BrowserWindow | null): AcpHub {
   }
 
   const smForSid = async (sid: string): Promise<Engine['sm']> => (await hcForSid(sid)).engine!.sm
+
+  // The agent-studio MCP tools run here, against every connected host.
+  const runStudioTool = createStudioTools({
+    list: async () => { await ensureAll(); return mergedList() },
+    hostKeys: () => [...hosts.values()].filter((hc) => hc.engine).map((hc) => hc.key),
+    snapshot: async (sid) => (await smForSid(sid)).snapshot(sid),
+    prompt: async (sid, blocks) => { await (await smForSid(sid)).prompt(sid, blocks) },
+    cancel: async (sid) => { await (await smForSid(sid)).cancel(sid) },
+    create: async (key, cwd, name) => {
+      const e = await connectHost(ensureHostConn(key))
+      const meta = await e.sm.create({ cwd, name })
+      sidToHost.set(meta.id, key)
+      return { ...meta, host: hostFromKey(key) }
+    },
+    watch: async (sid, cb) => {
+      const d = (await smForSid(sid)).onSessionEvent(sid)(cb)
+      return () => d.dispose()
+    }
+  })
 
   const handleDrop = (hc: HostConn, dropped: Engine): void => {
     if (disposed || dropped !== hc.engine) return
@@ -488,6 +519,7 @@ export function registerAcpIpc(getWindow: () => BrowserWindow | null): AcpHub {
       const hc = hosts.get(key)
       if (!hc) return
       hc.sessionsSub?.dispose()
+      hc.studioSub?.dispose()
       for (const d of hc.subs.values()) d.dispose()
       hc.subs.clear()
       hc.engine = null
@@ -499,6 +531,7 @@ export function registerAcpIpc(getWindow: () => BrowserWindow | null): AcpHub {
       disposed = true
       for (const hc of hosts.values()) {
         hc.sessionsSub?.dispose()
+        hc.studioSub?.dispose()
         for (const d of hc.subs.values()) d.dispose()
         hc.subs.clear()
       }

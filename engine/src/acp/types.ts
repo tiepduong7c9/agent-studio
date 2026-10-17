@@ -118,6 +118,22 @@ export interface ProjectConversations {
   conversations: AcpConversation[];
 }
 
+/** A tool call from a session's agent-studio MCP server, relayed to the
+ *  connected desktop app (which can see every host) to carry out. */
+export interface StudioRequest {
+  id: string;
+  /** The session whose agent made the call. */
+  callerSid: string;
+  tool: string;
+  args: Record<string, unknown>;
+}
+
+/** The app's answer to a StudioRequest: text for the agent, or an error. */
+export interface StudioResult {
+  text: string;
+  isError?: boolean;
+}
+
 export interface CreateSessionOptions {
   name?: string;
   cwd: string;

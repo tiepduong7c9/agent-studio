@@ -193,6 +193,24 @@ export interface SkillsListing {
   root: string
 }
 
+// ── agent-studio MCP relay ────────────────────────────────────────────────────
+
+/** A tool call from a session's agent-studio MCP server, relayed by its engine
+ *  to the app to carry out (only the app can see every host). */
+export interface StudioRequest {
+  id: string
+  /** The session whose agent made the call. */
+  callerSid: string
+  tool: string
+  args: Record<string, unknown>
+}
+
+/** The app's answer to a StudioRequest: text for the agent, or an error. */
+export interface StudioResult {
+  text: string
+  isError?: boolean
+}
+
 // ── engine client module shape (dynamically imported in the main process) ─────
 
 export interface Disposable { dispose(): void }
@@ -222,8 +240,12 @@ export interface ISessionManagerClient {
   regenerateTitle(sid: string): Promise<SessionMeta | null>
   kill(sid: string): Promise<boolean>
   restart(sid: string): Promise<boolean>
+  /** Claim a relayed agent-studio MCP call before acting; false = another app has it. */
+  studioClaim(id: string): Promise<boolean>
+  studioRespond(id: string, result: StudioResult): Promise<void>
   onDidChangeSessions: EventFn<SessionMeta[]>
   onSessionEvent(sid: string): EventFn<AcpEvent>
+  onStudioRequest: EventFn<StudioRequest>
 }
 
 export interface EngineConnection { getChannel(name: string): any; dispose(): void }
