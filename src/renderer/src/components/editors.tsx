@@ -288,22 +288,32 @@ function clampZoom(z: number): number {
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z))
 }
 
+// Pan/zoom state: the image's top-left corner in viewport pixels (x, y) and its
+// scale. The image is drawn with a transform, so it can be moved and zoomed
+// anywhere — including past the edges — rather than scrolled within bounds.
+type ImageViewState = { zoom: number; x: number; y: number }
+
 function ImageView({ wsId, path, mimeType }: { wsId: string; path: string; mimeType: string }) {
   const [src, setSrc] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   // Intrinsic pixel size, known once the image loads; null until then.
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(null)
-  const [zoom, setZoom] = useState(1)
-  // In fit mode the zoom tracks the container (recomputed on resize); any manual
-  // zoom pins it to an explicit factor until the user clicks "Fit" again.
+  const [view, setView] = useState<ImageViewState>({ zoom: 1, x: 0, y: 0 })
+  // In fit mode the view tracks the container (recomputed on resize); any pan
+  // or zoom pins it until the user clicks "Fit" (or double-clicks) again.
   const [fit, setFit] = useState(true)
+  const [dragging, setDragging] = useState(false)
   const viewportRef = useRef<HTMLDivElement>(null)
+  // Latest view for the native wheel / pointer handlers, which outlive renders.
+  const viewRef = useRef(view)
+  viewRef.current = view
 
   useEffect(() => {
     let cancelled = false
     setSrc(null)
     setError(null)
     setNatural(null)
+    setFit(true)
     window.studio.readFileBase64(wsId, path).then((result) => {
       if (cancelled) return
       if (result.ok) setSrc(`data:${mimeType};base64,${result.data}`)
@@ -314,14 +324,14 @@ function ImageView({ wsId, path, mimeType }: { wsId: string; path: string; mimeT
     }
   }, [wsId, path, mimeType])
 
-  // The zoom that makes the image fit the viewport (never upscaling past 100%).
-  const fitZoom = useCallback((): number => {
+  // The view that centers the image at `zoom`, or — without one — fits it in
+  // the viewport (never upscaling past 100%).
+  const centered = useCallback((zoom?: number): ImageViewState => {
     const el = viewportRef.current
-    if (!el || !natural) return 1
-    const availW = el.clientWidth - 32 // matches the viewport's 16px padding
-    const availH = el.clientHeight - 32
-    if (availW <= 0 || availH <= 0) return 1
-    return Math.min(1, availW / natural.w, availH / natural.h)
+    if (!el || !natural) return { zoom: 1, x: 0, y: 0 }
+    const pad = 16
+    const z = zoom ?? Math.max(MIN_ZOOM, Math.min(1, (el.clientWidth - 2 * pad) / natural.w, (el.clientHeight - 2 * pad) / natural.h))
+    return { zoom: z, x: (el.clientWidth - natural.w * z) / 2, y: (el.clientHeight - natural.h * z) / 2 }
   }, [natural])
 
   // While fitting, follow the container size.
@@ -329,43 +339,100 @@ function ImageView({ wsId, path, mimeType }: { wsId: string; path: string; mimeT
     if (!fit || !natural) return
     const el = viewportRef.current
     if (!el) return
-    const apply = () => setZoom(fitZoom())
+    const apply = () => setView(centered())
     apply()
     const ro = new ResizeObserver(apply)
     ro.observe(el)
     return () => ro.disconnect()
-  }, [fit, natural, fitZoom])
+  }, [fit, natural, centered])
 
-  const zoomTo = useCallback((z: number) => {
+  // Zoom by `factor`, keeping the image point under (px, py) — viewport
+  // coordinates — fixed. Defaults to the viewport centre (toolbar buttons).
+  const zoomAt = useCallback((factor: number, px?: number, py?: number) => {
+    const el = viewportRef.current
+    if (!el) return
+    const cx = px ?? el.clientWidth / 2
+    const cy = py ?? el.clientHeight / 2
+    const v = viewRef.current
+    const zoom = clampZoom(v.zoom * factor)
+    const k = zoom / v.zoom
     setFit(false)
-    setZoom(clampZoom(z))
+    setView({ zoom, x: cx - (cx - v.x) * k, y: cy - (cy - v.y) * k })
   }, [])
 
-  // Ctrl/Cmd + wheel zooms toward the cursor. Attached natively so we can
-  // preventDefault (React's wheel listener is passive and can't).
+  // Wheel: Ctrl/Cmd + wheel (and trackpad pinch, which arrives as a ctrl-wheel)
+  // zooms toward the cursor; a plain wheel or two-finger scroll pans. Attached
+  // natively so we can preventDefault (React's wheel listener is passive).
   useEffect(() => {
     const el = viewportRef.current
     if (!el) return
     const onWheel = (e: WheelEvent) => {
-      if (!e.ctrlKey && !e.metaKey) return
       e.preventDefault()
-      setFit(false)
-      setZoom((z) => clampZoom(z * (e.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP)))
+      const scale = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? el.clientHeight : 1
+      const dx = e.deltaX * scale
+      const dy = e.deltaY * scale
+      if (e.ctrlKey || e.metaKey) {
+        const r = el.getBoundingClientRect()
+        // Proportional to the delta: smooth for trackpads (many small deltas),
+        // about one ZOOM_STEP per mouse-wheel notch (~100px).
+        zoomAt(Math.exp(-Math.max(-100, Math.min(100, dy)) * 0.002), e.clientX - r.left, e.clientY - r.top)
+      } else {
+        // Shift + wheel scrolls sideways on a plain mouse.
+        const [px, py] = e.shiftKey && !dx ? [dy, 0] : [dx, dy]
+        setFit(false)
+        setView((v) => ({ ...v, x: v.x - px, y: v.y - py }))
+      }
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
-  }, [])
+  }, [zoomAt])
+
+  // Drag anywhere in the viewport to pan.
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0 || !natural) return
+    e.preventDefault()
+    const el = e.currentTarget
+    el.setPointerCapture(e.pointerId)
+    const start = { px: e.clientX, py: e.clientY, x: viewRef.current.x, y: viewRef.current.y }
+    setDragging(true)
+    const onMove = (ev: PointerEvent) => {
+      setFit(false)
+      setView((v) => ({ ...v, x: start.x + ev.clientX - start.px, y: start.y + ev.clientY - start.py }))
+    }
+    const onUp = () => {
+      setDragging(false)
+      el.removeEventListener('pointermove', onMove)
+      el.removeEventListener('pointerup', onUp)
+      el.removeEventListener('pointercancel', onUp)
+    }
+    el.addEventListener('pointermove', onMove)
+    el.addEventListener('pointerup', onUp)
+    el.addEventListener('pointercancel', onUp)
+  }
+
+  // Double-click: from fit, jump to 100% at the cursor; otherwise back to fit.
+  const onDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!natural) return
+    if (fit) {
+      const r = e.currentTarget.getBoundingClientRect()
+      zoomAt(1 / viewRef.current.zoom, e.clientX - r.left, e.clientY - r.top)
+    } else {
+      setFit(true)
+    }
+  }
 
   if (error) return <ViewerMessage message={error} />
 
-  const imgStyle = natural
+  const zoom = view.zoom
+  const imgStyle: React.CSSProperties | undefined = natural
     ? {
-        width: `${Math.round(natural.w * zoom)}px`,
-        height: `${Math.round(natural.h * zoom)}px`,
-        maxWidth: 'none',
-        maxHeight: 'none'
+        width: `${natural.w}px`,
+        height: `${natural.h}px`,
+        transform: `translate(${view.x}px, ${view.y}px) scale(${zoom})`,
+        // Crisp pixels once zoomed in far enough to see them.
+        imageRendering: zoom >= 3 ? 'pixelated' : 'auto'
       }
-    : undefined
+    : { visibility: 'hidden' }
 
   return (
     <div className="image-editor">
@@ -376,41 +443,47 @@ function ImageView({ wsId, path, mimeType }: { wsId: string; path: string; mimeT
         <span className="topbar-spacer" />
         <button
           className="icon-button codicon codicon-zoom-out"
-          title="Zoom Out"
+          title="Zoom Out (Ctrl+Scroll)"
           disabled={!natural || zoom <= MIN_ZOOM}
-          onClick={() => zoomTo(zoom / ZOOM_STEP)}
+          onClick={() => zoomAt(1 / ZOOM_STEP)}
         />
         <span className="image-toolbar-zoom">{Math.round(zoom * 100)}%</span>
         <button
           className="icon-button codicon codicon-zoom-in"
-          title="Zoom In"
+          title="Zoom In (Ctrl+Scroll)"
           disabled={!natural || zoom >= MAX_ZOOM}
-          onClick={() => zoomTo(zoom * ZOOM_STEP)}
+          onClick={() => zoomAt(ZOOM_STEP)}
         />
         <span className="diff-toolbar-sep" />
         <button
           className="image-toolbar-btn"
           title="Actual Size (100%)"
           disabled={!natural}
-          onClick={() => zoomTo(1)}
+          onClick={() => { setFit(false); setView(centered(1)) }}
         >
           1:1
         </button>
         <button
           className={`image-toolbar-btn ${fit ? 'active' : ''}`}
-          title="Fit to Window"
+          title="Fit to Window (double-click)"
           disabled={!natural}
           onClick={() => setFit(true)}
         >
           Fit
         </button>
       </div>
-      <div className="image-viewer" ref={viewportRef}>
+      <div
+        className={`image-viewer ${dragging ? 'dragging' : ''}`}
+        ref={viewportRef}
+        onPointerDown={onPointerDown}
+        onDoubleClick={onDoubleClick}
+      >
         {src && (
           <img
             src={src}
             alt={baseName(path)}
             style={imgStyle}
+            draggable={false}
             onLoad={(e) =>
               setNatural({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })
             }
