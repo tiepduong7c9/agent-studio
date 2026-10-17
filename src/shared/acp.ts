@@ -251,7 +251,7 @@ export interface ISessionManagerClient {
 export interface EngineConnection { getChannel(name: string): any; dispose(): void }
 
 export interface EngineModule {
-  ensureDaemon(opts?: { nodePath?: string }): Promise<void>
+  ensureDaemon(opts?: { nodePath?: string; studioMcp?: boolean }): Promise<void>
   connect(path: string, clientId: string): Promise<EngineConnection>
   /** Build a client over any duplex stream — used for the SSH tunnel. */
   connectOverStream(stream: NodeJS.ReadWriteStream, clientId: string): EngineConnection

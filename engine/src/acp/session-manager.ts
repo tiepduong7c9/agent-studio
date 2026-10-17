@@ -339,12 +339,14 @@ export class SessionManager {
     return { ...process.env, PATH: parts.join(path.delimiter), AGENT_STUDIO_SID: sid };
   }
 
-  // The MCP servers every session gets: agent-studio, which lets the agent list,
+  // The MCP servers a session gets: agent-studio, which lets the agent list,
   // read, prompt, and start sessions across all hosts (see studio-mcp.ts). It
-  // runs on this host under the daemon's own node and talks back over the
-  // daemon socket, so it needs no ports. Opt out with AGENT_STUDIO_MCP=0.
+  // runs under the daemon's own node and talks back over the daemon socket, so
+  // it needs no ports. Only the engine the desktop app runs on its own machine
+  // offers it (ensureDaemon's studioMcp sets AGENT_STUDIO_MCP=1); sessions on
+  // remote hosts don't get the tools, though local ones can still reach them.
   private _mcpServers(sid: string): any[] {
-    if (process.env.AGENT_STUDIO_MCP === '0' || !fs.existsSync(STUDIO_MCP_SCRIPT)) return [];
+    if (process.env.AGENT_STUDIO_MCP !== '1' || !fs.existsSync(STUDIO_MCP_SCRIPT)) return [];
     const env = [
       { name: 'AGENT_STUDIO_SID', value: sid },
       { name: 'AGENT_STUDIO_SOCKET', value: SOCKET_PATH },

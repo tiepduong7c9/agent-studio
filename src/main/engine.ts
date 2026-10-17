@@ -112,7 +112,8 @@ function connectFor(hostKey: string): Promise<Engine> {
 
 async function connectLocal(): Promise<Engine> {
   const mod = await loadEngineModule()
-  await mod.ensureDaemon()
+  // Only the local engine gives its sessions the agent-studio MCP tools.
+  await mod.ensureDaemon({ studioMcp: true })
   // Own the socket ourselves (rather than mod.connect) so we can watch it for drops.
   const socket = await new Promise<net.Socket>((resolve, reject) => {
     const s = net.createConnection(mod.SOCKET_PATH)

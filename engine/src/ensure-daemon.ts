@@ -22,6 +22,9 @@ function canConnect(): Promise<boolean> {
 export interface EnsureDaemonOptions {
   /** Node binary to launch the daemon with. Defaults to process.execPath. */
   nodePath?: string;
+  /** Give the daemon's sessions the agent-studio MCP tools. Only the desktop
+   *  app's own local engine sets this; remote hosts (started via cli.js) don't. */
+  studioMcp?: boolean;
 }
 
 export async function ensureDaemon(opts: EnsureDaemonOptions = {}): Promise<void> {
@@ -33,7 +36,7 @@ export async function ensureDaemon(opts: EnsureDaemonOptions = {}): Promise<void
   const child = spawn(opts.nodePath || process.execPath, [daemonJs], {
     detached: true,
     stdio: 'ignore',
-    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', ...(opts.studioMcp ? { AGENT_STUDIO_MCP: '1' } : {}) },
   });
   child.unref();
 
