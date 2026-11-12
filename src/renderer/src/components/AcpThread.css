@@ -52,11 +52,12 @@
   cursor: pointer;
 }
 .acp-sel-pop button:hover { background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground)); }
-/* Jump-to-bottom button, shown while scrolled up from the latest message. */
+/* Jump-to-bottom button, shown while scrolled up from the latest message.
+   Anchored just above the composer, clear of its frosted backdrop. */
 .acp-to-bottom {
   position: absolute;
-  z-index: 5;
-  bottom: 12px;
+  bottom: calc(100% + 32px);
+  pointer-events: auto;
   left: 50%;
   transform: translateX(-50%);
   display: flex;

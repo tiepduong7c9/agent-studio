@@ -1159,11 +1159,6 @@ export function AcpThread({ sid, workspace = null, visible = true }: { sid: stri
             <button type="button" onClick={mentionSelection}><AtSign size={12} />Mention</button>
           </div>
         )}
-        {!atBottom && (
-          <button type="button" className="acp-to-bottom" title="Scroll to bottom" onClick={scrollToBottom}>
-            <ArrowDown size={14} />
-          </button>
-        )}
         {resuming && (
           <div className="acp-overlay">
             <span className="acp-spinner" />
@@ -1172,6 +1167,13 @@ export function AcpThread({ sid, workspace = null, visible = true }: { sid: stri
       </div>
 
       <div className="acp-composer">
+        {/* Lives in the composer, which overlays the bottom of the thread, so it
+            sits above the input instead of behind it. */}
+        {!atBottom && (
+          <button type="button" className="acp-to-bottom" title="Scroll to bottom" onClick={scrollToBottom}>
+            <ArrowDown size={14} />
+          </button>
+        )}
         <div className="acp-composer-inner">
           {waiting && <div className="acp-waiting"><ShieldQuestion size={12} /> Claude is waiting for your permission above.</div>}
           {showMention && (
