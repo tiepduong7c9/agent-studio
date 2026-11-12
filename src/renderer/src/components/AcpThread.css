@@ -52,6 +52,27 @@
   cursor: pointer;
 }
 .acp-sel-pop button:hover { background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground)); }
+/* Jump-to-bottom button, shown while scrolled up from the latest message. */
+.acp-to-bottom {
+  position: absolute;
+  z-index: 5;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--vscode-editorWidget-border, var(--vscode-input-border, var(--vscode-sideBar-border)));
+  border-radius: 50%;
+  background: var(--vscode-editorWidget-background, var(--vscode-input-background));
+  color: var(--vscode-foreground);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+  cursor: pointer;
+}
+.acp-to-bottom:hover { background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground)); }
 
 .acp-overlay {
   position: absolute;

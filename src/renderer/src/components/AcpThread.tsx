@@ -4,7 +4,7 @@ import remarkGfm from 'remark-gfm'
 import {
   AlertTriangle, BrainCircuit, Check, ChevronDown, ChevronRight, CircleHelp, CircleSlash,
   AtSign, Clock, Copy, Cpu, FileText, FolderTree, Gauge, Globe, ListTodo, Loader2, Pencil, Search,
-  ShieldQuestion, Square, SquareArrowOutUpRight, Terminal, Trash2, Wrench, X, ArrowUp, Zap
+  ShieldQuestion, Square, SquareArrowOutUpRight, Terminal, Trash2, Wrench, X, ArrowDown, ArrowUp, Zap
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { SkillRef } from '../../../shared/acp'
@@ -749,6 +749,8 @@ export function AcpThread({ sid, workspace = null, visible = true }: { sid: stri
   const scrollRef = useRef<HTMLDivElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
   const stickRef = useRef(true)
+  // Mirrors stickRef for rendering: the jump-to-bottom button shows when false.
+  const [atBottom, setAtBottom] = useState(true)
   const attachSeq = useRef(0)
   // Prompt-history navigation (up/down arrows). navPos counts steps back from the
   // live draft: 0 = the draft the user is typing, 1 = the most recent sent prompt,
@@ -882,7 +884,16 @@ export function AcpThread({ sid, workspace = null, visible = true }: { sid: stri
   const onScroll = () => {
     setSelPop(null)
     const el = scrollRef.current
-    if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+    if (!el) return
+    stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+    setAtBottom(stickRef.current)
+  }
+  const scrollToBottom = () => {
+    const el = scrollRef.current
+    if (!el) return
+    stickRef.current = true
+    setAtBottom(true)
+    el.scrollTop = el.scrollHeight
   }
   useLayoutEffect(() => {
     const el = scrollRef.current
@@ -1070,8 +1081,10 @@ export function AcpThread({ sid, workspace = null, visible = true }: { sid: stri
     }
   }, [selPop])
 
+  // Copy the live selection the way Cmd+C does, so rich text (headings, lists,
+  // code) keeps its formatting; fall back to plain text if that's refused.
   const copySelection = () => {
-    if (selPop) navigator.clipboard?.writeText(selPop.text).catch(() => {})
+    if (selPop && !document.execCommand('copy')) navigator.clipboard?.writeText(selPop.text).catch(() => {})
     window.getSelection()?.removeAllRanges()
     setSelPop(null)
   }
@@ -1145,6 +1158,11 @@ export function AcpThread({ sid, workspace = null, visible = true }: { sid: stri
             <button type="button" onClick={copySelection}><Copy size={12} />Copy</button>
             <button type="button" onClick={mentionSelection}><AtSign size={12} />Mention</button>
           </div>
+        )}
+        {!atBottom && (
+          <button type="button" className="acp-to-bottom" title="Scroll to bottom" onClick={scrollToBottom}>
+            <ArrowDown size={14} />
+          </button>
         )}
         {resuming && (
           <div className="acp-overlay">
