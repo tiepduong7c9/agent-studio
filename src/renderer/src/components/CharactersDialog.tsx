@@ -64,7 +64,17 @@ function ModelStepper({ label, value, onChange }: { label: string; value: Charac
   )
 }
 
-function Editor({ c, assignedCount, onDeleted }: { c: Character; assignedCount: number; onDeleted: () => void }) {
+function Editor({
+  c,
+  assignedCount,
+  onDeleted,
+  onDuplicated
+}: {
+  c: Character
+  assignedCount: number
+  onDeleted: () => void
+  onDuplicated: (id: string) => void
+}) {
   const update = useCharactersStore((s) => s.updateCharacter)
   const add = useCharactersStore((s) => s.addCharacter)
   const remove = useCharactersStore((s) => s.removeCharacter)
@@ -128,7 +138,14 @@ function Editor({ c, assignedCount, onDeleted }: { c: Character; assignedCount: 
             <button className="btn" onClick={() => setLook(randomLook())}>
               <Dices size={14} /> Randomize
             </button>
-            <button className="btn" onClick={() => add({ ...c, name: c.name ? `${c.name} 2` : '' })}>
+            <button
+              className="btn"
+              onClick={() => {
+                // Copy everything but the id: the copy needs its own.
+                const { id: _id, ...fields } = c
+                onDuplicated(add({ ...fields, name: c.name ? `${c.name} 2` : '' }))
+              }}
+            >
               <Copy size={14} /> Duplicate
             </button>
             <span className="topbar-spacer" />
@@ -214,6 +231,7 @@ export function CharactersDialog({ initialId, onClose }: { initialId?: string; o
               c={selected}
               assignedCount={count(selected.id)}
               onDeleted={() => setSelectedId(GENERIC_CHARACTER.id)}
+              onDuplicated={setSelectedId}
             />
           </div>
         </div>

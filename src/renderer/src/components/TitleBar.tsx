@@ -119,10 +119,10 @@ function SessionPill({ s, onOpen, menu }: { s: SessionMeta; onOpen: () => void; 
 
 /** Shows/hides the active sessions roster. While it's hidden, a badge counts
  *  the other sessions that need you, so there's a cue to bring it back. */
-function ActiveBarToggle({ s, sessions }: { s: SessionMeta; sessions: SessionMeta[] }) {
+function ActiveBarToggle({ s, sessions }: { s?: SessionMeta; sessions: SessionMeta[] }) {
   const visible = useViewPrefsStore((st) => st.activeBarVisible)
   const setVisible = useViewPrefsStore((st) => st.setActiveBarVisible)
-  const { needs } = useActiveSessions(sessions, s.id)
+  const { needs } = useActiveSessions(sessions, s?.id ?? null)
   return (
     <button
       className={`titlebar-action-btn ${visible ? 'active' : ''}`}
@@ -334,6 +334,9 @@ export function TitleBar({
           </div>
           <div className="titlebar-side right">
             {showBoard && <ThemePicker />}
+            {/* The roster shows with or without a session on screen, so its
+                toggle does too. */}
+            {!showBoard && <ActiveBarToggle sessions={sessions} />}
             {rightVisible !== null && (
               <button
                 className={`icon-button codicon codicon-layout-sidebar-right${rightVisible ? '' : '-off'}`}

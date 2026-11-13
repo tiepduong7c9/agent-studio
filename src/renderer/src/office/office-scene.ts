@@ -12,7 +12,7 @@ import { GLTFLoader, type GLTF } from 'three/addons/loaders/GLTFLoader.js'
 import { CSS2DObject, CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import type { CharacterLook } from '../characters-store'
-import { buildCharacter } from './three-characters'
+import { buildCharacter, dataUrlToBuffer } from './three-characters'
 
 export type ActorState = 'working' | 'waiting' | 'done' | 'scheduled' | 'idle'
 
@@ -50,12 +50,8 @@ function loadFurniture(name: string): Promise<GLTF> {
   if (!p) {
     const src = FURNITURE[`../assets/office/furniture/${name}.glb`]
     if (!src) throw new Error(`Unknown furniture: ${name}`)
-    p = src().then((url) => {
-      const bin = atob(url.slice(url.indexOf(',') + 1))
-      const bytes = new Uint8Array(bin.length)
-      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
-      return loader.parseAsync(bytes.buffer, '')
-    })
+    p = src().then((url) => loader.parseAsync(dataUrlToBuffer(url), ''))
+    p.catch(() => furniture.delete(name))
     furniture.set(name, p)
   }
   return p
@@ -335,6 +331,10 @@ export async function createOffice(container: HTMLElement, onOpen: (sid: string)
   const rim = new THREE.DirectionalLight(0xbfd4ff, 0.55)
   rim.position.set(6, 7, -8)
   scene.add(rim)
+
+  // Start every furniture model loading at once; the props below await them
+  // one by one, but by then they're parsed in parallel.
+  for (const path of Object.keys(FURNITURE)) void loadFurniture(path.replace(/^.*\/(.*)\.glb$/, '$1')).catch(() => undefined)
 
   const T = makeTextures()
 

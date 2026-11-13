@@ -77,6 +77,8 @@ export function useAvatarSheet(look: CharacterLook, accent: string, clip: string
       setSheet(hit)
       return
     }
+    // Don't keep playing the previous clip (or look) while this one renders.
+    setSheet(null)
     let p = pendingSheets.get(key)
     if (!p) {
       p = import('./three-characters').then((m) => m.renderAvatarSheet(look, accent, clip, px)).then((s) => {

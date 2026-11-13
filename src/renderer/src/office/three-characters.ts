@@ -23,7 +23,7 @@ const sourceFor = (m: CharacterModel): (() => Promise<string>) => {
   return src
 }
 
-const dataUrlToBuffer = (url: string): ArrayBuffer => {
+export const dataUrlToBuffer = (url: string): ArrayBuffer => {
   const bin = atob(url.slice(url.indexOf(',') + 1))
   const bytes = new Uint8Array(bin.length)
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
@@ -48,6 +48,7 @@ function loadModel(m: CharacterModel): Promise<GLTF> {
   let p = models.get(m)
   if (!p) {
     p = sourceFor(m)().then((url) => loader.parseAsync(dataUrlToBuffer(url), ''))
+    p.catch(() => models.delete(m))
     models.set(m, p)
   }
   return p
@@ -324,6 +325,9 @@ export function mountPreview(canvas: HTMLCanvasElement, look: CharacterLook): Pr
       canvas.removeEventListener('pointermove', move)
       canvas.removeEventListener('pointerup', up)
       renderer.dispose()
+      // Release the context now rather than at GC: Chromium caps live WebGL
+      // contexts and drops the oldest (the shared portrait renderer) first.
+      renderer.forceContextLoss()
     }
   }
 }

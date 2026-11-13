@@ -903,11 +903,11 @@ export function App() {
         {!SESSIONS_SIDEBAR && !boardOpen && activeBarVisible && !maximized && (
           <>
             <Sash
-              onResizeStart={() => (dragBase.current = rosterWidth)}
+              onResizeStart={() => (dragBase.current = clampRosterWidth(rosterWidth))}
               onResize={(d) => setRosterWidth(clampRosterWidth(dragBase.current - d))}
             />
             <SessionRoster
-              width={rosterWidth}
+              width={clampRosterWidth(rosterWidth)}
               sessions={sessions}
               currentSid={titleSession?.id ?? null}
               onSelectSession={openChat}
