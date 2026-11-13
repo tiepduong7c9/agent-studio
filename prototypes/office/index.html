@@ -1,0 +1,293 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Office prototype</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0f1724; overflow: hidden; font-family: -apple-system, system-ui, sans-serif; }
+  #app { position: fixed; inset: 0; }
+  .tag { display: flex; flex-direction: column; align-items: center; gap: 3px; pointer-events: none; }
+  .name { padding: 2px 7px; border-radius: 6px; background: rgba(12,20,34,.88); color: #e8eef6; font-size: 11px; font-weight: 600; white-space: nowrap; border: 1px solid var(--accent); }
+  .role { font-weight: 400; opacity: .7; }
+  .bubble { padding: 3px 8px; border-radius: 10px; background: #fff; color: #1b2433; font-size: 11px; white-space: nowrap; box-shadow: 0 2px 6px rgba(0,0,0,.35); }
+  .bubble.alert { background: #f5a524; color: #1b1b1b; font-weight: 800; font-size: 14px; padding: 1px 9px; }
+  .bubble.done { background: #3fb950; color: #fff; font-weight: 800; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "./node_modules/three/build/three.module.js", "three/addons/": "./node_modules/three/examples/jsm/" } }
+</script>
+</head>
+<body>
+<div id="app"></div>
+<script type="module">
+import * as THREE from 'three'
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+import { OutlineEffect } from 'three/addons/effects/OutlineEffect.js'
+import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js'
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js'
+
+const FURN = './assets/furniture-kit/Models/GLTF format/'
+const CHAR = './assets/mini-characters/Models/GLB format/'
+
+// Palette in the spirit of the reference: navy shell, cyan glass, walnut,
+// navy upholstery, grey carpet, light tile.
+const P = {
+  wall: 0x1d2c44, wallTop: 0x2a3d5c, glass: 0x7fd3e6, frame: 0x16233a,
+  carpet: 0x6f7682, carpetDark: 0x5f6672, tile: 0xd9d6cf, tileLine: 0xc4c0b8, rug: 0x8a8a8a,
+  walnut: 0x8a5634, walnutDark: 0x5e3a22, navy: 0x203a63, navyDark: 0x172a48,
+  metal: 0x9aa3ad, metalDark: 0x3a4250, plant: 0x3f9a4a, pot: 0xd9d4cc,
+}
+// Furniture-kit material name -> palette colour, per prop when they differ.
+const REMAP = {
+  default: { wood: P.walnut, woodDark: P.walnutDark, carpet: P.navy, carpetWhite: 0xe8e8e8, metal: P.metal, metalMedium: P.metalDark, metalDark: P.metalDark, metalLight: 0xdfe3e8, plant: P.plant },
+  pottedPlant: { wood: P.pot, woodDark: 0x6b4a2f },
+  plantSmall1: { wood: P.pot },
+}
+
+const renderer = new THREE.WebGLRenderer({ antialias: true })
+renderer.setPixelRatio(window.devicePixelRatio)
+renderer.setSize(innerWidth, innerHeight)
+renderer.shadowMap.enabled = true
+document.getElementById('app').appendChild(renderer.domElement)
+const effect = new OutlineEffect(renderer, { defaultThickness: 0.0035, defaultColor: [0.05, 0.07, 0.12] })
+const labels = new CSS2DRenderer()
+labels.setSize(innerWidth, innerHeight)
+labels.domElement.style.cssText = 'position:fixed;inset:0;pointer-events:none'
+document.body.appendChild(labels.domElement)
+
+const scene = new THREE.Scene()
+scene.background = new THREE.Color(0x0f1724)
+
+// Steep 3/4 top-down orthographic camera, like the reference.
+const VIEW = 10.4
+const aspect = innerWidth / innerHeight
+const camera = new THREE.OrthographicCamera(-VIEW * aspect / 2, VIEW * aspect / 2, VIEW / 2, -VIEW / 2, 0.1, 100)
+camera.position.set(0, 10, 6.2)
+camera.lookAt(0, 0, 0.3)
+
+const ramp = new THREE.DataTexture(new Uint8Array([140, 140, 140, 255, 205, 205, 205, 255, 255, 255, 255, 255]), 3, 1)
+ramp.minFilter = ramp.magFilter = THREE.NearestFilter
+ramp.needsUpdate = true
+scene.add(new THREE.HemisphereLight(0xffffff, 0x8590a0, 1.7))
+const sun = new THREE.DirectionalLight(0xffffff, 1.3)
+sun.position.set(-4, 10, 3)
+sun.castShadow = true
+sun.shadow.mapSize.set(2048, 2048)
+Object.assign(sun.shadow.camera, { left: -8, right: 8, top: 7, bottom: -7 })
+sun.shadow.bias = -0.0006
+scene.add(sun)
+
+const toon = (color, extra = {}) => new THREE.MeshToonMaterial({ color, gradientMap: ramp, ...extra })
+function toonify(root, remap) {
+  root.traverse((o) => {
+    if (!o.isMesh) return
+    o.castShadow = o.receiveShadow = true
+    const m = o.material
+    const hex = remap ? (remap[m.name] ?? REMAP.default[m.name]) : undefined
+    o.material = toon(hex !== undefined ? hex : m.color, { map: m.map })
+  })
+}
+
+const loader = new GLTFLoader()
+const cache = new Map()
+const load = (url) => { if (!cache.has(url)) cache.set(url, loader.loadAsync(url)); return cache.get(url) }
+
+const S = 1.5
+async function prop(name, x, z, rotY = 0, y = 0, s = S) {
+  const g = await load(FURN + name + '.glb')
+  const inner = g.scene.clone(true)
+  toonify(inner, { ...REMAP.default, ...(REMAP[name] || {}) })
+  const box = new THREE.Box3().setFromObject(inner)
+  const c = box.getCenter(new THREE.Vector3())
+  inner.position.set(-c.x, -box.min.y, -c.z)
+  const holder = new THREE.Group()
+  holder.add(inner)
+  holder.scale.setScalar(s)
+  holder.rotation.y = rotY
+  holder.position.set(x, y, z)
+  scene.add(holder)
+  return holder
+}
+
+function box(w, h, d, color, x, y, z, extra) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), toon(color, extra))
+  m.position.set(x, y + h / 2, z)
+  m.castShadow = m.receiveShadow = true
+  scene.add(m)
+  return m
+}
+
+// Canvas textures: carpet speckle, floor tile grid, monitor dashboards.
+function canvasTex(w, h, draw, repeat) {
+  const c = document.createElement('canvas')
+  c.width = w; c.height = h
+  draw(c.getContext('2d'), w, h)
+  const t = new THREE.CanvasTexture(c)
+  t.colorSpace = THREE.SRGBColorSpace
+  t.anisotropy = 8
+  if (repeat) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(...repeat) }
+  return t
+}
+const hex = (n) => '#' + n.toString(16).padStart(6, '0')
+const carpetTex = canvasTex(128, 128, (g, w, h) => {
+  g.fillStyle = hex(P.carpet); g.fillRect(0, 0, w, h)
+  for (let i = 0; i < 900; i++) { g.fillStyle = Math.random() < 0.5 ? hex(P.carpetDark) : '#7c8390'; g.fillRect(Math.random() * w, Math.random() * h, 1.5, 1.5) }
+}, [6, 5])
+const tileTex = canvasTex(128, 128, (g, w, h) => {
+  g.fillStyle = hex(P.tile); g.fillRect(0, 0, w, h)
+  g.strokeStyle = hex(P.tileLine); g.lineWidth = 3; g.strokeRect(0, 0, w, h)
+}, [6, 6])
+function dashboard(accent) {
+  return canvasTex(256, 160, (g, w, h) => {
+    g.fillStyle = '#0d2a4a'; g.fillRect(0, 0, w, h)
+    g.fillStyle = accent; g.fillRect(0, 0, w, 22)
+    g.fillStyle = '#2b5f93'; g.fillRect(10, 32, 70, 118)
+    g.fillStyle = '#9fd4ff'
+    for (let i = 0; i < 6; i++) g.fillRect(16, 40 + i * 18, 40 + (i * 13) % 20, 6)
+    g.fillStyle = '#1c4a78'; g.fillRect(92, 32, 154, 70)
+    g.strokeStyle = accent; g.lineWidth = 4; g.beginPath(); g.moveTo(98, 92)
+    for (let i = 0; i <= 8; i++) g.lineTo(98 + i * 18, 92 - [8, 30, 18, 44, 26, 52, 36, 58, 48][i])
+    g.stroke()
+    for (let i = 0; i < 4; i++) { g.fillStyle = i % 2 ? '#3d7dbf' : '#5fa8e8'; g.fillRect(92 + i * 40, 112, 32, 38) }
+  })
+}
+const offScreen = canvasTex(8, 8, (g) => { g.fillStyle = '#1b2430'; g.fillRect(0, 0, 8, 8) })
+
+// ---- Room shell: carpet office, tiled kitchen/lounge, navy walls with glass.
+const W = 13, D = 9
+const carpet = new THREE.Mesh(new THREE.PlaneGeometry(W, D), toon(0xffffff, { map: carpetTex }))
+carpet.rotation.x = -Math.PI / 2
+carpet.receiveShadow = true
+scene.add(carpet)
+const tile = new THREE.Mesh(new THREE.PlaneGeometry(4.2, D), toon(0xffffff, { map: tileTex }))
+tile.rotation.x = -Math.PI / 2
+tile.position.set(W / 2 - 2.1, 0.004, 0)
+tile.receiveShadow = true
+scene.add(tile)
+const rug = new THREE.Mesh(new THREE.PlaneGeometry(3, 2), toon(P.rug))
+rug.rotation.x = -Math.PI / 2
+rug.position.set(4.4, 0.008, 2.0)
+scene.add(rug)
+
+const WALL_H = 0.55, T = 0.18
+function wall(x1, z1, x2, z2, glassEvery = 0) {
+  const len = Math.hypot(x2 - x1, z2 - z1)
+  const horiz = z1 === z2
+  const mid = [(x1 + x2) / 2, (z1 + z2) / 2]
+  box(horiz ? len : T, WALL_H, horiz ? T : len, P.wall, mid[0], 0, mid[1])
+  box(horiz ? len : T + 0.02, 0.05, horiz ? T + 0.02 : len, P.wallTop, mid[0], WALL_H, mid[1])
+  if (!glassEvery) return
+  // Cyan glass panes set into the wall, with navy mullions.
+  const n = Math.floor(len / glassEvery)
+  for (let i = 0; i < n; i++) {
+    const t = (i + 0.5) / n
+    const px = x1 + (x2 - x1) * t, pz = z1 + (z2 - z1) * t
+    const pane = glassEvery * 0.72
+    box(horiz ? pane : T + 0.03, 0.3, horiz ? T + 0.03 : pane, P.glass, px, 0.16, pz)
+  }
+}
+wall(-W / 2, -D / 2, W / 2, -D / 2, 1.3)
+wall(-W / 2, -D / 2, -W / 2, D / 2, 1.3)
+wall(W / 2, -D / 2, W / 2, D / 2, 1.3)
+// Partition between office and kitchen/lounge, with a gap for the door.
+wall(W / 2 - 4.2, -D / 2, W / 2 - 4.2, -0.6)
+wall(W / 2 - 4.2, 0.6, W / 2 - 4.2, D / 2)
+
+// ---- Workstations: backs to the camera, screens facing it (like the reference).
+const DESK_TOP = 0.384 * S
+const monitors = []
+function monitor(x, z) {
+  box(0.08, 0.12, 0.06, P.metalDark, x, DESK_TOP, z)
+  box(0.56, 0.34, 0.04, P.frame, x, DESK_TOP + 0.1, z)
+  const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.29), new THREE.MeshBasicMaterial({ map: offScreen }))
+  screen.position.set(x, DESK_TOP + 0.27, z + 0.025)
+  scene.add(screen)
+  monitors.push(screen)
+}
+async function workstation(x, z) {
+  await prop('desk', x, z, 0)
+  monitor(x, z - 0.12)
+  await prop('computerKeyboard', x, z + 0.1, 0, DESK_TOP)
+  await prop('chairDesk', x, z + 0.62, Math.PI)
+  box(0.22, 0.34, 0.36, P.metalDark, x + 0.42, 0, z - 0.02)   // drawer pedestal
+}
+const rows = [-2.4, 0.6]
+const cols = [-5.0, -3.6, -2.2, -0.8]
+const desks = []
+for (const z of rows) for (const x of cols) { desks.push([x, z]); await workstation(x, z) }
+// Green planter partitions at the desk rows' ends.
+for (const z of rows) { await prop('pottedPlant', -5.95, z - 0.1, 0); await prop('pottedPlant', 0.15, z - 0.1, 0) }
+
+// ---- Exec corner, lounge, kitchen.
+await prop('bookcaseOpen', -5.6, -4.05, 0)
+await prop('pottedPlant', -6.05, -4.05, 0)
+await prop('pottedPlant', 0.4, -4.05, 0)
+await prop('pottedPlant', -6.05, 3.95, 0)
+await prop('loungeSofa', 4.4, 1.25, 0)
+await prop('loungeSofa', 4.4, 2.95, Math.PI)
+await prop('tableCoffee', 4.4, 2.05, 0)
+await prop('pottedPlant', 6.05, 3.9, 0)
+await prop('kitchenCabinet', 3.4, -4.1, 0)
+await prop('kitchenCabinet', 4.05, -4.1, 0)
+await prop('kitchenCoffeeMachine', 4.05, -4.1, 0, 0.43 * S)
+await prop('kitchenFridge', 5.6, -4.0, 0)
+await prop('table', 4.4, -2.2, 0)
+await prop('chairCushion', 3.75, -2.2, Math.PI / 2)
+await prop('chairCushion', 5.05, -2.2, -Math.PI / 2)
+await prop('pottedPlant', 2.6, -4.05, 0)
+
+// ---- People.
+const mixers = []
+async function person(file, x, z, rotY, clip, label, y = 0) {
+  const g = await load(CHAR + file + '.glb')
+  const model = SkeletonUtils.clone(g.scene)
+  toonify(model)
+  const h = new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3()).y
+  model.scale.setScalar(0.95 / h)
+  model.position.set(x, y, z)
+  model.rotation.y = rotY
+  scene.add(model)
+  const mixer = new THREE.AnimationMixer(model)
+  mixer.clipAction(THREE.AnimationClip.findByName(g.animations, clip)).play()
+  mixers.push(mixer)
+  if (label) {
+    const el = document.createElement('div')
+    el.className = 'tag'
+    el.style.setProperty('--accent', label.accent)
+    el.innerHTML = (label.bubble ? `<div class="bubble ${label.kind || ''}">${label.bubble}</div>` : '') +
+      `<div class="name">${label.name}${label.role ? ` <span class="role">· ${label.role}</span>` : ''}</div>`
+    const tag = new CSS2DObject(el)
+    tag.position.set(0, h * 1.35, 0)
+    model.add(tag)
+  }
+  return { model, mixer }
+}
+const SEAT_Y = 0.24
+const seated = (i, file, clip, label) => person(file, desks[i][0], desks[i][1] + 0.56, Math.PI, clip, label, SEAT_Y)
+const working = (i, accent) => { monitors[i].material = new THREE.MeshBasicMaterial({ map: dashboard(accent) }) }
+
+await seated(0, 'character-female-b', 'interact-right', { name: 'Mia', role: 'Release', accent: '#4c9aff', bubble: '✎ edit App.tsx' }); working(0, '#4c9aff')
+await seated(1, 'character-male-c', 'sit', { name: 'Leo', role: 'Reviewer', accent: '#f5a524', bubble: '!', kind: 'alert' }); working(1, '#f5a524')
+await seated(2, 'character-female-d', 'interact-right', { name: 'Ava', role: 'Docs', accent: '#a371f7', bubble: '⌕ grep "useAcp"' }); working(2, '#a371f7')
+await seated(5, 'character-male-e', 'sit', { name: 'Sam', role: 'Tests', accent: '#3fb950', bubble: '✓', kind: 'done' })
+await seated(6, 'character-male-g', 'interact-right', { name: 'Kai', role: 'Infra', accent: '#39c5cf', bubble: '▶ npm test' }); working(6, '#39c5cf')
+await person('character-male-a', 4.4, 1.35, 0, 'sit', { name: 'swift-otter', accent: '#8b949e' }, 0.12)
+await person('character-female-c', 3.75, -2.2, Math.PI / 2, 'sit', { name: 'Noa', role: 'Design', accent: '#ff7b72' }, SEAT_Y)
+const walker = await person('character-female-a', 1.6, -0.2, -Math.PI / 2, 'walk', { name: 'Zoe', role: 'Data', accent: '#d2a8ff' })
+
+const clock = new THREE.Timer()
+window.__frames = 0
+renderer.setAnimationLoop(() => {
+  clock.update()
+  const dt = clock.getDelta()
+  for (const m of mixers) m.update(dt)
+  walker.model.position.x -= dt * 0.4
+  if (walker.model.position.x < 0.6) walker.model.position.x = 2.4
+  effect.render(scene, camera)
+  labels.render(scene, camera)
+  window.__frames++
+})
+window.__ready = true
+</script>
+</body>
+</html>

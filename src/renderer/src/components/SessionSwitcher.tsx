@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { SessionAvatar, SessionCharacterName } from './CharacterAvatar'
 import type { SessionMeta } from '../../../shared/acp'
 import type { Capture } from '../capture-store'
 import { useCaptureStore } from '../capture-store'
@@ -145,8 +146,11 @@ export function SessionSwitcher({
                 onMouseMove={() => setActive(i)}
                 onClick={() => choose(result)}
               >
-                <span className="codicon codicon-robot quick-open-icon" />
-                <span className="quick-open-name">{highlightMatch(result.entry.s.name, result.positions)}</span>
+                <SessionAvatar sid={result.entry.s.id} size={18} />
+                <span className="quick-open-name">
+                  <SessionCharacterName sid={result.entry.s.id} />
+                  {highlightMatch(result.entry.s.name, result.positions)}
+                </span>
                 {result.hits.length > 0 && (
                   <span className="quick-open-badges">
                     {result.hits.map((c) => (

@@ -12,7 +12,7 @@ import { EditorArea } from './components/EditorArea'
 import { QuickOpen } from './components/QuickOpen'
 import { RemoteFolderPicker } from './components/RemoteFolderPicker'
 import { RightPanel, type PanelTab } from './components/RightPanel'
-import { ActiveSessionsBar } from './components/ActiveSessionsBar'
+import { SessionRoster } from './components/SessionRoster'
 import { ActivityBar } from './components/ActivityBar'
 import { Sash } from './components/Sash'
 import { SessionsPanel } from './components/SessionsPanel'
@@ -32,6 +32,7 @@ import { PromptDialog } from './components/Dialogs'
 import { useTransferStore } from './transfer-store'
 import { useViewPrefsStore } from './view-prefs-store'
 import { useCaptureStore } from './capture-store'
+import { useCharactersStore } from './characters-store'
 import { extractCaptures } from './session-links'
 import { workspaceForSession } from './workspace'
 import type { AcpEvent } from './acp/protocol'
@@ -46,6 +47,12 @@ const ACTIVITY_BAR_WIDTH = 48
 
 function clampWidth(w: number): number {
   return Math.min(Math.max(w, MIN_PANEL_WIDTH), Math.floor(window.innerWidth * 0.4))
+}
+
+/** The roster: wide enough for an avatar and a short name, at most a third of
+ *  the window. */
+function clampRosterWidth(w: number): number {
+  return Math.round(Math.min(Math.max(w, 160), Math.max(160, Math.floor(window.innerWidth / 3))))
 }
 
 const normRoot = (p: string): string => p.replace(/\/+$/, '') || '/'
@@ -426,6 +433,7 @@ export function App() {
     useViewPrefsStore.getState().pruneSessions(live)
     useDrafts.getState().prune(live)
     useCaptureStore.getState().pruneCaptures(live)
+    useCharactersStore.getState().pruneAssignments(live)
   }, [sessions, pruneChats, remoteHosts, engineStatus, savedHostsResolved])
 
   // Keep a cached snapshot of each pinned session's metadata (name/cwd/host)
@@ -760,6 +768,8 @@ export function App() {
   }, [setHostStatus])
 
   const activeBarVisible = useViewPrefsStore((s) => s.activeBarVisible)
+  const rosterWidth = useViewPrefsStore((s) => s.rosterWidth)
+  const setRosterWidth = useViewPrefsStore((s) => s.setRosterWidth)
 
   // The session named in the title bar: the one whose tabs are on screen.
   const titleSession = activeSid ? (sessions.find((s) => s.id === activeSid) ?? null) : null
@@ -808,14 +818,6 @@ export function App() {
         maximized={maximized}
         onToggleMaximize={toggleMaximize}
       />
-      {titleSession && !boardOpen && activeBarVisible && (
-        <ActiveSessionsBar
-          sessions={sessions}
-          currentSid={titleSession.id}
-          onSelectSession={openChat}
-          onDeleteSession={deleteSession}
-        />
-      )}
       {error && (
         <div className="error-banner">
           {error}
@@ -896,6 +898,27 @@ export function App() {
             onPickFolder={openLocal}
           />
         </main>
+        {/* Who's running or waiting on you, by face. The board shows everyone,
+            so the roster only appears outside it. */}
+        {!SESSIONS_SIDEBAR && !boardOpen && activeBarVisible && !maximized && (
+          <>
+            <Sash
+              onResizeStart={() => (dragBase.current = clampRosterWidth(rosterWidth))}
+              onResize={(d) => setRosterWidth(clampRosterWidth(dragBase.current - d))}
+            />
+            <SessionRoster
+              width={clampRosterWidth(rosterWidth)}
+              sessions={sessions}
+              currentSid={titleSession?.id ?? null}
+              onSelectSession={openChat}
+              onDeleteSession={deleteSession}
+              onOpenOffice={() => {
+                useViewPrefsStore.getState().setBoardView('office')
+                setBoardOpen(true)
+              }}
+            />
+          </>
+        )}
         {SESSIONS_SIDEBAR && rightVisible && !maximized && (
           <>
             <Sash

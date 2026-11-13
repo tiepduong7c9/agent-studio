@@ -6,6 +6,9 @@ import { useViewPrefsStore } from '../view-prefs-store'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { ConfirmDialog } from './Dialogs'
 import { TagsDialog } from './TagsDialog'
+import { GENERIC_CHARACTER, characterLabel, useCharactersStore, type Character } from '../characters-store'
+import { CharacterAvatar } from './CharacterAvatar'
+import { CharactersDialog } from './CharactersDialog'
 
 // Session actions shared by the board's cards and the title bar — the same
 // menu the old sessions sidebar row had.
@@ -34,6 +37,35 @@ export function tagMenuItems(
   ]
 }
 
+/** The Character submenu: the user's characters as a radio group, the generic
+ *  fallback, and shortcuts to create or manage characters. */
+export function characterMenuItems(
+  characters: Character[],
+  current: string | undefined,
+  onAssign: (characterId: string | null) => void,
+  onNew: () => void,
+  onManage: () => void
+): MenuItem[] {
+  return [
+    ...characters.map((c) => ({
+      label: `${characterLabel(c)}${c.role.trim() ? ` · ${c.role.trim()}` : ''}`,
+      checked: current === c.id,
+      icon: <CharacterAvatar character={c} size={16} title="" />,
+      run: () => onAssign(c.id)
+    })),
+    ...(characters.length ? [{ separator: true as const }] : []),
+    {
+      label: 'Generic',
+      checked: !current,
+      icon: <CharacterAvatar character={GENERIC_CHARACTER} size={16} title="" />,
+      run: () => onAssign(null)
+    },
+    { separator: true as const },
+    { label: 'New character…', run: onNew },
+    { label: 'Manage characters…', run: onManage }
+  ]
+}
+
 const menuAt = (e: MouseEvent, below: boolean): { x: number; y: number } => {
   e.preventDefault()
   e.stopPropagation()
@@ -53,9 +85,13 @@ export function useSessionMenu(s: SessionMeta, onDelete: () => void) {
   const toggleUnread = useViewPrefsStore((st) => st.toggleUnread)
   const setSessionTag = useViewPrefsStore((st) => st.setSessionTag)
   const tags = useTagsStore((st) => st.tags)
+  const characters = useCharactersStore((st) => st.characters)
+  const characterId = useCharactersStore((st) => st.assignments[s.id])
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [confirming, setConfirming] = useState(false)
   const [tagsOpen, setTagsOpen] = useState(false)
+  /** Open characters dialog, and which character it starts on. */
+  const [charactersOpen, setCharactersOpen] = useState<{ id?: string } | null>(null)
   const [editing, setEditing] = useState(false)
   const [busy, setBusy] = useState<'restarting' | 'generating title' | null>(null)
 
@@ -78,6 +114,21 @@ export function useSessionMenu(s: SessionMeta, onDelete: () => void) {
     { label: pinned ? 'Unpin' : 'Pin', run: () => togglePin(s.id) },
     { label: unread ? 'Mark as read' : 'Mark as unread', run: () => toggleUnread(s.id) },
     { label: 'Tag', submenu: tagMenuItems(tags, tag, (t) => setSessionTag(s.id, t), () => setTagsOpen(true)) },
+    {
+      label: 'Character',
+      submenu: characterMenuItems(
+        characters,
+        characterId,
+        (id) => useCharactersStore.getState().assign(s.id, id),
+        () => {
+          const store = useCharactersStore.getState()
+          const id = store.addCharacter()
+          store.assign(s.id, id)
+          setCharactersOpen({ id })
+        },
+        () => setCharactersOpen({ id: characterId })
+      )
+    },
     { separator: true },
     { label: 'Rename', run: () => setEditing(true) },
     {
@@ -126,6 +177,7 @@ export function useSessionMenu(s: SessionMeta, onDelete: () => void) {
         />
       )}
       {tagsOpen && <TagsDialog onClose={() => setTagsOpen(false)} />}
+      {charactersOpen && <CharactersDialog initialId={charactersOpen.id} onClose={() => setCharactersOpen(null)} />}
     </div>
   )
 

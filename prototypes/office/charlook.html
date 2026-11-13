@@ -1,0 +1,154 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Character smoothing comparison</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #6f7682; overflow: hidden; font-family: -apple-system, system-ui, sans-serif; }
+  .row { color: #fff; font-size: 13px; font-weight: 700; background: rgba(12,20,34,.88); padding: 4px 10px; border-radius: 6px; white-space: nowrap; }
+  .row small { display: block; font-weight: 400; opacity: .75; font-size: 11px; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "./node_modules/three/build/three.module.js", "three/addons/": "./node_modules/three/examples/jsm/", "three-subdivide": "./node_modules/three-subdivide/src/index.js" } }
+</script>
+</head>
+<body>
+<script type="module">
+import * as THREE from 'three'
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+import { OutlineEffect } from 'three/addons/effects/OutlineEffect.js'
+import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js'
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js'
+import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js'
+import { LoopSubdivision } from 'three-subdivide'
+
+const KEN = './assets/mini-characters/Models/GLB format/'
+const renderer = new THREE.WebGLRenderer({ antialias: true })
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+renderer.setSize(innerWidth, innerHeight)
+document.body.appendChild(renderer.domElement)
+const labels = new CSS2DRenderer()
+labels.setSize(innerWidth, innerHeight)
+labels.domElement.style.cssText = 'position:fixed;inset:0;pointer-events:none'
+document.body.appendChild(labels.domElement)
+
+const scene = new THREE.Scene()
+scene.background = new THREE.Color(0x6f7682)
+// ?variant=N renders one treatment alone, close up.
+const ONLY = new URLSearchParams(location.search).get('variant')
+const VIEW = ONLY !== null ? 1.95 : 5.2, aspect = innerWidth / innerHeight
+const camera = new THREE.OrthographicCamera(-VIEW * aspect / 2, VIEW * aspect / 2, VIEW / 2, -VIEW / 2, 0.1, 100)
+// Same elevation as the office camera, just closer.
+const LOW = new URLSearchParams(location.search).get('cam') === 'low'
+if (LOW) { camera.position.set(0.6, 5.0, 9.5); camera.lookAt(0.6, 0.45, -0.1) }
+else { camera.position.set(0.6, 10, 6.2); camera.lookAt(0.6, 0, 0) }
+// Soft studio light like Kenney's previews: sky fill, warm key, cool rim, soft shadows.
+renderer.shadowMap.enabled = true
+renderer.shadowMap.type = THREE.VSMShadowMap
+renderer.toneMapping = THREE.ACESFilmicToneMapping
+renderer.toneMappingExposure = 1.05
+scene.add(new THREE.HemisphereLight(0xeef3ff, 0x6a7280, 2.0))
+const sun = new THREE.DirectionalLight(0xfff4e6, 2.2)
+sun.position.set(-4, 10, 5)
+sun.castShadow = true
+sun.shadow.mapSize.set(2048, 2048)
+sun.shadow.radius = 6
+sun.shadow.blurSamples = 16
+Object.assign(sun.shadow.camera, { left: -5, right: 5, top: 4, bottom: -4 })
+scene.add(sun)
+const rim = new THREE.DirectionalLight(0xcfe0ff, 0.6)
+rim.position.set(4, 6, -6)
+scene.add(rim)
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(20, 12), new THREE.MeshStandardMaterial({ color: 0x6f7682, roughness: 1 }))
+ground.rotation.x = -Math.PI / 2
+ground.receiveShadow = true
+scene.add(ground)
+
+// Current look: 3 hard bands. Soft look: 16-step ramp ~ smooth Lambert, with a
+// gentle floor so shadows never go muddy.
+const ramp = (vals) => { const t = new THREE.DataTexture(new Uint8Array(vals.flatMap((v) => [v, v, v, 255])), vals.length, 1); t.minFilter = t.magFilter = THREE.LinearFilter; t.needsUpdate = true; return t }
+const hard = ramp([140, 205, 255]); hard.minFilter = hard.magFilter = THREE.NearestFilter
+const soft = ramp(Array.from({ length: 16 }, (_, i) => Math.round(165 + 90 * Math.pow(i / 15, 0.8))))
+
+function smooth(geom, iterations) {
+  let g = geom.clone()
+  g.deleteAttribute('normal')
+  g = mergeVertices(g, 1e-4)
+  if (iterations) {
+    g = LoopSubdivision.modify(g, iterations, { split: true, uvSmooth: false, preserveEdges: false })
+    g.deleteAttribute('normal')
+    g = mergeVertices(g, 1e-4)
+    // Rigid parts: every vertex belongs to one bone, so snap the interpolated
+    // indices/weights back.
+    const si = g.attributes.skinIndex, sw = g.attributes.skinWeight
+    if (si) for (let i = 0; i < si.count; i++) {
+      let best = 0, bw = -1
+      for (let k = 0; k < 4; k++) if (sw.getComponent(i, k) > bw) { bw = sw.getComponent(i, k); best = k }
+      const bone = Math.round(si.getComponent(i, best))
+      si.setXYZW(i, bone, 0, 0, 0); sw.setXYZW(i, 1, 0, 0, 0)
+    }
+  }
+  g.computeVertexNormals()
+  return g
+}
+
+const VARIANTS = [
+  { title: 'Now', sub: '3-band toon · dark outline', mat: 'toon', ramp: hard, outline: 0.0035, iter: -1 },
+  { title: 'No outline', sub: '3-band toon', mat: 'toon', ramp: hard, outline: 0, iter: -1 },
+  { title: "Kenney's own look", sub: 'soft light · no outline', mat: 'soft', outline: 0, iter: 0 },
+  { title: 'Soft + hairline', sub: 'soft light · faint silhouette line', mat: 'soft', outline: 0.0015, outlineColor: [0.25, 0.28, 0.34], iter: 0 },
+]
+const FILES = ONLY !== null ? ['character-female-b', 'character-male-c', 'character-male-a'] : ['character-female-b', 'character-male-c', 'character-female-d', 'character-male-a', 'character-female-a']
+const loader = new GLTFLoader()
+const mixers = []
+const outlined = []
+for (let r = 0; r < VARIANTS.length; r++) {
+  if (ONLY !== null && r !== Number(ONLY)) continue
+  const v = VARIANTS[r]
+  const z = ONLY !== null ? 0 : -1.65 + r * 1.1
+  for (let c = 0; c < FILES.length; c++) {
+    const g = await loader.loadAsync(KEN + FILES[c] + '.glb')
+    const model = SkeletonUtils.clone(g.scene)
+    model.traverse((o) => {
+      if (!o.isMesh) return
+      if (v.iter >= 0) o.geometry = smooth(o.geometry, v.iter)
+      o.material = v.mat === 'toon'
+        ? new THREE.MeshToonMaterial({ map: o.material.map, gradientMap: v.ramp })
+        : new THREE.MeshStandardMaterial({ map: o.material.map, roughness: 0.85, metalness: 0 })
+      o.material.userData.outlineParameters = v.outline ? { thickness: v.outline, color: v.outlineColor || [0.05, 0.07, 0.12] } : { visible: false }
+      o.castShadow = true
+    })
+    const h = new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3()).y
+    model.scale.setScalar(0.95 / h)
+    model.position.set(ONLY !== null ? -0.45 + c * 1.02 : -1.2 + c * 1.05, ONLY !== null ? 0.12 : 0, z)
+    model.rotation.y = c === 4 ? -0.6 : 0
+    scene.add(model)
+    const mixer = new THREE.AnimationMixer(model)
+    mixer.clipAction(THREE.AnimationClip.findByName(g.animations, 'idle')).play()
+    mixers.push(mixer)
+  }
+  const el = document.createElement('div')
+  el.className = 'row'
+  el.innerHTML = `${v.title}<small>${v.sub}</small>`
+  const t = new CSS2DObject(el)
+  t.position.set(-2.55, 0.3, z)
+  if (ONLY === null) scene.add(t)
+}
+const tris = []
+scene.traverse((o) => { if (o.isMesh) tris.push(o.geometry.index ? o.geometry.index.count / 3 : o.geometry.attributes.position.count / 3) })
+console.log('tris per row', [0, 1, 2, 3].map((r) => tris.slice(r * 10, r * 10 + 10).reduce((a, b) => a + b, 0)))
+
+const effect = new OutlineEffect(renderer)
+const timer = new THREE.Timer()
+window.__frames = 0
+renderer.setAnimationLoop((now) => {
+  timer.update(now)
+  for (const m of mixers) m.update(timer.getDelta())
+  effect.render(scene, camera)
+  labels.render(scene, camera)
+  window.__frames++
+})
+window.__ready = true
+</script>
+</body>
+</html>

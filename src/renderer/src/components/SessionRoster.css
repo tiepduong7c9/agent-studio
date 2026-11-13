@@ -1,0 +1,129 @@
+/* The active-sessions roster down the right of the session view. */
+.session-roster {
+  --roster-running: var(--vscode-charts-blue, #3794ff);
+  --roster-needs: var(--vscode-charts-orange, #d18616);
+  --roster-done: var(--vscode-charts-green, #3fb950);
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-left: 1px solid var(--vscode-sideBar-border, var(--vscode-panel-border));
+  background: var(--vscode-sideBar-background);
+}
+.roster-header {
+  display: flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 6px 0 12px;
+  flex-shrink: 0;
+}
+.roster-title {
+  flex: 1;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--vscode-sideBarTitle-foreground, var(--vscode-descriptionForeground));
+}
+/* The shortcut into the office, as a card at the top of the list. */
+.roster-office {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 2px 0 6px;
+  padding: 8px;
+  border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+  border-radius: 10px;
+  background: var(--vscode-editor-background);
+  color: var(--vscode-foreground);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.roster-office:hover { background: var(--vscode-list-hoverBackground); border-color: var(--vscode-focusBorder); }
+.roster-office-icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #1d2c44;
+  color: #9fe3f2;
+}
+.roster-office-chevron { flex: 0 0 auto; color: var(--vscode-descriptionForeground); }
+.roster-list { flex: 1; min-height: 0; overflow-y: auto; padding: 0 6px 10px; }
+.roster-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 6px 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.roster-group.needs { color: color-mix(in srgb, var(--roster-needs) 72%, var(--vscode-foreground)); }
+.roster-group.running { color: color-mix(in srgb, var(--roster-running) 85%, var(--vscode-foreground)); }
+.roster-group.recent { color: var(--vscode-descriptionForeground); margin-top: 14px; }
+.roster-count {
+  min-width: 16px;
+  padding: 0 5px;
+  border-radius: 8px;
+  font-size: 10.5px;
+  line-height: 16px;
+  text-align: center;
+  background: color-mix(in srgb, currentColor 16%, transparent);
+}
+.roster-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.roster-row:hover { background: var(--vscode-list-hoverBackground); }
+.roster-row.current { background: var(--vscode-list-inactiveSelectionBackground, var(--vscode-list-hoverBackground)); }
+.roster-row:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+/* Status dot on the avatar's corner. */
+.roster-avatar { position: relative; flex: 0 0 auto; display: inline-flex; }
+.roster-dot {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--vscode-sideBar-background);
+}
+.roster-dot.running { background: var(--roster-running); animation: acp-dot-pulse 1.4s ease-out infinite; }
+.roster-dot.needs { background: var(--roster-needs); }
+.roster-dot.done { background: var(--roster-done); }
+.roster-dot.idle { display: none; }
+.roster-text { display: flex; flex-direction: column; min-width: 0; flex: 1; line-height: 1.3; }
+.roster-name,
+.roster-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.roster-name { font-size: 12.5px; font-weight: 600; }
+.roster-sub { font-size: 11.5px; color: var(--vscode-descriptionForeground); }
+.roster-status { font-size: 11px; }
+.roster-status.running { color: color-mix(in srgb, var(--roster-running) 85%, var(--vscode-foreground)); }
+.roster-status.needs { color: color-mix(in srgb, var(--roster-needs) 72%, var(--vscode-foreground)); }
+.roster-status.done { color: color-mix(in srgb, var(--roster-done) 80%, var(--vscode-foreground)); }
+.roster-status.idle { color: var(--vscode-descriptionForeground); }
+.roster-rename {
+  min-width: 0;
+  padding: 1px 4px;
+  border: 1px solid var(--vscode-focusBorder);
+  border-radius: 4px;
+  outline: none;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  font: inherit;
+  font-size: 12.5px;
+}
+.roster-empty { padding: 10px 8px; font-size: 12px; color: var(--vscode-descriptionForeground); }

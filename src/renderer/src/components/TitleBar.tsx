@@ -1,15 +1,17 @@
-import { ChevronDown, Ellipsis, Mail, Maximize2, Minimize2, PanelTop, Plus, Pin, SquareKanban } from 'lucide-react'
+import { ChevronDown, Ellipsis, Mail, Maximize2, Minimize2, PanelRight, Plus, Pin, SquareKanban } from 'lucide-react'
 import type { SessionMeta } from '../../../shared/acp'
 import type { ProjectInfo } from '../../../shared/types'
 import { useSessionsStore } from '../acp/sessions-store'
 import { useCaptureStore, type Capture } from '../capture-store'
 import { hostLabel, projectLabel, relTime, sessionActivity } from '../session-format'
 import { useViewPrefsStore } from '../view-prefs-store'
-import { useActiveSessions } from './ActiveSessionsBar'
+import { useActiveSessions } from './SessionRoster'
 import { BoardFilters, BoardSearch, laneOf } from './SessionsBoard'
+import { BoardViewToggle } from './OfficeView'
 import { CaptureBadges, ControllerBadge, renderTitle } from './SessionsPanel'
 import { SessionLinksButton } from './SessionLinksButton'
 import { TagButton, useSessionMenu } from './session-actions'
+import { SessionAvatar, SessionCharacterName } from './CharacterAvatar'
 import { ThemePicker } from './ThemePicker'
 
 // The title bar carries what the view on screen needs, so the content below
@@ -80,6 +82,7 @@ function SessionPill({ s, onOpen, menu }: { s: SessionMeta; onOpen: () => void; 
       <span className="titlebar-pill-sep">›</span>
       <span className="titlebar-pill-crumb">{projectLabel(s.cwd)}</span>
       <span className="titlebar-pill-sep">›</span>
+      <SessionAvatar sid={s.id} size={18} />
       {menu.editing ? (
         <input
           className="titlebar-pill-rename"
@@ -95,7 +98,10 @@ function SessionPill({ s, onOpen, menu }: { s: SessionMeta; onOpen: () => void; 
           onBlur={(e) => menu.commitRename(e.currentTarget.value)}
         />
       ) : (
-        <span className="titlebar-pill-title">{renderTitle(s.name)}</span>
+        <span className="titlebar-pill-title">
+          <SessionCharacterName sid={s.id} />
+          {renderTitle(s.name)}
+        </span>
       )}
       <ControllerBadge s={s} />
       {unread && (
@@ -111,12 +117,12 @@ function SessionPill({ s, onOpen, menu }: { s: SessionMeta; onOpen: () => void; 
   )
 }
 
-/** Shows/hides the active sessions bar. While it's hidden, a badge counts the
- *  other sessions that need you, so there's a cue to bring it back. */
-function ActiveBarToggle({ s, sessions }: { s: SessionMeta; sessions: SessionMeta[] }) {
+/** Shows/hides the active sessions roster. While it's hidden, a badge counts
+ *  the other sessions that need you, so there's a cue to bring it back. */
+function ActiveBarToggle({ s, sessions }: { s?: SessionMeta; sessions: SessionMeta[] }) {
   const visible = useViewPrefsStore((st) => st.activeBarVisible)
   const setVisible = useViewPrefsStore((st) => st.setActiveBarVisible)
-  const { needs } = useActiveSessions(sessions, s.id)
+  const { needs } = useActiveSessions(sessions, s?.id ?? null)
   return (
     <button
       className={`titlebar-action-btn ${visible ? 'active' : ''}`}
@@ -124,7 +130,7 @@ function ActiveBarToggle({ s, sessions }: { s: SessionMeta; sessions: SessionMet
       aria-pressed={visible}
       onClick={() => setVisible(!visible)}
     >
-      <PanelTop size={16} strokeWidth={2} />
+      <PanelRight size={16} strokeWidth={2} />
       {!visible && needs.length > 0 && <span className="titlebar-board-badge titlebar-action-badge">{needs.length}</span>}
     </button>
   )
@@ -252,8 +258,9 @@ export function TitleBar({
 }: Props) {
   const project = activeWorkspace
   const onBoard = boardOpen && !showBoard
+  const boardView = useViewPrefsStore((st) => st.boardView)
   return (
-    <header className="titlebar">
+    <header className={`titlebar ${onBoard ? 'on-board' : ''}`}>
       <div className="titlebar-side left">
         <button
           className={`icon-button codicon codicon-layout-sidebar-left${leftVisible ? '' : '-off'}`}
@@ -284,11 +291,19 @@ export function TitleBar({
       </div>
       {onBoard ? (
         <>
+          {/* Search and filters shape the board's columns; the office seats
+              everyone with a character, so it has neither. Both keep their
+              space there, so the toggle doesn't jump when switching. */}
           <div className="titlebar-center">
-            <BoardSearch />
+            <div className="titlebar-search-slot" style={boardView === 'office' ? { visibility: 'hidden' } : undefined}>
+              <BoardSearch />
+            </div>
+            <BoardViewToggle />
           </div>
           <div className="titlebar-side right">
-            <BoardFilters sessions={sessions} />
+            <div style={boardView === 'office' ? { visibility: 'hidden' } : undefined}>
+              <BoardFilters sessions={sessions} />
+            </div>
             <button className="btn btn-primary titlebar-new" onClick={onNewSession}>
               <Plus size={14} strokeWidth={2.5} />
               New
@@ -319,6 +334,9 @@ export function TitleBar({
           </div>
           <div className="titlebar-side right">
             {showBoard && <ThemePicker />}
+            {/* The roster shows with or without a session on screen, so its
+                toggle does too. */}
+            {!showBoard && <ActiveBarToggle sessions={sessions} />}
             {rightVisible !== null && (
               <button
                 className={`icon-button codicon codicon-layout-sidebar-right${rightVisible ? '' : '-off'}`}

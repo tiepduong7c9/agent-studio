@@ -25,6 +25,8 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()]
   },
   renderer: {
-    plugins: [react()]
+    plugins: [react()],
+    // 3D models for the office characters, imported with ?inline.
+    assetsInclude: ['**/*.glb']
   }
 })

@@ -1,0 +1,87 @@
+/* The office floor: a three.js canvas with HTML name tags laid over it. The
+   room has its own palette (navy and walnut), so it ignores the theme. */
+.office-view {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: #0c1320;
+}
+.office-stage { position: absolute; inset: 0; }
+.office-canvas { display: block; }
+.office-labels { position: absolute; inset: 0; pointer-events: none; }
+
+/* Name tag + status bubble above each character; clicking opens the session. */
+.office-tag {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  pointer-events: auto;
+  cursor: pointer;
+  user-select: none;
+}
+.office-name {
+  padding: 2px 7px;
+  border-radius: 6px;
+  border: 1px solid var(--accent);
+  background: rgba(12, 20, 34, 0.88);
+  color: #e8eef6;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.office-tag:hover .office-name { background: rgba(28, 40, 62, 0.95); }
+.office-role { font-weight: 400; opacity: 0.7; }
+.office-bubble {
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: #fff;
+  color: #1b2433;
+  font-size: 11px;
+  white-space: nowrap;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+.office-bubble.alert {
+  padding: 0 9px;
+  background: #f5a524;
+  color: #1b1b1b;
+  font-size: 13px;
+  font-weight: 800;
+  animation: office-blink 1s steps(2, start) infinite;
+}
+.office-bubble.done { background: #3fb950; color: #fff; font-weight: 800; }
+@keyframes office-blink { to { opacity: 0.4; } }
+
+.office-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0c1320;
+}
+.office-error { color: #ff7b72; font-size: 13px; }
+.office-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  max-width: 560px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: rgba(12, 20, 34, 0.88);
+  color: #c9d4e3;
+  font-size: 12.5px;
+  text-align: center;
+}
+.office-hint.corner { left: auto; right: 14px; transform: none; bottom: 14px; }
+
+.board-view-toggle { flex-shrink: 0; }
+.board-view-toggle .board-filter { display: inline-flex; align-items: center; gap: 5px; }
+/* On the board the side areas take only what they need and the search +
+   toggle centre in the space between them (not on the window), shrinking
+   the search on narrow windows. */
+.titlebar.on-board .titlebar-side { flex: 0 0 auto; }
+.titlebar.on-board .titlebar-center { flex: 1 1 auto; min-width: 0; }
+.titlebar-search-slot { flex: 0 1 auto; min-width: 140px; }
+.titlebar-search-slot .titlebar-search { max-width: 100%; }
