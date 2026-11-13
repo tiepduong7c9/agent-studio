@@ -44,7 +44,7 @@ interface ViewPrefsState {
   showHidden: boolean
   /** Changes panel layout: flat list of files or a nested folder tree. */
   changesViewMode: 'list' | 'tree'
-  /** The session view's bar of other running / needs-you sessions. */
+  /** The roster of running / needs-you sessions down the right (outside the board). */
   activeBarVisible: boolean
   /** The sessions board shown as columns of cards, or as the office floor. */
   boardView: 'board' | 'office'

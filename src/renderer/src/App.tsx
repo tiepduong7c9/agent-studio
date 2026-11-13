@@ -12,7 +12,7 @@ import { EditorArea } from './components/EditorArea'
 import { QuickOpen } from './components/QuickOpen'
 import { RemoteFolderPicker } from './components/RemoteFolderPicker'
 import { RightPanel, type PanelTab } from './components/RightPanel'
-import { ActiveSessionsBar } from './components/ActiveSessionsBar'
+import { SessionRoster } from './components/SessionRoster'
 import { ActivityBar } from './components/ActivityBar'
 import { Sash } from './components/Sash'
 import { SessionsPanel } from './components/SessionsPanel'
@@ -810,14 +810,6 @@ export function App() {
         maximized={maximized}
         onToggleMaximize={toggleMaximize}
       />
-      {titleSession && !boardOpen && activeBarVisible && (
-        <ActiveSessionsBar
-          sessions={sessions}
-          currentSid={titleSession.id}
-          onSelectSession={openChat}
-          onDeleteSession={deleteSession}
-        />
-      )}
       {error && (
         <div className="error-banner">
           {error}
@@ -898,6 +890,16 @@ export function App() {
             onPickFolder={openLocal}
           />
         </main>
+        {/* Who's running or waiting on you, by face. The board shows everyone,
+            so the roster only appears outside it. */}
+        {!SESSIONS_SIDEBAR && !boardOpen && activeBarVisible && !maximized && (
+          <SessionRoster
+            sessions={sessions}
+            currentSid={titleSession?.id ?? null}
+            onSelectSession={openChat}
+            onDeleteSession={deleteSession}
+          />
+        )}
         {SESSIONS_SIDEBAR && rightVisible && !maximized && (
           <>
             <Sash

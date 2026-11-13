@@ -1,11 +1,11 @@
-import { ChevronDown, Ellipsis, Mail, Maximize2, Minimize2, PanelTop, Plus, Pin, SquareKanban } from 'lucide-react'
+import { ChevronDown, Ellipsis, Mail, Maximize2, Minimize2, PanelRight, Plus, Pin, SquareKanban } from 'lucide-react'
 import type { SessionMeta } from '../../../shared/acp'
 import type { ProjectInfo } from '../../../shared/types'
 import { useSessionsStore } from '../acp/sessions-store'
 import { useCaptureStore, type Capture } from '../capture-store'
 import { hostLabel, projectLabel, relTime, sessionActivity } from '../session-format'
 import { useViewPrefsStore } from '../view-prefs-store'
-import { useActiveSessions } from './ActiveSessionsBar'
+import { useActiveSessions } from './SessionRoster'
 import { BoardFilters, BoardSearch, laneOf } from './SessionsBoard'
 import { BoardViewToggle } from './OfficeView'
 import { CaptureBadges, ControllerBadge, renderTitle } from './SessionsPanel'
@@ -117,8 +117,8 @@ function SessionPill({ s, onOpen, menu }: { s: SessionMeta; onOpen: () => void; 
   )
 }
 
-/** Shows/hides the active sessions bar. While it's hidden, a badge counts the
- *  other sessions that need you, so there's a cue to bring it back. */
+/** Shows/hides the active sessions roster. While it's hidden, a badge counts
+ *  the other sessions that need you, so there's a cue to bring it back. */
 function ActiveBarToggle({ s, sessions }: { s: SessionMeta; sessions: SessionMeta[] }) {
   const visible = useViewPrefsStore((st) => st.activeBarVisible)
   const setVisible = useViewPrefsStore((st) => st.setActiveBarVisible)
@@ -130,7 +130,7 @@ function ActiveBarToggle({ s, sessions }: { s: SessionMeta; sessions: SessionMet
       aria-pressed={visible}
       onClick={() => setVisible(!visible)}
     >
-      <PanelTop size={16} strokeWidth={2} />
+      <PanelRight size={16} strokeWidth={2} />
       {!visible && needs.length > 0 && <span className="titlebar-board-badge titlebar-action-badge">{needs.length}</span>}
     </button>
   )
