@@ -45,7 +45,8 @@ export const GENERIC_CHARACTER: Character = {
   id: 'generic',
   name: '',
   role: '',
-  accent: '#8b949e',
+  // Dark navy: the robot is pale lavender, so a grey disc washed it out.
+  accent: '#2b3b5a',
   look: { body: 'robot', head: 'robot' }
 }
 

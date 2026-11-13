@@ -4,7 +4,7 @@ import { useSessionCharacter } from '../characters-store'
 import { hostLabel, projectLabel } from '../session-format'
 import { useViewPrefsStore } from '../view-prefs-store'
 import { laneOf, useSnoozeStore } from './SessionsBoard'
-import { CharacterAvatar } from './CharacterAvatar'
+import { CharacterAvatar, type AvatarMotion } from './CharacterAvatar'
 import { renderTitle } from './SessionsPanel'
 import { useSessionMenu } from './session-actions'
 import './SessionRoster.css'
@@ -31,11 +31,11 @@ export function useActiveSessions(sessions: SessionMeta[], excludeSid: string | 
   return { needs, running }
 }
 
-function statusOf(s: SessionMeta, done: boolean): { cls: string; text: string } {
-  if (s.claudeStatus === 'waiting') return { cls: 'needs', text: 'Needs your approval' }
-  if (s.status === 'exited') return { cls: 'needs', text: 'Exited' }
-  if (done) return { cls: 'done', text: 'Done · not viewed' }
-  return { cls: 'running', text: 'Running' }
+function statusOf(s: SessionMeta, done: boolean): { cls: string; text: string; motion: AvatarMotion } {
+  if (s.claudeStatus === 'waiting') return { cls: 'needs', text: 'Needs your approval', motion: 'alert' }
+  if (s.status === 'exited') return { cls: 'needs', text: 'Exited', motion: 'alert' }
+  if (done) return { cls: 'done', text: 'Done · not viewed', motion: 'done' }
+  return { cls: 'running', text: 'Running', motion: 'busy' }
 }
 
 function Row({ s, current, onOpen, onDelete }: { s: SessionMeta; current: boolean; onOpen: () => void; onDelete: () => void }) {
@@ -57,7 +57,7 @@ function Row({ s, current, onOpen, onDelete }: { s: SessionMeta; current: boolea
       }}
     >
       <span className="roster-avatar">
-        <CharacterAvatar character={character} size={32} title="" />
+        <CharacterAvatar character={character} size={36} title="" motion={status.motion} />
         <span className={`roster-dot ${status.cls}`} />
       </span>
       <span className="roster-text">

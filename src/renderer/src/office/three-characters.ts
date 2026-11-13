@@ -112,35 +112,82 @@ let queue: Promise<unknown> = Promise.resolve()
  *  <img> — cheap even down a long list like the session switcher. Renders are
  *  serialised through one WebGL renderer on a detached canvas. */
 export function renderPortrait(look: CharacterLook, accent: string): Promise<string> {
-  const job = queue.then(async () => {
+  return serial(async () => {
     const c = await buildCharacter(look)
-    if (!portraitStage) {
-      const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true })
-      renderer.setPixelRatio(1)
-      renderer.setSize(PORTRAIT_PX, PORTRAIT_PX, false)
-      renderer.toneMapping = THREE.ACESFilmicToneMapping
-      const scene = new THREE.Scene()
-      addLights(scene)
-      portraitStage = { renderer, scene, camera: new THREE.OrthographicCamera(-1, 1, 1, -1, 0.01, 100) }
-    }
-    const { renderer, scene, camera } = portraitStage
+    const { renderer, scene, camera } = stage()
     pose(c, 'idle', 0.4)
     scene.add(c.root)
-    // Frame the head and shoulders, seen slightly from above.
-    const h = c.height
-    const half = h * 0.29
-    const cy = h * 0.72
-    Object.assign(camera, { left: -half, right: half, top: half, bottom: -half })
-    camera.updateProjectionMatrix()
-    camera.position.set(h * 0.25, cy + h * 0.35, h * 3)
-    camera.lookAt(0, cy, 0)
+    frame(c, 0.29, 0.72)
     renderer.render(scene, camera)
     scene.remove(c.root)
     // A data URL rather than a blob: URL — the page's CSP allows data: images.
     return composeAvatar(renderer.domElement, accent).toDataURL('image/png')
   })
+}
+
+export interface AvatarSheet {
+  /** PNG data URL: `frames` avatar frames side by side. */
+  url: string
+  frames: number
+  /** Seconds for one loop. */
+  duration: number
+}
+
+/** A looping animated avatar as a sprite strip — one clip sampled evenly over
+ *  its length, each frame composed like a portrait — so the page can play it
+ *  with a CSS animation instead of a live WebGL view per avatar. Framed a
+ *  little wider than the portrait so arm movement shows. */
+export function renderAvatarSheet(look: CharacterLook, accent: string, clipName: string, frames = 16): Promise<AvatarSheet> {
+  return serial(async () => {
+    const c = await buildCharacter(look)
+    const { renderer, scene, camera } = stage()
+    const clip = THREE.AnimationClip.findByName(c.animations, clipName) ?? THREE.AnimationClip.findByName(c.animations, 'idle')
+    const mixer = new THREE.AnimationMixer(c.root)
+    if (clip) mixer.clipAction(clip).play()
+    const duration = clip?.duration || 1
+    scene.add(c.root)
+    frame(c, 0.38, 0.62)
+    const sheet = document.createElement('canvas')
+    sheet.width = PORTRAIT_PX * frames
+    sheet.height = PORTRAIT_PX
+    const g = sheet.getContext('2d')!
+    for (let i = 0; i < frames; i++) {
+      mixer.setTime((duration * i) / frames)
+      renderer.render(scene, camera)
+      g.drawImage(composeAvatar(renderer.domElement, accent), i * PORTRAIT_PX, 0)
+    }
+    scene.remove(c.root)
+    return { url: sheet.toDataURL('image/png'), frames, duration }
+  })
+}
+
+// One offscreen renderer for every portrait and sheet; jobs run one at a time.
+function stage(): { renderer: THREE.WebGLRenderer; scene: THREE.Scene; camera: THREE.OrthographicCamera } {
+  if (!portraitStage) {
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true })
+    renderer.setPixelRatio(1)
+    renderer.setSize(PORTRAIT_PX, PORTRAIT_PX, false)
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    const scene = new THREE.Scene()
+    addLights(scene)
+    portraitStage = { renderer, scene, camera: new THREE.OrthographicCamera(-1, 1, 1, -1, 0.01, 100) }
+  }
+  return portraitStage
+}
+function serial<T>(fn: () => Promise<T>): Promise<T> {
+  const job = queue.then(fn)
   queue = job.catch(() => undefined)
   return job
+}
+// Frame the upper body, seen slightly from above: `half` of the model height
+// either side of `cy` (both as fractions of the height).
+function frame(c: BuiltCharacter, half: number, cy: number): void {
+  const camera = stage().camera
+  const h = c.height
+  Object.assign(camera, { left: -h * half, right: h * half, top: h * half, bottom: -h * half })
+  camera.updateProjectionMatrix()
+  camera.position.set(h * 0.25, h * cy + h * 0.35, h * 3)
+  camera.lookAt(0, h * cy, 0)
 }
 
 // The character over a disc of its accent colour (lit from above), clipped to

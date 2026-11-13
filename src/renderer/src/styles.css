@@ -2689,6 +2689,14 @@ body {
 .char-avatar { flex: 0 0 auto; display: inline-block; vertical-align: middle; }
 .char-avatar img,
 .char-avatar svg { display: block; width: 100%; height: 100%; }
+/* Animated avatar: a sprite strip of frames, stepped through on a loop. */
+.char-avatar-anim {
+  background-repeat: no-repeat;
+  background-size: var(--sheet-w) 100%;
+  animation: char-sheet var(--sheet-dur) steps(var(--sheet-frames)) infinite;
+}
+@keyframes char-sheet { to { background-position-x: calc(-1 * var(--sheet-w)); } }
+@media (prefers-reduced-motion: reduce) { .char-avatar-anim { animation: none; } }
 /* "Mia · Release" ahead of the session title. */
 .char-name { font-weight: 700; margin-right: 6px; white-space: nowrap; }
 .char-name::after {

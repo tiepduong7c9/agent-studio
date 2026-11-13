@@ -48,3 +48,50 @@ export function usePortrait(look: CharacterLook, accent: string): string | null 
   }, [key])
   return url
 }
+
+// ---------------------------------------------------------------- animated sheets
+
+export interface Sheet {
+  url: string
+  frames: number
+  duration: number
+}
+const sheets = new Map<string, Sheet>()
+const pendingSheets = new Map<string, Promise<Sheet>>()
+
+/** An animated avatar (sprite strip) for a look, accent and clip, or null
+ *  until rendered — or when `clip` is null (no animation wanted). */
+export function useAvatarSheet(look: CharacterLook, accent: string, clip: string | null): Sheet | null {
+  const key = clip ? `${avatarKey(look, accent)}|${clip}` : null
+  const [sheet, setSheet] = useState<Sheet | null>(() => (key ? sheets.get(key) ?? null : null))
+  useEffect(() => {
+    if (!key || !clip) {
+      setSheet(null)
+      return
+    }
+    const hit = sheets.get(key)
+    if (hit) {
+      setSheet(hit)
+      return
+    }
+    let p = pendingSheets.get(key)
+    if (!p) {
+      p = import('./three-characters').then((m) => m.renderAvatarSheet(look, accent, clip)).then((s) => {
+        sheets.set(key, s)
+        return s
+      })
+      p.catch(() => pendingSheets.delete(key))
+      pendingSheets.set(key, p)
+    }
+    let alive = true
+    p.then(
+      (s) => alive && setSheet(s),
+      () => undefined
+    )
+    return () => {
+      alive = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key])
+  return sheet
+}
