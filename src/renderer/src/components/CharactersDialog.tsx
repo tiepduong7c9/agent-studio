@@ -12,7 +12,7 @@ import {
   type CharacterLook,
   type CharacterModel
 } from '../characters-store'
-import type { Preview } from '../office/three-characters'
+import type { Preview } from '../characters/three-characters'
 import { CharacterAvatar } from './CharacterAvatar'
 
 // Manage characters (Customizations → Characters, or a session's Character
@@ -27,7 +27,7 @@ function CharacterPreview({ look }: { look: CharacterLook }) {
 
   useEffect(() => {
     let disposed = false
-    void import('../office/three-characters').then((m) => {
+    void import('../characters/three-characters').then((m) => {
       if (disposed || !canvasRef.current) return
       previewRef.current = m.mountPreview(canvasRef.current, lookRef.current)
     })

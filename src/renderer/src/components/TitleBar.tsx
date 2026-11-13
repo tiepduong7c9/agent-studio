@@ -7,7 +7,6 @@ import { hostLabel, projectLabel, relTime, sessionActivity } from '../session-fo
 import { useViewPrefsStore } from '../view-prefs-store'
 import { useActiveSessions } from './SessionRoster'
 import { BoardFilters, BoardSearch, laneOf } from './SessionsBoard'
-import { BoardViewToggle } from './OfficeView'
 import { CaptureBadges, ControllerBadge, renderTitle } from './SessionsPanel'
 import { SessionLinksButton } from './SessionLinksButton'
 import { TagButton, useSessionMenu } from './session-actions'
@@ -258,7 +257,6 @@ export function TitleBar({
 }: Props) {
   const project = activeWorkspace
   const onBoard = boardOpen && !showBoard
-  const boardView = useViewPrefsStore((st) => st.boardView)
   return (
     <header className={`titlebar ${onBoard ? 'on-board' : ''}`}>
       <div className="titlebar-side left">
@@ -291,19 +289,13 @@ export function TitleBar({
       </div>
       {onBoard ? (
         <>
-          {/* Search and filters shape the board's columns; the office seats
-              everyone with a character, so it has neither. Both keep their
-              space there, so the toggle doesn't jump when switching. */}
           <div className="titlebar-center">
-            <div className="titlebar-search-slot" style={boardView === 'office' ? { visibility: 'hidden' } : undefined}>
+            <div className="titlebar-search-slot">
               <BoardSearch />
             </div>
-            <BoardViewToggle />
           </div>
           <div className="titlebar-side right">
-            <div style={boardView === 'office' ? { visibility: 'hidden' } : undefined}>
-              <BoardFilters sessions={sessions} />
-            </div>
+            <BoardFilters sessions={sessions} />
             <button className="btn btn-primary titlebar-new" onClick={onNewSession}>
               <Plus size={14} strokeWidth={2.5} />
               New

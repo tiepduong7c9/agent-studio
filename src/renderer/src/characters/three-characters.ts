@@ -9,16 +9,16 @@
 import * as THREE from 'three'
 import { GLTFLoader, type GLTF } from 'three/addons/loaders/GLTFLoader.js'
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js'
-import colormapUrl from '../assets/office/characters/colormap.png?inline'
+import colormapUrl from '../assets/characters/colormap.png?inline'
 import type { CharacterLook, CharacterModel } from '../characters-store'
 
 // One lazy chunk per model, so only the models in use are loaded.
-const MODEL_SOURCES = import.meta.glob<string>('../assets/office/characters/character-*.glb', {
+const MODEL_SOURCES = import.meta.glob<string>('../assets/characters/character-*.glb', {
   query: '?inline',
   import: 'default'
 })
 const sourceFor = (m: CharacterModel): (() => Promise<string>) => {
-  const src = MODEL_SOURCES[`../assets/office/characters/character-${m}.glb`]
+  const src = MODEL_SOURCES[`../assets/characters/character-${m}.glb`]
   if (!src) throw new Error(`Unknown character model: ${m}`)
   return src
 }
@@ -83,7 +83,7 @@ export async function buildCharacter(look: CharacterLook): Promise<BuiltCharacte
   return { root, animations: body.animations, height }
 }
 
-// Soft studio light, matching the office scene.
+// Soft studio light.
 function addLights(scene: THREE.Scene): void {
   scene.add(new THREE.HemisphereLight(0xeef3ff, 0x6a7280, 2.0))
   const key = new THREE.DirectionalLight(0xfff4e6, 2.2)

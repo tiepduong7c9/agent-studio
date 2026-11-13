@@ -1,4 +1,3 @@
-import { Building2, ChevronRight } from 'lucide-react'
 import type { SessionMeta } from '../../../shared/acp'
 import { useSessionsStore } from '../acp/sessions-store'
 import { useSessionCharacter } from '../characters-store'
@@ -118,16 +117,13 @@ export function SessionRoster({
   sessions,
   currentSid,
   onSelectSession,
-  onDeleteSession,
-  onOpenOffice
+  onDeleteSession
 }: {
   width: number
   sessions: SessionMeta[]
   currentSid: string | null
   onSelectSession: (sid: string) => void
   onDeleteSession: (sid: string) => void
-  /** Open the sessions board in its office view. */
-  onOpenOffice: () => void
 }) {
   const { needs, running, scheduled } = useActiveSessions(sessions, null)
   const shown = new Set([...needs, ...running, ...scheduled].map((s) => s.id))
@@ -151,16 +147,6 @@ export function SessionRoster({
         <span className="roster-title">Active</span>
       </div>
       <div className="roster-list">
-        <button className="roster-office" onClick={onOpenOffice}>
-          <span className="roster-office-icon">
-            <Building2 size={18} />
-          </span>
-          <span className="roster-text">
-            <span className="roster-name">Open the office</span>
-            <span className="roster-sub">See everyone at their desks</span>
-          </span>
-          <ChevronRight size={15} className="roster-office-chevron" />
-        </button>
         {needs.length > 0 && (
           <>
             <div className="roster-group needs">

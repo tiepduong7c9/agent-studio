@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react'
 import { characterLabel, useSessionCharacter, type Character } from '../characters-store'
-import { avatarPx, useAvatarSheet, usePortrait } from '../office/portraits'
+import { avatarPx, useAvatarSheet, usePortrait } from '../characters/portraits'
 
 /** What an animated avatar is doing. */
 export type AvatarMotion = 'idle' | 'busy' | 'alert' | 'done'
