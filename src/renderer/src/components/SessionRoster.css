@@ -65,6 +65,7 @@
 }
 .roster-group.needs { color: color-mix(in srgb, var(--roster-needs) 72%, var(--vscode-foreground)); }
 .roster-group.running { color: color-mix(in srgb, var(--roster-running) 85%, var(--vscode-foreground)); }
+.roster-group.recent { color: var(--vscode-descriptionForeground); margin-top: 14px; }
 .roster-count {
   min-width: 16px;
   padding: 0 5px;
@@ -99,6 +100,7 @@
 .roster-dot.running { background: var(--roster-running); animation: acp-dot-pulse 1.4s ease-out infinite; }
 .roster-dot.needs { background: var(--roster-needs); }
 .roster-dot.done { background: var(--roster-done); }
+.roster-dot.idle { display: none; }
 .roster-text { display: flex; flex-direction: column; min-width: 0; flex: 1; line-height: 1.3; }
 .roster-name,
 .roster-sub {
@@ -112,6 +114,7 @@
 .roster-status.running { color: color-mix(in srgb, var(--roster-running) 85%, var(--vscode-foreground)); }
 .roster-status.needs { color: color-mix(in srgb, var(--roster-needs) 72%, var(--vscode-foreground)); }
 .roster-status.done { color: color-mix(in srgb, var(--roster-done) 80%, var(--vscode-foreground)); }
+.roster-status.idle { color: var(--vscode-descriptionForeground); }
 .roster-rename {
   min-width: 0;
   padding: 1px 4px;

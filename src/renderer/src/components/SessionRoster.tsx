@@ -2,7 +2,7 @@ import { Building2, ChevronRight } from 'lucide-react'
 import type { SessionMeta } from '../../../shared/acp'
 import { useSessionsStore } from '../acp/sessions-store'
 import { useSessionCharacter } from '../characters-store'
-import { hostLabel, projectLabel } from '../session-format'
+import { hostLabel, projectLabel, relTime, sessionActivity } from '../session-format'
 import { laneOf, useSnoozeStore } from './SessionsBoard'
 import { CharacterAvatar, type AvatarMotion } from './CharacterAvatar'
 import { renderTitle } from './SessionsPanel'
@@ -11,8 +11,12 @@ import './SessionRoster.css'
 
 // A roster down the right of the session view: every session that needs you
 // or is running, by face, so you can see who's busy and hop between them
-// without opening the board. Needs-you first. The session on screen is
-// included and highlighted. The title bar's toggle hides it.
+// without opening the board, then the most recently used of the rest. The
+// session on screen is included and highlighted. The title bar's toggle
+// hides it.
+
+/** How many recently used sessions to list below the active ones. */
+const RECENT_LIMIT = 12
 
 /** Sessions to surface: waiting on you (minus ones snoozed on the board), then
  *  running. Kept in session-list order rather than by activity, so rows don't
@@ -31,18 +35,36 @@ export function useActiveSessions(sessions: SessionMeta[], excludeSid: string | 
   return { needs, running }
 }
 
-function statusOf(s: SessionMeta, done: boolean): { cls: string; text: string; motion: AvatarMotion } {
+function statusOf(s: SessionMeta, done: boolean, active: boolean): { cls: string; text: string; motion?: AvatarMotion } {
+  // Recent (inactive) rows: when they were last used, and a still portrait.
+  if (!active) {
+    const when = relTime(sessionActivity(s))
+    return { cls: 'idle', text: `${s.status === 'suspended' ? 'Suspended' : 'Idle'}${when ? ` · ${when}` : ''}` }
+  }
   if (s.claudeStatus === 'waiting') return { cls: 'needs', text: 'Needs your approval', motion: 'alert' }
   if (s.status === 'exited') return { cls: 'needs', text: 'Exited', motion: 'alert' }
   if (done) return { cls: 'done', text: 'Done · not viewed', motion: 'done' }
   return { cls: 'running', text: 'Running', motion: 'busy' }
 }
 
-function Row({ s, current, onOpen, onDelete }: { s: SessionMeta; current: boolean; onOpen: () => void; onDelete: () => void }) {
+function Row({
+  s,
+  current,
+  active,
+  onOpen,
+  onDelete
+}: {
+  s: SessionMeta
+  current: boolean
+  /** Needs you or running (animated); otherwise a recent session. */
+  active: boolean
+  onOpen: () => void
+  onDelete: () => void
+}) {
   const character = useSessionCharacter(s.id)
   const done = useSessionsStore((st) => !!st.doneSessions[s.id])
   const menu = useSessionMenu(s, onDelete)
-  const status = statusOf(s, done)
+  const status = statusOf(s, done, active)
   const named = character.name.trim()
   return (
     <div
@@ -103,8 +125,20 @@ export function SessionRoster({
   onOpenOffice: () => void
 }) {
   const { needs, running } = useActiveSessions(sessions, null)
-  const row = (s: SessionMeta) => (
-    <Row key={s.id} s={s} current={s.id === currentSid} onOpen={() => onSelectSession(s.id)} onDelete={() => onDeleteSession(s.id)} />
+  const shown = new Set([...needs, ...running].map((s) => s.id))
+  const recent = sessions
+    .filter((s) => !shown.has(s.id))
+    .sort((a, b) => sessionActivity(b) - sessionActivity(a))
+    .slice(0, RECENT_LIMIT)
+  const row = (s: SessionMeta, active: boolean) => (
+    <Row
+      key={s.id}
+      s={s}
+      current={s.id === currentSid}
+      active={active}
+      onOpen={() => onSelectSession(s.id)}
+      onDelete={() => onDeleteSession(s.id)}
+    />
   )
   return (
     <aside className="session-roster" style={{ width }}>
@@ -127,7 +161,7 @@ export function SessionRoster({
             <div className="roster-group needs">
               Needs you <span className="roster-count">{needs.length}</span>
             </div>
-            {needs.map(row)}
+            {needs.map((s) => row(s, true))}
           </>
         )}
         {running.length > 0 && (
@@ -135,10 +169,16 @@ export function SessionRoster({
             <div className="roster-group running">
               Running <span className="roster-count">{running.length}</span>
             </div>
-            {running.map(row)}
+            {running.map((s) => row(s, true))}
           </>
         )}
         {!needs.length && !running.length && <div className="roster-empty">Nothing running or waiting on you.</div>}
+        {recent.length > 0 && (
+          <>
+            <div className="roster-group recent">Recent</div>
+            {recent.map((s) => row(s, false))}
+          </>
+        )}
       </div>
     </aside>
   )
