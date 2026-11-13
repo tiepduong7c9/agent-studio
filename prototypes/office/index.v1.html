@@ -1,0 +1,198 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Office prototype</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #1e1f22; overflow: hidden; font-family: -apple-system, system-ui, sans-serif; }
+  #app { position: fixed; inset: 0; }
+  .tag { display: flex; flex-direction: column; align-items: center; gap: 3px; pointer-events: none; transform: translateY(-6px); }
+  .name { padding: 2px 7px; border-radius: 6px; background: rgba(20,21,24,.82); color: #e8e8e8; font-size: 11px; font-weight: 600; white-space: nowrap; border: 1px solid var(--accent); }
+  .role { font-weight: 400; opacity: .7; }
+  .bubble { padding: 3px 8px; border-radius: 10px; background: #fff; color: #222; font-size: 11px; white-space: nowrap; box-shadow: 0 2px 6px rgba(0,0,0,.35); }
+  .bubble.alert { background: #f5a524; color: #1b1b1b; font-weight: 800; font-size: 14px; padding: 1px 9px; animation: blink 1s steps(2, start) infinite; }
+  .bubble.done { background: #3fb950; color: #fff; font-weight: 800; }
+  @keyframes blink { to { opacity: .35; } }
+</style>
+<script type="importmap">
+{ "imports": { "three": "./node_modules/three/build/three.module.js", "three/addons/": "./node_modules/three/examples/jsm/" } }
+</script>
+</head>
+<body>
+<div id="app"></div>
+<script type="module">
+import * as THREE from 'three'
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+import { OutlineEffect } from 'three/addons/effects/OutlineEffect.js'
+import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js'
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js'
+
+const FURN = './assets/furniture-kit/Models/GLTF format/'
+const CHAR = './assets/mini-characters/Models/GLB format/'
+const app = document.getElementById('app')
+
+const renderer = new THREE.WebGLRenderer({ antialias: true })
+renderer.setPixelRatio(Number(new URLSearchParams(location.search).get('dpr')) || window.devicePixelRatio)
+renderer.setSize(innerWidth, innerHeight)
+renderer.shadowMap.enabled = true
+renderer.shadowMap.type = THREE.PCFSoftShadowMap
+app.appendChild(renderer.domElement)
+const effect = new OutlineEffect(renderer, { defaultThickness: 0.004, defaultColor: [0.08, 0.08, 0.1] })
+const labels = new CSS2DRenderer()
+labels.setSize(innerWidth, innerHeight)
+labels.domElement.style.cssText = 'position:fixed;inset:0;pointer-events:none'
+document.body.appendChild(labels.domElement)
+
+const scene = new THREE.Scene()
+scene.background = new THREE.Color(0x1e1f22)
+
+// 3/4 top-down orthographic camera, Munder-style framing.
+const VIEW = 5.2
+const aspect = innerWidth / innerHeight
+const camera = new THREE.OrthographicCamera(-VIEW * aspect / 2, VIEW * aspect / 2, VIEW / 2, -VIEW / 2, 0.1, 100)
+camera.position.set(0, 5.0, 9.4)
+camera.lookAt(0, 0, -0.9)
+
+// Toon lighting: 3-step gradient so shading reads as flat 2D bands.
+const ramp = new THREE.DataTexture(new Uint8Array([110, 110, 110, 255, 190, 190, 190, 255, 255, 255, 255, 255]), 3, 1)
+ramp.minFilter = ramp.magFilter = THREE.NearestFilter
+ramp.needsUpdate = true
+scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8f99, 1.6))
+const sun = new THREE.DirectionalLight(0xffffff, 1.6)
+sun.position.set(-3, 8, 4)
+sun.castShadow = true
+sun.shadow.mapSize.set(2048, 2048)
+Object.assign(sun.shadow.camera, { left: -6, right: 6, top: 6, bottom: -6 })
+sun.shadow.bias = -0.0005
+scene.add(sun)
+
+const toonify = (root) => root.traverse((o) => {
+  if (!o.isMesh) return
+  o.castShadow = o.receiveShadow = true
+  const m = o.material
+  o.material = new THREE.MeshToonMaterial({ color: m.color, map: m.map, gradientMap: ramp })
+})
+
+const loader = new GLTFLoader()
+const cache = new Map()
+const load = (url) => { if (!cache.has(url)) cache.set(url, loader.loadAsync(url)); return cache.get(url) }
+
+// Furniture: centre on x/z, base on y=0, so placement is by footprint centre.
+async function prop(name, x, z, rotY = 0, s = 1, y = 0) {
+  const g = await load(FURN + name + '.glb')
+  const inner = g.scene.clone(true)
+  toonify(inner)
+  const box = new THREE.Box3().setFromObject(inner)
+  const c = box.getCenter(new THREE.Vector3())
+  inner.position.set(-c.x, -box.min.y, -c.z)
+  const holder = new THREE.Group()
+  holder.add(inner)
+  holder.scale.setScalar(s)
+  holder.rotation.y = rotY
+  holder.position.set(x, y, z)
+  scene.add(holder)
+  return holder
+}
+
+const mixers = []
+async function person(file, x, z, rotY, clip, label, y = 0) {
+  const g = await load(CHAR + file + '.glb')
+  const model = SkeletonUtils.clone(g.scene)
+  toonify(model)
+  const h = new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3()).y
+  model.scale.setScalar(0.72 / h)
+  model.position.set(x, y, z)
+  model.rotation.y = rotY
+  scene.add(model)
+  const mixer = new THREE.AnimationMixer(model)
+  const action = mixer.clipAction(THREE.AnimationClip.findByName(g.animations, clip))
+  action.play()
+  mixers.push(mixer)
+  if (label) {
+    const el = document.createElement('div')
+    el.className = 'tag'
+    el.style.setProperty('--accent', label.accent)
+    el.innerHTML = (label.bubble ? `<div class="bubble ${label.kind || ''}">${label.bubble}</div>` : '') +
+      `<div class="name">${label.name}${label.role ? ` <span class="role">· ${label.role}</span>` : ''}</div>`
+    const tag = new CSS2DObject(el)
+    tag.position.set(0, h * 1.25, 0)
+    model.add(tag)
+  }
+  return { model, mixer, action }
+}
+
+// Floor + low back wall.
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(10, 8), new THREE.MeshToonMaterial({ color: 0xd9cdb8, gradientMap: ramp }))
+floor.rotation.x = -Math.PI / 2
+floor.receiveShadow = true
+scene.add(floor)
+const rug = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 1.7), new THREE.MeshToonMaterial({ color: 0x7d9a8c, gradientMap: ramp }))
+rug.rotation.x = -Math.PI / 2
+rug.position.set(2.6, 0.005, 0.9)
+rug.receiveShadow = true
+scene.add(rug)
+const wall = new THREE.Mesh(new THREE.BoxGeometry(9, 0.9, 0.15), new THREE.MeshToonMaterial({ color: 0xb8c4cc, gradientMap: ramp }))
+wall.position.set(0, 0.45, -3.2)
+wall.castShadow = wall.receiveShadow = true
+scene.add(wall)
+
+// Workstations: desk, monitor, keyboard, chair.
+const S = 1.45
+// Desk runs front-to-back; the worker sits on its left, facing right, in profile.
+const DESK_TOP = 0.384 * S
+const screens = []
+// The worker faces the camera across the desk; the monitor's back is to us.
+async function workstation(x, z) {
+  await prop('desk', x, z + 0.42, 0, S)
+  const screen = await prop('computerScreen', x, z + 0.58, Math.PI, S, DESK_TOP)
+  await prop('computerKeyboard', x, z + 0.32, Math.PI, S, DESK_TOP)
+  await prop('chairDesk', x, z - 0.12, 0, S)
+  screens.push(screen)
+  return screen
+}
+const desks = [[-3.3, -2.0], [-1.7, -2.0], [-0.1, -2.0], [-3.3, 0.5], [-1.7, 0.5]]
+for (const [x, z] of desks) await workstation(x, z)
+const screenOf = (i) => screens[i]
+
+// Lounge.
+await prop('loungeSofa', 2.6, 0.2, 0, S)
+await prop('loungeChair', 1.6, 1.3, Math.PI / 2, S)
+await prop('pottedPlant', 3.9, -2.7, 0, S)
+await prop('pottedPlant', -4.0, 2.6, 0, S)
+await prop('kitchenCoffeeMachine', 3.0, -2.75, 0, S)
+await prop('bookcaseOpen', 1.8, -2.8, 0, S)
+
+// Monitor glow for the desks that are "working".
+// A working session lights its monitor in the character's accent colour.
+function glow(i, color) {
+  screenOf(i).traverse((o) => { if (o.isMesh) { o.material = o.material.clone(); o.material.emissive = new THREE.Color(color); o.material.emissiveIntensity = 0.4 } })
+}
+
+// Cast: working (typing), waiting on permission, done, idle in the lounge, walking in.
+const seat = ([x, z]) => [x, z - 0.06]
+const SEAT_Y = 0.24
+await person('character-female-b', ...seat(desks[0]), 0, 'interact-right', { name: 'Mia', role: 'Release', accent: '#4c9aff', bubble: '✎ edit App.tsx' }, SEAT_Y)
+glow(0, 0x4c9aff)
+await person('character-male-c', ...seat(desks[1]), 0, 'sit', { name: 'Leo', role: 'Reviewer', accent: '#f5a524', bubble: '!', kind: 'alert' }, SEAT_Y)
+await person('character-female-d', ...seat(desks[2]), 0, 'interact-right', { name: 'Ava', role: 'Docs', accent: '#a371f7', bubble: '⌕ grep "useAcp"' }, SEAT_Y)
+glow(2, 0xa371f7)
+await person('character-male-e', ...seat(desks[3]), 0, 'sit', { name: 'Sam', role: 'Tests', accent: '#3fb950', bubble: '✓', kind: 'done' }, SEAT_Y)
+await person('character-male-a', 2.6, 0.55, 0, 'sit', { name: 'swift-otter', accent: '#8b949e' })
+const walker = await person('character-female-a', 1.2, -0.4, -Math.PI / 2, 'walk', { name: 'Zoe', role: 'Infra', accent: '#ff7b72' })
+
+const clock = new THREE.Timer()
+window.__frames = 0
+renderer.setAnimationLoop(() => {
+  clock.update()
+  const dt = clock.getDelta()
+  for (const m of mixers) m.update(dt)
+  walker.model.position.x -= dt * 0.35
+  if (walker.model.position.x < -0.4) walker.model.position.x = 1.2
+  effect.render(scene, camera)
+  labels.render(scene, camera)
+  window.__frames++
+})
+window.__ready = true
+</script>
+</body>
+</html>

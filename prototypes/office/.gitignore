@@ -1,0 +1,8 @@
+node_modules/
+# Downloaded model packs (CC0, re-downloadable); the real feature will vendor
+# only the models it uses.
+assets/
+# Previews of a paid, non-redistributable pack, kept for style reference only.
+ref/
+# Working screenshots (large PNGs); key ones are kept as JPEGs in reference/.
+screenshots/
