@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react'
 import { characterLabel, useSessionCharacter, type Character } from '../characters-store'
-import { useAvatarSheet, usePortrait } from '../office/portraits'
+import { avatarPx, useAvatarSheet, usePortrait } from '../office/portraits'
 
 /** What an animated avatar is doing. */
 export type AvatarMotion = 'idle' | 'busy' | 'alert' | 'done'
@@ -21,8 +21,9 @@ export function CharacterAvatar({
   title?: string
   motion?: AvatarMotion
 }) {
-  const url = usePortrait(character.look, character.accent)
-  const sheet = useAvatarSheet(character.look, character.accent, motion ? MOTION_CLIP[motion] : null)
+  const px = avatarPx(size)
+  const url = usePortrait(character.look, character.accent, px)
+  const sheet = useAvatarSheet(character.look, character.accent, motion ? MOTION_CLIP[motion] : null, px)
   if (sheet) {
     const style = {
       width: size,

@@ -103,7 +103,8 @@ function pose(c: BuiltCharacter, clip = 'idle', time = 0): THREE.AnimationMixer 
 
 // ---------------------------------------------------------------- portraits
 
-const PORTRAIT_PX = 128
+/** The 3D render's size; avatars are composed from it at their display size. */
+const PORTRAIT_PX = 160
 let portraitStage: { renderer: THREE.WebGLRenderer; scene: THREE.Scene; camera: THREE.OrthographicCamera } | null = null
 let queue: Promise<unknown> = Promise.resolve()
 
@@ -111,7 +112,7 @@ let queue: Promise<unknown> = Promise.resolve()
  *  disc, gradient and ring are baked into the image, so the page shows a plain
  *  <img> — cheap even down a long list like the session switcher. Renders are
  *  serialised through one WebGL renderer on a detached canvas. */
-export function renderPortrait(look: CharacterLook, accent: string): Promise<string> {
+export function renderPortrait(look: CharacterLook, accent: string, px: number): Promise<string> {
   return serial(async () => {
     const c = await buildCharacter(look)
     const { renderer, scene, camera } = stage()
@@ -121,7 +122,7 @@ export function renderPortrait(look: CharacterLook, accent: string): Promise<str
     renderer.render(scene, camera)
     scene.remove(c.root)
     // A data URL rather than a blob: URL — the page's CSP allows data: images.
-    return composeAvatar(renderer.domElement, accent).toDataURL('image/png')
+    return composeAvatar(renderer.domElement, accent, px).toDataURL('image/png')
   })
 }
 
@@ -137,7 +138,7 @@ export interface AvatarSheet {
  *  its length, each frame composed like a portrait — so the page can play it
  *  with a CSS animation instead of a live WebGL view per avatar. Framed a
  *  little wider than the portrait so arm movement shows. */
-export function renderAvatarSheet(look: CharacterLook, accent: string, clipName: string, frames = 16): Promise<AvatarSheet> {
+export function renderAvatarSheet(look: CharacterLook, accent: string, clipName: string, px: number, frames = 16): Promise<AvatarSheet> {
   return serial(async () => {
     const c = await buildCharacter(look)
     const { renderer, scene, camera } = stage()
@@ -148,13 +149,13 @@ export function renderAvatarSheet(look: CharacterLook, accent: string, clipName:
     scene.add(c.root)
     frame(c, 0.38, 0.62)
     const sheet = document.createElement('canvas')
-    sheet.width = PORTRAIT_PX * frames
-    sheet.height = PORTRAIT_PX
+    sheet.width = px * frames
+    sheet.height = px
     const g = sheet.getContext('2d')!
     for (let i = 0; i < frames; i++) {
       mixer.setTime((duration * i) / frames)
       renderer.render(scene, camera)
-      g.drawImage(composeAvatar(renderer.domElement, accent), i * PORTRAIT_PX, 0)
+      g.drawImage(composeAvatar(renderer.domElement, accent, px), i * px, 0)
     }
     scene.remove(c.root)
     return { url: sheet.toDataURL('image/png'), frames, duration }
@@ -192,27 +193,39 @@ function frame(c: BuiltCharacter, half: number, cy: number): void {
 
 // The character over a disc of its accent colour (lit from above), clipped to
 // the circle, with a darker ring.
-function composeAvatar(render: HTMLCanvasElement, accent: string): HTMLCanvasElement {
-  const size = PORTRAIT_PX
+function composeAvatar(render: HTMLCanvasElement, accent: string, px: number): HTMLCanvasElement {
+  // Composed at the exact pixel size it's shown at: the disc and ring are
+  // drawn as vectors there, and the character is downscaled once with
+  // high-quality smoothing, so edges stay smooth. (Letting CSS shrink a large
+  // image, or canvas clip(), which isn't anti-aliased, left them jagged.)
   const out = document.createElement('canvas')
-  out.width = out.height = size
+  out.width = out.height = px
   const g = out.getContext('2d')!
-  const r = size / 2
+  const r = px / 2
+  const ring = Math.max(1, px * 0.04)
   const light = new THREE.Color(accent).lerp(new THREE.Color('#ffffff'), 0.45).getStyle()
-  const disc = g.createRadialGradient(r, r * 0.7, size * 0.05, r, r, r)
+  const disc = g.createRadialGradient(r, r * 0.7, px * 0.05, r, r, r)
   disc.addColorStop(0, light)
   disc.addColorStop(1, accent)
   g.beginPath()
-  g.arc(r, r, r - 2, 0, Math.PI * 2)
+  g.arc(r, r, r - ring / 2, 0, Math.PI * 2)
   g.fillStyle = disc
   g.fill()
-  g.save()
-  g.clip()
-  g.drawImage(render, 0, 0)
-  g.restore()
+  // The character, masked to the circle with an anti-aliased fill.
+  const figure = document.createElement('canvas')
+  figure.width = figure.height = px
+  const f = figure.getContext('2d')!
+  f.imageSmoothingEnabled = true
+  f.imageSmoothingQuality = 'high'
+  f.drawImage(render, 0, 0, px, px)
+  f.globalCompositeOperation = 'destination-in'
+  f.beginPath()
+  f.arc(r, r, r - ring / 2, 0, Math.PI * 2)
+  f.fill()
+  g.drawImage(figure, 0, 0)
   g.beginPath()
-  g.arc(r, r, r - 2.5, 0, Math.PI * 2)
-  g.lineWidth = 5
+  g.arc(r, r, r - ring / 2, 0, Math.PI * 2)
+  g.lineWidth = ring
   g.strokeStyle = new THREE.Color(accent).multiplyScalar(0.7).getStyle()
   g.stroke()
   return out
