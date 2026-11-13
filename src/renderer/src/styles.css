@@ -3925,3 +3925,10 @@ body {
   margin-top: 3px;
 }
 .titlebar-actions .acp-links-toggle svg { width: 16px; height: 16px; }
+
+/* On the board the side areas take only what they need and the search centres
+   in the space between them (not on the window), shrinking on narrow windows. */
+.titlebar.on-board .titlebar-side { flex: 0 0 auto; }
+.titlebar.on-board .titlebar-center { flex: 1 1 auto; min-width: 0; }
+.titlebar-search-slot { flex: 0 1 auto; min-width: 140px; }
+.titlebar-search-slot .titlebar-search { max-width: 100%; }

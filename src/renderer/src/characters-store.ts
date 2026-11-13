@@ -6,7 +6,7 @@ import { persist } from 'zustand/middleware'
 // character. Stored on this machine, like tags and pins.
 //
 // A look is a body model plus a head model from the Kenney Mini Characters set
-// (src/renderer/src/assets/office/characters). Every model shares one skeleton,
+// (src/renderer/src/assets/characters). Every model shares one skeleton,
 // so any head goes on any body.
 
 export const CHARACTER_MODELS = [
@@ -20,9 +20,8 @@ export const modelLabel = (m: CharacterModel): string =>
   m.replace(/^(female|male)-(\w)$/, (_, g: string, v: string) => `${g === 'female' ? 'Female' : 'Male'} ${v.toUpperCase()}`)
     .replace(/^\w/, (c) => c.toUpperCase())
 
-/** Accent colours: the name badge, avatar ring and (in the office) the glow of
- *  the character's monitor. Real colours rather than theme variables, since
- *  the 3D scene needs them too. */
+/** Accent colours: the name badge and avatar disc. Real colours rather than
+ *  theme variables, since they're baked into the rendered avatars. */
 export const CHARACTER_ACCENTS = [
   '#4c9aff', '#39c5cf', '#3fb950', '#e3b341', '#f0883e', '#ff7b72', '#db61a2', '#a371f7', '#8b949e'
 ] as const

@@ -46,8 +46,6 @@ interface ViewPrefsState {
   changesViewMode: 'list' | 'tree'
   /** The roster of running / needs-you sessions down the right (outside the board). */
   activeBarVisible: boolean
-  /** The sessions board shown as columns of cards, or as the office floor. */
-  boardView: 'board' | 'office'
   /** Width of the active-sessions roster, in px (dragged by its sash). */
   rosterWidth: number
 
@@ -71,7 +69,6 @@ interface ViewPrefsState {
   setShowHidden: (on: boolean) => void
   setChangesViewMode: (mode: 'list' | 'tree') => void
   setActiveBarVisible: (on: boolean) => void
-  setBoardView: (view: 'board' | 'office') => void
   setRosterWidth: (px: number) => void
   /** Drop pin/hide keys and cached pin metadata for sessions that no longer
    *  exist, so stale keys can't accumulate (mirrors how dead sessions' chat tabs
@@ -114,7 +111,6 @@ export const useViewPrefsStore = create<ViewPrefsState>()(
       showHidden: false,
       changesViewMode: 'list',
       activeBarVisible: true,
-      boardView: 'board',
       rosterWidth: 220,
 
       // Unpinning also drops the cached metadata (nothing to render offline).
@@ -173,7 +169,6 @@ export const useViewPrefsStore = create<ViewPrefsState>()(
       setShowHidden: (on) => set({ showHidden: on }),
       setChangesViewMode: (mode) => set({ changesViewMode: mode }),
       setActiveBarVisible: (on) => set({ activeBarVisible: on }),
-      setBoardView: (boardView) => set({ boardView }),
       setRosterWidth: (rosterWidth) => set({ rosterWidth }),
 
       pruneSessions: (liveIds) =>

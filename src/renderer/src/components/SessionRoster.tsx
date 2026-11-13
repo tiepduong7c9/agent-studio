@@ -1,4 +1,4 @@
-import { Building2, ChevronRight } from 'lucide-react'
+import { ChevronRight, SquareKanban } from 'lucide-react'
 import type { SessionMeta } from '../../../shared/acp'
 import { useSessionsStore } from '../acp/sessions-store'
 import { useSessionCharacter } from '../characters-store'
@@ -119,15 +119,15 @@ export function SessionRoster({
   currentSid,
   onSelectSession,
   onDeleteSession,
-  onOpenOffice
+  onOpenBoard
 }: {
   width: number
   sessions: SessionMeta[]
   currentSid: string | null
   onSelectSession: (sid: string) => void
   onDeleteSession: (sid: string) => void
-  /** Open the sessions board in its office view. */
-  onOpenOffice: () => void
+  /** Open the sessions board. */
+  onOpenBoard: () => void
 }) {
   const { needs, running, scheduled } = useActiveSessions(sessions, null)
   const shown = new Set([...needs, ...running, ...scheduled].map((s) => s.id))
@@ -151,15 +151,15 @@ export function SessionRoster({
         <span className="roster-title">Active</span>
       </div>
       <div className="roster-list">
-        <button className="roster-office" onClick={onOpenOffice}>
-          <span className="roster-office-icon">
-            <Building2 size={18} />
+        <button className="roster-shortcut" onClick={onOpenBoard}>
+          <span className="roster-shortcut-icon">
+            <SquareKanban size={18} />
           </span>
           <span className="roster-text">
-            <span className="roster-name">Open the office</span>
-            <span className="roster-sub">See everyone at their desks</span>
+            <span className="roster-name">Open the board</span>
+            <span className="roster-sub">Every session at a glance</span>
           </span>
-          <ChevronRight size={15} className="roster-office-chevron" />
+          <ChevronRight size={15} className="roster-shortcut-chevron" />
         </button>
         {needs.length > 0 && (
           <>
