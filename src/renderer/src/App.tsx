@@ -912,6 +912,10 @@ export function App() {
               currentSid={titleSession?.id ?? null}
               onSelectSession={openChat}
               onDeleteSession={deleteSession}
+              onOpenOffice={() => {
+                useViewPrefsStore.getState().setBoardView('office')
+                setBoardOpen(true)
+              }}
             />
           </>
         )}
