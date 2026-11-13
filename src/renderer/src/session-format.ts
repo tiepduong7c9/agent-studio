@@ -31,7 +31,7 @@ export const hostLabel = (host?: string | null): string =>
   host ? host.slice(host.lastIndexOf('@') + 1) : 'local'
 
 /** "in 5m" / "in 3h" / "now" for a future timestamp; empty when there isn't one. */
-const untilLabel = (at?: number): string => {
+export const untilLabel = (at?: number): string => {
   if (!at) return ''
   const m = Math.round((at - Date.now()) / 60000)
   if (m <= 0) return 'now'
@@ -56,4 +56,12 @@ export const scheduleLabel = (schedule: SessionSchedule): string => {
     parts.push(`${cron.recurring ? 'Scheduled' : 'Reminder'} ${when}${cron.prompt ? `: ${cron.prompt}` : ''}`)
   }
   return parts.join('\n')
+}
+
+/** One-line status for a session with something armed: "Looping · next in 5m",
+ *  "Scheduled · next in 2h" — the soonest known fire time, when there is one. */
+export const scheduleShort = (schedule: SessionSchedule): string => {
+  const times = [schedule.loop?.at, ...schedule.crons.map((c) => c.at)].filter((t): t is number => !!t)
+  const when = times.length ? untilLabel(Math.min(...times)) : ''
+  return `${schedule.loop ? 'Looping' : 'Scheduled'}${when ? ` · next ${when}` : ''}`
 }
