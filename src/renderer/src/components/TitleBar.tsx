@@ -260,7 +260,7 @@ export function TitleBar({
   const onBoard = boardOpen && !showBoard
   const boardView = useViewPrefsStore((st) => st.boardView)
   return (
-    <header className="titlebar">
+    <header className={`titlebar ${onBoard ? 'on-board' : ''}`}>
       <div className="titlebar-side left">
         <button
           className={`icon-button codicon codicon-layout-sidebar-left${leftVisible ? '' : '-off'}`}
@@ -292,11 +292,18 @@ export function TitleBar({
       {onBoard ? (
         <>
           {/* Search and filters shape the board's columns; the office seats
-              everyone with a character, so it has neither. */}
-          <div className="titlebar-center">{boardView === 'board' && <BoardSearch />}</div>
-          <div className="titlebar-side right">
+              everyone with a character, so it has neither. Both keep their
+              space there, so the toggle doesn't jump when switching. */}
+          <div className="titlebar-center">
+            <div className="titlebar-search-slot" style={boardView === 'office' ? { visibility: 'hidden' } : undefined}>
+              <BoardSearch />
+            </div>
             <BoardViewToggle />
-            {boardView === 'board' && <BoardFilters sessions={sessions} />}
+          </div>
+          <div className="titlebar-side right">
+            <div style={boardView === 'office' ? { visibility: 'hidden' } : undefined}>
+              <BoardFilters sessions={sessions} />
+            </div>
             <button className="btn btn-primary titlebar-new" onClick={onNewSession}>
               <Plus size={14} strokeWidth={2.5} />
               New
