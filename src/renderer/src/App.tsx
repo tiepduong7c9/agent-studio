@@ -32,6 +32,7 @@ import { PromptDialog } from './components/Dialogs'
 import { useTransferStore } from './transfer-store'
 import { useViewPrefsStore } from './view-prefs-store'
 import { useCaptureStore } from './capture-store'
+import { useCharactersStore } from './characters-store'
 import { extractCaptures } from './session-links'
 import { workspaceForSession } from './workspace'
 import type { AcpEvent } from './acp/protocol'
@@ -426,6 +427,7 @@ export function App() {
     useViewPrefsStore.getState().pruneSessions(live)
     useDrafts.getState().prune(live)
     useCaptureStore.getState().pruneCaptures(live)
+    useCharactersStore.getState().pruneAssignments(live)
   }, [sessions, pruneChats, remoteHosts, engineStatus, savedHostsResolved])
 
   // Keep a cached snapshot of each pinned session's metadata (name/cwd/host)

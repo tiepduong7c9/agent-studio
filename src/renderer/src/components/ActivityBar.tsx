@@ -7,6 +7,7 @@ import { CapturePatternsDialog } from './CapturePatternsDialog'
 import { RemoteHostsDialog } from './RemoteHostsDialog'
 import { SkillsManager } from './SkillsManager'
 import { TagsDialog } from './TagsDialog'
+import { CharactersDialog } from './CharactersDialog'
 import { ThemePicker } from './ThemePicker'
 
 // VS Code's activity bar: a thin icon strip on the far left that picks what
@@ -20,7 +21,7 @@ const VIEWS: { tab: PanelTab; label: string; Icon: typeof Files }[] = [
   { tab: 'skills', label: 'Skills', Icon: Lightbulb }
 ]
 
-type Dialog = 'skills' | 'tags' | 'patterns' | 'hosts' | 'about'
+type Dialog = 'skills' | 'tags' | 'characters' | 'patterns' | 'hosts' | 'about'
 
 interface Props {
   boardOpen: boolean
@@ -74,6 +75,7 @@ export function ActivityBar({
   const items: MenuItem[] = [
     { label: 'Skills', run: () => setDialog('skills') },
     { label: 'Tags', run: () => setDialog('tags') },
+    { label: 'Characters', run: () => setDialog('characters') },
     { label: 'Ticket Patterns', run: () => setDialog('patterns') },
     { label: 'Remote Hosts', run: () => setDialog('hosts') },
     { separator: true },
@@ -120,6 +122,7 @@ export function ActivityBar({
         />
       )}
       {dialog === 'tags' && <TagsDialog onClose={close} />}
+      {dialog === 'characters' && <CharactersDialog onClose={close} />}
       {dialog === 'patterns' && <CapturePatternsDialog onClose={close} />}
       {dialog === 'hosts' && (
         <RemoteHostsDialog

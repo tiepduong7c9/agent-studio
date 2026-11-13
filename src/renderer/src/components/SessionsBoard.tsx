@@ -11,6 +11,7 @@ import { useViewPrefsStore } from '../view-prefs-store'
 import { useGitInfoStore } from '../git-info-store'
 import { CaptureBadges, ControllerBadge, renderTitle, SessionTagIcon, WorktreeChip } from './SessionsPanel'
 import { useSessionMenu } from './session-actions'
+import { SessionAvatar, SessionCharacterName } from './CharacterAvatar'
 import './SessionsBoard.css'
 
 // A full-window board of every session, one column per connectable host. The
@@ -255,8 +256,12 @@ function PinTile({ c, active, onOpen, onDelete }: { c: Card; active: boolean; on
       }}
     >
       <div className="board-pin-title">
+        <SessionAvatar sid={s.id} size={26} />
+        <span className="board-pin-names">
+          <SessionCharacterName sid={s.id} />
+          <span className="board-pin-name">{renderTitle(s.name)}</span>
+        </span>
         <span className={`board-pin-dot ${st.cls}`} />
-        <span className="board-pin-name">{renderTitle(s.name)}</span>
         <ControllerBadge s={s} />
       </div>
       <div className="board-pin-meta">
@@ -428,6 +433,7 @@ function BoardCard({
       }}
     >
       <div className="board-card-title-line">
+        <SessionAvatar sid={s.id} size={22} />
         {unread && (
           <span className="board-card-unread" title="Marked unread">
             <Mail size={12} strokeWidth={2.25} />
@@ -456,7 +462,10 @@ function BoardCard({
             onBlur={(e) => menu.commitRename(e.currentTarget.value)}
           />
         ) : (
-          <span className="board-card-title">{renderTitle(s.name)}</span>
+          <span className="board-card-title">
+            <SessionCharacterName sid={s.id} />
+            {renderTitle(s.name)}
+          </span>
         )}
         <ControllerBadge s={s} />
         {s.schedule && (

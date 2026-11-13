@@ -10,6 +10,7 @@ import { BoardFilters, BoardSearch, laneOf } from './SessionsBoard'
 import { CaptureBadges, ControllerBadge, renderTitle } from './SessionsPanel'
 import { SessionLinksButton } from './SessionLinksButton'
 import { TagButton, useSessionMenu } from './session-actions'
+import { SessionAvatar, SessionCharacterName } from './CharacterAvatar'
 import { ThemePicker } from './ThemePicker'
 
 // The title bar carries what the view on screen needs, so the content below
@@ -80,6 +81,7 @@ function SessionPill({ s, onOpen, menu }: { s: SessionMeta; onOpen: () => void; 
       <span className="titlebar-pill-sep">›</span>
       <span className="titlebar-pill-crumb">{projectLabel(s.cwd)}</span>
       <span className="titlebar-pill-sep">›</span>
+      <SessionAvatar sid={s.id} size={18} />
       {menu.editing ? (
         <input
           className="titlebar-pill-rename"
@@ -95,7 +97,10 @@ function SessionPill({ s, onOpen, menu }: { s: SessionMeta; onOpen: () => void; 
           onBlur={(e) => menu.commitRename(e.currentTarget.value)}
         />
       ) : (
-        <span className="titlebar-pill-title">{renderTitle(s.name)}</span>
+        <span className="titlebar-pill-title">
+          <SessionCharacterName sid={s.id} />
+          {renderTitle(s.name)}
+        </span>
       )}
       <ControllerBadge s={s} />
       {unread && (

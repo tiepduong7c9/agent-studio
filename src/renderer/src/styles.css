@@ -2682,6 +2682,97 @@ body {
 .tags-actions { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
 .tags-actions .btn { display: inline-flex; align-items: center; gap: 5px; }
 
+/* ── Characters (avatars + Customizations → Characters) ─────────────── */
+/* A plain image: the disc, gradient and ring are baked into the portrait, so
+   a long list of avatars (the session switcher) costs no clipping or
+   gradient work. */
+.char-avatar { flex: 0 0 auto; display: inline-block; vertical-align: middle; }
+.char-avatar img,
+.char-avatar svg { display: block; width: 100%; height: 100%; }
+/* "Mia · Release" ahead of the session title. */
+.char-name { font-weight: 700; margin-right: 6px; white-space: nowrap; }
+.char-name::after {
+  content: '';
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  margin-left: 6px;
+  vertical-align: middle;
+  border-radius: 50%;
+  background: var(--char-accent);
+}
+.char-role { font-weight: 500; color: var(--vscode-descriptionForeground); }
+.board-pin-names { display: flex; flex-direction: column; min-width: 0; flex: 1; line-height: 1.25; }
+.board-pin-names .char-name { font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+.board-pin-names .char-name::after { display: none; }
+.board-pin-names .board-pin-name { color: var(--vscode-descriptionForeground); font-size: 12px; }
+.board-card-title-line .char-avatar { margin-top: -1px; }
+.quick-open-row .char-avatar { margin-right: 2px; }
+
+.characters-dialog { width: 860px; max-width: calc(100vw - 40px); }
+.char-layout { display: grid; grid-template-columns: 230px 1fr; gap: 16px; margin-top: 12px; }
+.char-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 440px;
+  overflow-y: auto;
+  padding-right: 4px;
+  border-right: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+}
+.char-list .tags-group-label { margin: 10px 0 4px; }
+.char-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--vscode-foreground);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.char-row:hover { background: var(--vscode-list-hoverBackground); }
+.char-row.selected { background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); }
+.char-row-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.char-row-name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.char-row-role { font-size: 11.5px; opacity: 0.7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.char-row-count {
+  flex: 0 0 auto;
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+  background: color-mix(in srgb, currentColor 16%, transparent);
+}
+.char-add { margin-top: 8px; display: inline-flex; align-items: center; gap: 5px; align-self: flex-start; }
+.char-editor { display: grid; grid-template-columns: 220px 1fr; gap: 16px; align-items: start; min-height: 300px; }
+/* The turntable stage: a soft spotlight so the character reads in any theme. */
+.char-preview {
+  width: 220px;
+  height: 300px;
+  border-radius: 12px;
+  background: radial-gradient(ellipse at 50% 38%, #4a5a78 0%, #232c3d 70%);
+  cursor: grab;
+  touch-action: none;
+}
+.char-preview:active { cursor: grabbing; }
+.char-fields { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.char-field { display: flex; align-items: center; gap: 10px; }
+.char-field-label { flex: 0 0 48px; font-size: 12px; color: var(--vscode-descriptionForeground); }
+.char-field .dialog-input { flex: 1; min-width: 0; height: 30px; box-sizing: border-box; }
+.char-stepper { display: flex; align-items: center; gap: 4px; }
+.char-stepper .icon-button { display: inline-flex; align-items: center; justify-content: center; }
+.char-stepper-value { min-width: 96px; text-align: center; font-size: 13px; font-weight: 600; }
+.char-editor-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; }
+.char-editor-actions .btn { display: inline-flex; align-items: center; gap: 5px; }
+.char-assigned { font-size: 12px; color: var(--vscode-descriptionForeground); }
+.char-generic-note { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--vscode-descriptionForeground); }
+
 /* ── Ticket Patterns dialog ──────────────────────────────────────────── */
 .capture-dialog { width: 560px; }
 .capture-title { display: flex; align-items: center; gap: 6px; }

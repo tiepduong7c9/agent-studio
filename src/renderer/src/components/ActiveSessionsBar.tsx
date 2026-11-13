@@ -8,6 +8,7 @@ import { ContextMenu, type MenuItem } from './ContextMenu'
 import { laneOf, useSnoozeStore } from './SessionsBoard'
 import { ControllerBadge, renderTitle } from './SessionsPanel'
 import { useSessionMenu } from './session-actions'
+import { SessionAvatar, SessionCharacterName } from './CharacterAvatar'
 import './ActiveSessionsBar.css'
 
 // A strip under the title bar in the session view: the *other* sessions that
@@ -83,6 +84,7 @@ function Card({
       }}
     >
       <span className={`active-bar-dot ${lane}`} />
+      <SessionAvatar sid={s.id} size={18} />
       {menu.editing ? (
         <input
           className="active-bar-rename"
@@ -98,7 +100,10 @@ function Card({
           onBlur={(e) => menu.commitRename(e.currentTarget.value)}
         />
       ) : (
-        <span className="active-bar-name">{menu.busy ? `${menu.busy}…` : renderTitle(s.name)}</span>
+        <span className="active-bar-name">
+          <SessionCharacterName sid={s.id} />
+          {menu.busy ? `${menu.busy}…` : renderTitle(s.name)}
+        </span>
       )}
       <ControllerBadge s={s} />
       <span className="active-bar-host">{hostLabel(s.host)}</span>
