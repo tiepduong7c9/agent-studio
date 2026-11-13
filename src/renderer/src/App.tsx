@@ -49,6 +49,12 @@ function clampWidth(w: number): number {
   return Math.min(Math.max(w, MIN_PANEL_WIDTH), Math.floor(window.innerWidth * 0.4))
 }
 
+/** The roster: wide enough for an avatar and a short name, at most a third of
+ *  the window. */
+function clampRosterWidth(w: number): number {
+  return Math.round(Math.min(Math.max(w, 160), Math.max(160, Math.floor(window.innerWidth / 3))))
+}
+
 const normRoot = (p: string): string => p.replace(/\/+$/, '') || '/'
 
 /** A workspace rooted exactly at a session's own cwd/host. */
@@ -762,6 +768,8 @@ export function App() {
   }, [setHostStatus])
 
   const activeBarVisible = useViewPrefsStore((s) => s.activeBarVisible)
+  const rosterWidth = useViewPrefsStore((s) => s.rosterWidth)
+  const setRosterWidth = useViewPrefsStore((s) => s.setRosterWidth)
 
   // The session named in the title bar: the one whose tabs are on screen.
   const titleSession = activeSid ? (sessions.find((s) => s.id === activeSid) ?? null) : null
@@ -893,12 +901,19 @@ export function App() {
         {/* Who's running or waiting on you, by face. The board shows everyone,
             so the roster only appears outside it. */}
         {!SESSIONS_SIDEBAR && !boardOpen && activeBarVisible && !maximized && (
-          <SessionRoster
-            sessions={sessions}
-            currentSid={titleSession?.id ?? null}
-            onSelectSession={openChat}
-            onDeleteSession={deleteSession}
-          />
+          <>
+            <Sash
+              onResizeStart={() => (dragBase.current = rosterWidth)}
+              onResize={(d) => setRosterWidth(clampRosterWidth(dragBase.current - d))}
+            />
+            <SessionRoster
+              width={rosterWidth}
+              sessions={sessions}
+              currentSid={titleSession?.id ?? null}
+              onSelectSession={openChat}
+              onDeleteSession={deleteSession}
+            />
+          </>
         )}
         {SESSIONS_SIDEBAR && rightVisible && !maximized && (
           <>

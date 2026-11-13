@@ -3,7 +3,7 @@
   --roster-running: var(--vscode-charts-blue, #3794ff);
   --roster-needs: var(--vscode-charts-orange, #d18616);
   --roster-done: var(--vscode-charts-green, #3fb950);
-  flex: 0 0 220px;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   min-height: 0;

@@ -87,11 +87,13 @@ function Row({ s, current, onOpen, onDelete }: { s: SessionMeta; current: boolea
 }
 
 export function SessionRoster({
+  width,
   sessions,
   currentSid,
   onSelectSession,
   onDeleteSession
 }: {
+  width: number
   sessions: SessionMeta[]
   currentSid: string | null
   onSelectSession: (sid: string) => void
@@ -103,7 +105,7 @@ export function SessionRoster({
     <Row key={s.id} s={s} current={s.id === currentSid} onOpen={() => onSelectSession(s.id)} onDelete={() => onDeleteSession(s.id)} />
   )
   return (
-    <aside className="session-roster">
+    <aside className="session-roster" style={{ width }}>
       <div className="roster-header">
         <span className="roster-title">Active</span>
         <button className="icon-button codicon codicon-close" title="Hide (title bar button brings it back)" onClick={() => setVisible(false)} />
