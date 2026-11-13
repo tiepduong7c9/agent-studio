@@ -1,7 +1,7 @@
 import { ChevronRight, SquareKanban } from 'lucide-react'
 import type { SessionMeta } from '../../../shared/acp'
 import { useSessionsStore } from '../acp/sessions-store'
-import { useSessionCharacter } from '../characters-store'
+import { useCharactersStore, useSessionCharacter } from '../characters-store'
 import { hostLabel, projectLabel, relTime, scheduleLabel, scheduleShort, sessionActivity } from '../session-format'
 import { laneOf, useSnoozeStore } from './SessionsBoard'
 import { CharacterAvatar, type AvatarMotion } from './CharacterAvatar'
@@ -11,7 +11,9 @@ import './SessionRoster.css'
 
 // A roster down the right of the session view: every session that needs you
 // or is running (or has a loop / scheduled job armed), by face, so you can see who's busy and hop between them
-// without opening the board, then the most recently used of the rest. The
+// without opening the board, then the rest of your team (every session with a
+// character, so they never drop off the list), then the most recently used of
+// the rest. The
 // session on screen is included and highlighted. The title bar's toggle
 // hides it.
 
@@ -130,7 +132,16 @@ export function SessionRoster({
   onOpenBoard: () => void
 }) {
   const { needs, running, scheduled } = useActiveSessions(sessions, null)
+  const characters = useCharactersStore((st) => st.characters)
+  const assignments = useCharactersStore((st) => st.assignments)
   const shown = new Set([...needs, ...running, ...scheduled].map((s) => s.id))
+  // Sessions with a character always stay listed, in character-list order.
+  const order = new Map(characters.map((c, i) => [c.id, i]))
+  const rank = (s: SessionMeta): number | undefined => order.get(assignments[s.id] ?? '')
+  const team = sessions
+    .filter((s) => !shown.has(s.id) && rank(s) !== undefined)
+    .sort((a, b) => rank(a)! - rank(b)! || sessionActivity(b) - sessionActivity(a))
+  for (const s of team) shown.add(s.id)
   const recent = sessions
     .filter((s) => !shown.has(s.id))
     .sort((a, b) => sessionActivity(b) - sessionActivity(a))
@@ -186,6 +197,14 @@ export function SessionRoster({
           </>
         )}
         {!needs.length && !running.length && !scheduled.length && <div className="roster-empty">Nothing running or waiting on you.</div>}
+        {team.length > 0 && (
+          <>
+            <div className="roster-group recent">
+              Team <span className="roster-count">{team.length}</span>
+            </div>
+            {team.map((s) => row(s, false))}
+          </>
+        )}
         {recent.length > 0 && (
           <>
             <div className="roster-group recent">Recent</div>
