@@ -12,6 +12,7 @@ import { useGitInfoStore } from '../git-info-store'
 import { CaptureBadges, ControllerBadge, renderTitle, SessionTagIcon, WorktreeChip } from './SessionsPanel'
 import { useSessionMenu } from './session-actions'
 import { SessionAvatar, SessionCharacterName } from './CharacterAvatar'
+import { OfficeView } from './OfficeView'
 import './SessionsBoard.css'
 
 // A full-window board of every session, one column per connectable host. The
@@ -666,6 +667,7 @@ export function SessionsBoard({
   const filter = useBoardStore((s) => s.filter)
   const query = useBoardStore((s) => s.query)
   const setQuery = useBoardStore((s) => s.setQuery)
+  const boardView = useViewPrefsStore((s) => s.boardView)
 
   const NO_CAPTURES: Capture[] = []
   const capturesFor = (sid: string): Capture[] => capturesBySid[sid] ?? NO_CAPTURES
@@ -782,6 +784,14 @@ export function SessionsBoard({
     q,
     searching
   ])
+
+  if (boardView === 'office') {
+    return (
+      <div className="sessions-board">
+        <OfficeView sessions={sessions} onSelectSession={onSelectSession} />
+      </div>
+    )
+  }
 
   return (
     <div className="sessions-board">

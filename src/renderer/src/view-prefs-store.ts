@@ -46,6 +46,8 @@ interface ViewPrefsState {
   changesViewMode: 'list' | 'tree'
   /** The session view's bar of other running / needs-you sessions. */
   activeBarVisible: boolean
+  /** The sessions board shown as columns of cards, or as the office floor. */
+  boardView: 'board' | 'office'
 
   togglePin: (sid: string) => void
   /** Flag/unflag a session as unread (follow-up-later). */
@@ -67,6 +69,7 @@ interface ViewPrefsState {
   setShowHidden: (on: boolean) => void
   setChangesViewMode: (mode: 'list' | 'tree') => void
   setActiveBarVisible: (on: boolean) => void
+  setBoardView: (view: 'board' | 'office') => void
   /** Drop pin/hide keys and cached pin metadata for sessions that no longer
    *  exist, so stale keys can't accumulate (mirrors how dead sessions' chat tabs
    *  are pruned). Only safe to call once every host is connected — see the
@@ -108,6 +111,7 @@ export const useViewPrefsStore = create<ViewPrefsState>()(
       showHidden: false,
       changesViewMode: 'list',
       activeBarVisible: true,
+      boardView: 'board',
 
       // Unpinning also drops the cached metadata (nothing to render offline).
       togglePin: (sid) =>
@@ -165,6 +169,7 @@ export const useViewPrefsStore = create<ViewPrefsState>()(
       setShowHidden: (on) => set({ showHidden: on }),
       setChangesViewMode: (mode) => set({ changesViewMode: mode }),
       setActiveBarVisible: (on) => set({ activeBarVisible: on }),
+      setBoardView: (boardView) => set({ boardView }),
 
       pruneSessions: (liveIds) =>
         set((s) => {

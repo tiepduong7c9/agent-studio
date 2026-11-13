@@ -7,6 +7,7 @@ import { hostLabel, projectLabel, relTime, sessionActivity } from '../session-fo
 import { useViewPrefsStore } from '../view-prefs-store'
 import { useActiveSessions } from './ActiveSessionsBar'
 import { BoardFilters, BoardSearch, laneOf } from './SessionsBoard'
+import { BoardViewToggle } from './OfficeView'
 import { CaptureBadges, ControllerBadge, renderTitle } from './SessionsPanel'
 import { SessionLinksButton } from './SessionLinksButton'
 import { TagButton, useSessionMenu } from './session-actions'
@@ -257,6 +258,7 @@ export function TitleBar({
 }: Props) {
   const project = activeWorkspace
   const onBoard = boardOpen && !showBoard
+  const boardView = useViewPrefsStore((st) => st.boardView)
   return (
     <header className="titlebar">
       <div className="titlebar-side left">
@@ -289,11 +291,12 @@ export function TitleBar({
       </div>
       {onBoard ? (
         <>
-          <div className="titlebar-center">
-            <BoardSearch />
-          </div>
+          {/* Search and filters shape the board's columns; the office seats
+              everyone with a character, so it has neither. */}
+          <div className="titlebar-center">{boardView === 'board' && <BoardSearch />}</div>
           <div className="titlebar-side right">
-            <BoardFilters sessions={sessions} />
+            <BoardViewToggle />
+            {boardView === 'board' && <BoardFilters sessions={sessions} />}
             <button className="btn btn-primary titlebar-new" onClick={onNewSession}>
               <Plus size={14} strokeWidth={2.5} />
               New
