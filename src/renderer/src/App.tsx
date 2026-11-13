@@ -912,6 +912,7 @@ export function App() {
               currentSid={titleSession?.id ?? null}
               onSelectSession={openChat}
               onDeleteSession={deleteSession}
+              onOpenBoard={() => setBoardOpen(true)}
             />
           </>
         )}

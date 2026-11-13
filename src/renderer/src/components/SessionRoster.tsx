@@ -1,3 +1,4 @@
+import { ChevronRight, SquareKanban } from 'lucide-react'
 import type { SessionMeta } from '../../../shared/acp'
 import { useSessionsStore } from '../acp/sessions-store'
 import { useSessionCharacter } from '../characters-store'
@@ -117,13 +118,16 @@ export function SessionRoster({
   sessions,
   currentSid,
   onSelectSession,
-  onDeleteSession
+  onDeleteSession,
+  onOpenBoard
 }: {
   width: number
   sessions: SessionMeta[]
   currentSid: string | null
   onSelectSession: (sid: string) => void
   onDeleteSession: (sid: string) => void
+  /** Open the sessions board. */
+  onOpenBoard: () => void
 }) {
   const { needs, running, scheduled } = useActiveSessions(sessions, null)
   const shown = new Set([...needs, ...running, ...scheduled].map((s) => s.id))
@@ -147,6 +151,16 @@ export function SessionRoster({
         <span className="roster-title">Active</span>
       </div>
       <div className="roster-list">
+        <button className="roster-shortcut" onClick={onOpenBoard}>
+          <span className="roster-shortcut-icon">
+            <SquareKanban size={18} />
+          </span>
+          <span className="roster-text">
+            <span className="roster-name">Open the board</span>
+            <span className="roster-sub">Every session at a glance</span>
+          </span>
+          <ChevronRight size={15} className="roster-shortcut-chevron" />
+        </button>
         {needs.length > 0 && (
           <>
             <div className="roster-group needs">
