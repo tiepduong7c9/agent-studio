@@ -54,26 +54,93 @@
 .acp-sel-pop button:hover { background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground)); }
 /* Jump-to-bottom button, shown while scrolled up from the latest message.
    Anchored just above the composer, clear of its frosted backdrop. */
-.acp-to-bottom {
+.acp-float {
   position: absolute;
   bottom: calc(100% + 32px);
-  pointer-events: auto;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
   align-items: center;
+  gap: 6px;
+  pointer-events: auto;
+}
+.acp-to-bottom,
+.acp-float-pill {
+  display: flex;
+  align-items: center;
   justify-content: center;
-  width: 28px;
   height: 28px;
   padding: 0;
   border: 1px solid var(--vscode-editorWidget-border, var(--vscode-input-border, var(--vscode-sideBar-border)));
-  border-radius: 50%;
+  border-radius: 14px;
   background: var(--vscode-editorWidget-background, var(--vscode-input-background));
   color: var(--vscode-foreground);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
   cursor: pointer;
 }
-.acp-to-bottom:hover { background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground)); }
+.acp-to-bottom { width: 28px; }
+.acp-float-pill { gap: 5px; padding: 0 10px; }
+.acp-float-pill.marked { color: var(--vscode-textLink-foreground); }
+/* Bookmarks: jump (left) and list (right) halves of one pill. */
+.acp-float-split { display: flex; border-radius: 14px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28); }
+.acp-float-split .acp-float-pill { box-shadow: none; }
+.acp-float-split .acp-float-pill:first-child { border-radius: 14px 0 0 14px; padding-right: 8px; }
+.acp-float-split .acp-float-more { border-left: 0; border-radius: 0 14px 14px 0; padding: 0 7px 0 5px; }
+.acp-float-split.active .acp-float-more { color: var(--vscode-focusBorder); }
+.acp-to-bottom:hover,
+.acp-float-pill:hover { background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground)); }
+/* The bookmark list opens upwards from its button. */
+.acp-marks { position: relative; }
+.acp-marks-list {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(360px, 80vw);
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--vscode-editorWidget-border, var(--vscode-input-border, var(--vscode-sideBar-border)));
+  border-radius: 8px;
+  background: var(--vscode-editorWidget-background, var(--vscode-input-background));
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+}
+.acp-marks-title {
+  padding: 4px 8px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--vscode-descriptionForeground);
+}
+.acp-marks-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 4px 5px 8px;
+  border-radius: 5px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.acp-marks-item:hover,
+.acp-marks-item:focus-visible { background: var(--vscode-list-hoverBackground); outline: none; }
+.acp-marks-icon { flex: 0 0 auto; color: var(--vscode-textLink-foreground); }
+.acp-marks-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acp-marks-time { flex: 0 0 auto; color: var(--vscode-descriptionForeground); font-size: 11px; }
+.acp-marks-remove {
+  flex: 0 0 auto;
+  display: flex;
+  padding: 2px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--vscode-descriptionForeground);
+  cursor: pointer;
+  visibility: hidden;
+}
+.acp-marks-item:hover .acp-marks-remove { visibility: visible; }
+.acp-marks-remove:hover { color: var(--vscode-foreground); background: var(--vscode-toolbar-hoverBackground); }
 
 .acp-overlay {
   position: absolute;
@@ -161,6 +228,15 @@
 /* User turns aren't part of the agent's activity spine: no dot, no connector. */
 .acp-row-user .acp-row-dot { display: none; }
 .acp-row-error .acp-row-dot { background: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) 55%, var(--vscode-editor-background)); }
+/* A bookmarked row: a ribbon in the gutter, over the activity dot. */
+.acp-row-bookmark {
+  position: absolute;
+  left: -24px;
+  top: 5px;
+  z-index: 1;
+  color: var(--vscode-textLink-foreground);
+  fill: currentColor;
+}
 .acp-row-dot.pulse { background: var(--vscode-progressBar-background, var(--vscode-focusBorder)); animation: acp-pulse 1.4s ease-in-out infinite; }
 
 .acp-empty {
