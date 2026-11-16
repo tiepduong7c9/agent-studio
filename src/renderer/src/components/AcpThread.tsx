@@ -962,6 +962,18 @@ export function AcpThread({ sid, workspace = null, visible = true }: { sid: stri
     stickRef.current = false
     el.scrollTo({ top: el.scrollTop + row.getBoundingClientRect().top - el.getBoundingClientRect().top + b.offset, behavior: 'smooth' })
   }
+  /** Jump to the nearest bookmark above the reading position, so repeated
+   *  clicks step back through them; past the first, wrap to the last. */
+  const jumpToPrevious = () => {
+    const spot = readingSpot()
+    const at = spot ? (itemOrder.get(spot.itemId) ?? Infinity) : Infinity
+    const above = bookmarks.filter((b) => {
+      const i = itemOrder.get(b.itemId)!
+      return i < at || (i === at && b.offset < spot!.offset - 4)
+    })
+    const target = above[above.length - 1] ?? bookmarks[bookmarks.length - 1]
+    if (target) jumpTo(target)
+  }
   // Close the bookmark list on an outside click or Escape.
   useEffect(() => {
     if (!marksOpen) return
@@ -1277,15 +1289,25 @@ export function AcpThread({ sid, workspace = null, visible = true }: { sid: stri
             )}
             {bookmarks.length > 0 && (
               <div className="acp-marks" ref={marksRef}>
-                <button
-                  type="button"
-                  className={`acp-float-pill${marksOpen ? ' active' : ''}`}
-                  title="Bookmarks"
-                  aria-expanded={marksOpen}
-                  onClick={() => setMarksOpen((o) => !o)}
-                >
-                  <Bookmark size={13} /> {bookmarks.length}
-                </button>
+                <div className={`acp-float-split${marksOpen ? ' active' : ''}`}>
+                  <button
+                    type="button"
+                    className="acp-float-pill"
+                    title={bookmarks.length === 1 ? 'Go to bookmark' : 'Go to the previous bookmark (click again to step back)'}
+                    onClick={jumpToPrevious}
+                  >
+                    <Bookmark size={13} /> {bookmarks.length}
+                  </button>
+                  <button
+                    type="button"
+                    className="acp-float-pill acp-float-more"
+                    title="All bookmarks"
+                    aria-expanded={marksOpen}
+                    onClick={() => setMarksOpen((o) => !o)}
+                  >
+                    <ChevronDown size={13} />
+                  </button>
+                </div>
                 {marksOpen && (
                   <div className="acp-marks-list" role="menu">
                     <div className="acp-marks-title">Bookmarks</div>

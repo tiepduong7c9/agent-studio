@@ -84,7 +84,12 @@
 .acp-to-bottom { width: 28px; }
 .acp-float-pill { gap: 5px; padding: 0 10px; }
 .acp-float-pill.marked { color: var(--vscode-textLink-foreground); }
-.acp-float-pill.active { border-color: var(--vscode-focusBorder); }
+/* Bookmarks: jump (left) and list (right) halves of one pill. */
+.acp-float-split { display: flex; border-radius: 14px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28); }
+.acp-float-split .acp-float-pill { box-shadow: none; }
+.acp-float-split .acp-float-pill:first-child { border-radius: 14px 0 0 14px; padding-right: 8px; }
+.acp-float-split .acp-float-more { border-left: 0; border-radius: 0 14px 14px 0; padding: 0 7px 0 5px; }
+.acp-float-split.active .acp-float-more { color: var(--vscode-focusBorder); }
 .acp-to-bottom:hover,
 .acp-float-pill:hover { background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground)); }
 /* The bookmark list opens upwards from its button. */
