@@ -4,7 +4,7 @@ import remarkGfm from 'remark-gfm'
 import {
   AlertTriangle, BrainCircuit, Check, ChevronDown, ChevronRight, CircleHelp, CircleSlash,
   AtSign, Clock, Copy, Cpu, FileText, FolderTree, Gauge, Globe, ListTodo, Loader2, Pencil, Search,
-  ShieldQuestion, Square, SquareArrowOutUpRight, Terminal, Trash2, Wrench, X, ArrowDown, ArrowUp, Zap
+  ShieldQuestion, Square, Bookmark, BookmarkCheck, BookmarkPlus, SquareArrowOutUpRight, Terminal, Trash2, Wrench, X, ArrowDown, ArrowUp, Zap
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { SkillRef } from '../../../shared/acp'
@@ -20,6 +20,8 @@ import type {
 import { ASK_OPTION_META_KEY } from '../acp/protocol'
 import { useCommandHistory } from '../acp/command-history'
 import { useDrafts } from '../acp/drafts-store'
+import { useBookmarksStore, useSessionBookmarks, type Bookmark as ThreadBookmark } from '../acp/bookmarks-store'
+import { relTime } from '../session-format'
 import { fileTabId, planTabId, useTabsStore } from '../tabs-store'
 import type { ProjectInfo } from '../../../shared/types'
 
@@ -543,10 +545,12 @@ function ElicitationForm({ request, onSubmit, onSkip }: {
 }
 
 const MessageList = memo(function MessageList({
-  items, working, onAnswerPermission, onAnswerElicitation, onOpenPlan,
+  items, working, bookmarked, onAnswerPermission, onAnswerElicitation, onOpenPlan,
 }: {
   items: ThreadItem[]
   working: boolean
+  /** Ids of bookmarked items, marked in the gutter. */
+  bookmarked: Set<string>
   onAnswerPermission: (requestId: string, optionId: string | null) => void
   onAnswerElicitation: (requestId: string, response: AcpElicitationResponse) => void
   onOpenPlan: (requestId: string, text: string) => void
@@ -680,8 +684,9 @@ const MessageList = memo(function MessageList({
         }
         const failed = item.kind === 'tool' && (item.status === 'failed' || item.status === 'cancelled')
         return (
-          <div key={item.id} className={`acp-row acp-row-${item.kind}${failed ? ' failed' : ''}`}>
+          <div key={item.id} data-item-id={item.id} className={`acp-row acp-row-${item.kind}${failed ? ' failed' : ''}`}>
             <span className="acp-row-dot" aria-hidden />
+            {bookmarked.has(item.id) && <Bookmark className="acp-row-bookmark" size={12} aria-label="Bookmarked" />}
             {content}
           </div>
         )
@@ -695,6 +700,26 @@ const MessageList = memo(function MessageList({
     </div>
   )
 })
+
+/** A bookmark's label: the start of the message, or what the row is. */
+function bookmarkLabel(item: ThreadItem): string {
+  const clip = (t: string) => {
+    const one = t.replace(/[#>*_`~]+/g, '').replace(/\s+/g, ' ').trim()
+    return one.length > 70 ? `${one.slice(0, 69)}…` : one
+  }
+  switch (item.kind) {
+    case 'user': return clip(item.text) || 'Your message'
+    case 'assistant': return clip(item.text) || 'Claude'
+    case 'thought': return 'Thinking'
+    case 'tool': return clip(item.title) || 'Tool call'
+    case 'plan': return 'Plan'
+    case 'permission': return 'Permission request'
+    case 'elicitation': return 'Question'
+    case 'notice': return clip(item.text)
+    case 'interrupted': return 'Interrupted'
+    case 'error': return clip(item.message) || 'Error'
+  }
+}
 
 /** A pasted image staged in the composer, sent as an ACP image block on submit. */
 type Attachment = { id: string; mimeType: string; data: string }
@@ -751,6 +776,11 @@ export function AcpThread({ sid, workspace = null, visible = true }: { sid: stri
   const stickRef = useRef(true)
   // Mirrors stickRef for rendering: the jump-to-bottom button shows when false.
   const [atBottom, setAtBottom] = useState(true)
+  // Bookmarks: the spot offered after you stop scrolling up, and the list.
+  const [offer, setOffer] = useState<{ itemId: string; offset: number } | null>(null)
+  const offerTimer = useRef<number | undefined>(undefined)
+  const [marksOpen, setMarksOpen] = useState(false)
+  const marksRef = useRef<HTMLDivElement>(null)
   const attachSeq = useRef(0)
   // Prompt-history navigation (up/down arrows). navPos counts steps back from the
   // live draft: 0 = the draft the user is typing, 1 = the most recent sent prompt,
@@ -769,6 +799,20 @@ export function AcpThread({ sid, workspace = null, visible = true }: { sid: stri
   }, [sid, setHistory])
 
   const items = useMemo(() => buildThread(thread?.events ?? []), [thread?.events])
+  const itemOrder = useMemo(() => new Map(items.map((it, i) => [it.id, i])), [items])
+  const storedMarks = useSessionBookmarks(sid)
+  // Only bookmarks that still point at the message they were made on.
+  const bookmarks = useMemo(
+    () =>
+      storedMarks.filter((b) => {
+        const i = itemOrder.get(b.itemId)
+        if (i === undefined) return false
+        const label = bookmarkLabel(items[i])
+        return label === b.label || label.startsWith(b.label.replace(/…$/, ''))
+      }),
+    [storedMarks, itemOrder, items]
+  )
+  const bookmarkedIds = useMemo(() => new Set(bookmarks.map((b) => b.itemId)), [bookmarks])
   // Sent prompts this session, oldest first — the source for up/down history
   // navigation. Skips system-injected messages (angle-bracket prefixed) so only
   // things the user actually typed can be recalled.
@@ -880,14 +924,63 @@ export function AcpThread({ sid, workspace = null, visible = true }: { sid: stri
   }, [mentionQuery, skills])
   const showMention = mentionOpen && mentionQuery != null && mentionSuggestions.length > 0
 
-  // Auto-scroll while parked at the bottom.
+  /** The thread item at the top of the viewport, and how far into it. */
+  const readingSpot = (): { itemId: string; offset: number } | null => {
+    const el = scrollRef.current
+    if (!el) return null
+    const top = el.getBoundingClientRect().top
+    for (const row of el.querySelectorAll<HTMLElement>('[data-item-id]')) {
+      const r = row.getBoundingClientRect()
+      if (r.bottom > top + 24) return { itemId: row.dataset.itemId!, offset: Math.max(0, Math.round(top - r.top)) }
+    }
+    return null
+  }
+  // Auto-scroll while parked at the bottom. Scrolled up, pausing to read
+  // offers to bookmark the spot.
   const onScroll = () => {
     setSelPop(null)
     const el = scrollRef.current
     if (!el) return
     stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
     setAtBottom(stickRef.current)
+    window.clearTimeout(offerTimer.current)
+    setOffer(null)
+    if (!stickRef.current) offerTimer.current = window.setTimeout(() => setOffer(readingSpot()), 900)
   }
+  useEffect(() => () => window.clearTimeout(offerTimer.current), [])
+  const addBookmark = (spot: { itemId: string; offset: number }) => {
+    const i = itemOrder.get(spot.itemId)
+    if (i === undefined) return
+    useBookmarksStore.getState().add(sid, { ...spot, label: bookmarkLabel(items[i]), createdAt: Date.now() }, itemOrder)
+  }
+  const removeBookmark = (itemId: string) => useBookmarksStore.getState().remove(sid, itemId)
+  const jumpTo = (b: ThreadBookmark) => {
+    const el = scrollRef.current
+    const row = el?.querySelector<HTMLElement>(`[data-item-id="${CSS.escape(b.itemId)}"]`)
+    if (!el || !row) return
+    setMarksOpen(false)
+    stickRef.current = false
+    el.scrollTo({ top: el.scrollTop + row.getBoundingClientRect().top - el.getBoundingClientRect().top + b.offset, behavior: 'smooth' })
+  }
+  // Close the bookmark list on an outside click or Escape.
+  useEffect(() => {
+    if (!marksOpen) return
+    const onDown = (e: MouseEvent) => {
+      if (!marksRef.current?.contains(e.target as Node)) setMarksOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMarksOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [marksOpen])
+  useEffect(() => {
+    if (!bookmarks.length) setMarksOpen(false)
+  }, [bookmarks.length])
   const scrollToBottom = () => {
     const el = scrollRef.current
     if (!el) return
@@ -1145,7 +1238,7 @@ export function AcpThread({ sid, workspace = null, visible = true }: { sid: stri
       <div ref={bodyRef} className="acp-body">
         <div ref={scrollRef} className="acp-scroll" onScroll={onScroll} onMouseUp={updateSelPop} onKeyUp={updateSelPop}>
           <FileRefContext.Provider value={fileCtx}>
-            <MessageList items={items} working={working} onAnswerPermission={answerPermission} onAnswerElicitation={answerElicitation} onOpenPlan={openPlan} />
+            <MessageList items={items} working={working} bookmarked={bookmarkedIds} onAnswerPermission={answerPermission} onAnswerElicitation={answerElicitation} onOpenPlan={openPlan} />
           </FileRefContext.Provider>
         </div>
         {selPop && (
@@ -1169,10 +1262,55 @@ export function AcpThread({ sid, workspace = null, visible = true }: { sid: stri
       <div className="acp-composer">
         {/* Lives in the composer, which overlays the bottom of the thread, so it
             sits above the input instead of behind it. */}
-        {!atBottom && (
-          <button type="button" className="acp-to-bottom" title="Scroll to bottom" onClick={scrollToBottom}>
-            <ArrowDown size={14} />
-          </button>
+        {(!atBottom || bookmarks.length > 0) && (
+          <div className="acp-float">
+            {offer && !atBottom && (
+              bookmarkedIds.has(offer.itemId) ? (
+                <button type="button" className="acp-float-pill marked" title="Remove this bookmark" onClick={() => removeBookmark(offer.itemId)}>
+                  <BookmarkCheck size={13} /> Bookmarked
+                </button>
+              ) : (
+                <button type="button" className="acp-float-pill" title="Bookmark this spot to come back to it later" onClick={() => addBookmark(offer)}>
+                  <BookmarkPlus size={13} /> Bookmark this spot
+                </button>
+              )
+            )}
+            {bookmarks.length > 0 && (
+              <div className="acp-marks" ref={marksRef}>
+                <button
+                  type="button"
+                  className={`acp-float-pill${marksOpen ? ' active' : ''}`}
+                  title="Bookmarks"
+                  aria-expanded={marksOpen}
+                  onClick={() => setMarksOpen((o) => !o)}
+                >
+                  <Bookmark size={13} /> {bookmarks.length}
+                </button>
+                {marksOpen && (
+                  <div className="acp-marks-list" role="menu">
+                    <div className="acp-marks-title">Bookmarks</div>
+                    {bookmarks.map((b) => (
+                      <div key={b.itemId} className="acp-marks-item" role="menuitem" tabIndex={0} onClick={() => jumpTo(b)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') jumpTo(b) }}>
+                        <Bookmark size={12} className="acp-marks-icon" />
+                        <span className="acp-marks-label">{b.label}</span>
+                        <span className="acp-marks-time">{relTime(b.createdAt)}</span>
+                        <button type="button" className="acp-marks-remove" title="Remove bookmark"
+                          onClick={(e) => { e.stopPropagation(); removeBookmark(b.itemId) }}>
+                          <X size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            {!atBottom && (
+              <button type="button" className="acp-to-bottom" title="Scroll to bottom" onClick={scrollToBottom}>
+                <ArrowDown size={14} />
+              </button>
+            )}
+          </div>
         )}
         <div className="acp-composer-inner">
           {waiting && <div className="acp-waiting"><ShieldQuestion size={12} /> Claude is waiting for your permission above.</div>}
