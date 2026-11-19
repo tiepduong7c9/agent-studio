@@ -90,8 +90,21 @@
 .acp-float-split .acp-float-pill:first-child { border-radius: 14px 0 0 14px; padding-right: 8px; }
 .acp-float-split .acp-float-more { border-left: 0; border-radius: 0 14px 14px 0; padding: 0 7px 0 5px; }
 .acp-float-split.active .acp-float-more { color: var(--vscode-focusBorder); }
+/* The hover colour is translucent: lay it over the solid fill rather than
+   replacing it, or the thread shows through the button. */
 .acp-to-bottom:hover,
-.acp-float-pill:hover { background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground)); }
+.acp-float-pill:hover {
+  background-image: linear-gradient(
+    var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground)),
+    var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground))
+  );
+}
+/* No focus ring after a click (Chromium draws one in the OS accent colour);
+   keyboard focus still gets the theme's. */
+.acp-to-bottom:focus,
+.acp-float-pill:focus { outline: none; }
+.acp-to-bottom:focus-visible,
+.acp-float-pill:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
 /* The bookmark list opens upwards from its button. */
 .acp-marks { position: relative; }
 .acp-marks-list {
