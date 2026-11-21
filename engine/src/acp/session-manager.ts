@@ -286,6 +286,22 @@ export class SessionManager {
     this._persist();
   }
 
+  /** Per-session retained-history sizes, largest first, for the daemon's memory log. */
+  memoryStats(): { total: number; running: number; events: number; bytes: number; top: { id: string; name: string; status: string; events: number; bytes: number }[] } {
+    const rows = [...this._sessions.values()].map((r) => {
+      const h = r.acp?.historyStats?.() ?? { events: 0, bytes: 0 };
+      return { id: r.meta.id, name: r.meta.name, status: r.meta.status, events: h.events, bytes: h.bytes };
+    });
+    rows.sort((a, b) => b.bytes - a.bytes);
+    return {
+      total: rows.length,
+      running: rows.filter((r) => r.status === 'running').length,
+      events: rows.reduce((n, r) => n + r.events, 0),
+      bytes: rows.reduce((n, r) => n + r.bytes, 0),
+      top: rows.slice(0, 5),
+    };
+  }
+
   // ── internals ───────────────────────────────────────────────────────────────
 
   // Keep an internal listener on the acp session that mirrors status/reset/exit

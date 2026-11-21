@@ -167,6 +167,8 @@ class AcpSession {
     this._mcpServers = mcpServers;   // ACP McpServer[] every session/new + session/load passes
     this.listeners = new Set();      // shared with the SessionManager session record
     this.history = [];               // ordered thread events for replay on attach
+    this._historySizes = [];         // approx JSON size of each history entry (parallel array)
+    this._historyBytes = 0;          // sum of _historySizes
     this.claudeStatus = undefined;   // undefined = idle/never-prompted (green), like PTY
     this.acpSessionId = null;
     this.modeState = null;           // { currentModeId, availableModes:[{id,name,description}] }
@@ -372,9 +374,22 @@ class AcpSession {
     // attachments to one session never double-render the thread.
     if (item.seq === undefined) item.seq = this._seq++;
     this.history.push(item);
+    // Approximate retained size, for the daemon's memory log. Events are JSON
+    // over the wire anyway, so this is the size a snapshot will serialize to.
+    let bytes = 0;
+    try { bytes = JSON.stringify(item).length; } catch (_) {}
+    this._historySizes.push(bytes);
+    this._historyBytes += bytes;
     if (this.history.length > MAX_HISTORY) {
-      this.history.splice(0, this.history.length - MAX_HISTORY);
+      const drop = this.history.length - MAX_HISTORY;
+      this.history.splice(0, drop);
+      for (const b of this._historySizes.splice(0, drop)) this._historyBytes -= b;
     }
+  }
+
+  /** History size, for the daemon's periodic memory log. */
+  historyStats() {
+    return { events: this.history.length, bytes: this._historyBytes };
   }
 
   _setStatus(status) {
@@ -934,6 +949,8 @@ class AcpSession {
   // Clears the live thread and tells listeners to start fresh.
   _resetThread() {
     this.history = [];
+    this._historySizes = [];
+    this._historyBytes = 0;
     this._seq = 0;
     this._seqBase = 0;
     clearTimeout(this._bgIdleTimer);
