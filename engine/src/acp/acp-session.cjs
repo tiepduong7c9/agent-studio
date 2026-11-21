@@ -29,6 +29,25 @@ const { peekModelCatalog } = require('./model-catalog.cjs');
 const { readProjectTitles } = require('./ai-titles.cjs');
 
 const MAX_HISTORY = 5000; // cap retained thread events for replay
+// …and their approximate total size. A session's history lives in the daemon
+// for as long as the session does, so this is per-session resident memory.
+const MAX_HISTORY_BYTES = 32 * 1024 * 1024;
+
+// Updates whose text is merged into the previous stored event (see _mergeChunk).
+const CHUNK_UPDATES = new Set(['agent_message_chunk', 'agent_thought_chunk', 'user_message_chunk']);
+const CHUNK_UPDATE_KEYS = new Set(['sessionUpdate', 'content', 'messageId']);
+
+// The text of a plain text-chunk event, or null if it isn't one (images, extra
+// fields, …) — anything unusual is stored as-is rather than merged.
+function chunkText(item) {
+  const u = item && item.type === 'acp_update' && item.update;
+  if (!u || !CHUNK_UPDATES.has(u.sessionUpdate)) return null;
+  for (const k of Object.keys(u)) if (!CHUNK_UPDATE_KEYS.has(k)) return null;
+  const c = u.content;
+  if (!c || c.type !== 'text' || typeof c.text !== 'string') return null;
+  for (const k of Object.keys(c)) if (k !== 'type' && k !== 'text') return null;
+  return c.text;
+}
 
 // After a turn's prompt() resolves, the adapter keeps forwarding session updates
 // for autonomous background work (task-notification followups / draining
@@ -185,6 +204,7 @@ class AcpSession {
     this.history = [];               // ordered thread events for replay on attach
     this._historySizes = [];         // approx JSON size of each history entry (parallel array)
     this._historyBytes = 0;          // sum of _historySizes
+    this._mergedItems = new WeakSet(); // history events _mergeChunk has copied and may append to
     this.claudeStatus = undefined;   // undefined = idle/never-prompted (green), like PTY
     this.acpSessionId = null;
     this.modeState = null;           // { currentModeId, availableModes:[{id,name,description}] }
@@ -389,18 +409,62 @@ class AcpSession {
     // fanned out to every attached browser; keying dedup on seq means multiple
     // attachments to one session never double-render the thread.
     if (item.seq === undefined) item.seq = this._seq++;
+    if (this._mergeChunk(item)) return;
     this.history.push(item);
-    // Approximate retained size, for the daemon's memory log. Events are JSON
-    // over the wire anyway, so this is the size a snapshot will serialize to.
+    // Approximate retained size. Events are JSON over the wire anyway, so this
+    // is roughly what a snapshot will serialize to.
     let bytes = 0;
     try { bytes = JSON.stringify(item).length; } catch (_) {}
     this._historySizes.push(bytes);
     this._historyBytes += bytes;
-    if (this.history.length > MAX_HISTORY) {
-      const drop = this.history.length - MAX_HISTORY;
-      this.history.splice(0, drop);
-      for (const b of this._historySizes.splice(0, drop)) this._historyBytes -= b;
+    this._trimHistory();
+  }
+
+  // Streamed text arrives a token or so per update. Rather than keep each one
+  // as its own event, fold a text chunk into the stored event before it when
+  // both are the same kind of chunk; the client concatenates consecutive chunks
+  // anyway, so the rebuilt thread is identical. The merged event takes the
+  // newest chunk's seq: a client that attaches mid-stream keeps only live
+  // events above the snapshot's highest seq, so it neither loses nor repeats
+  // text. Only stored history is merged — live events still go out per chunk.
+  _mergeChunk(item) {
+    const text = chunkText(item);
+    if (text === null) return false;
+    const i = this.history.length - 1;
+    const last = this.history[i];
+    if (!last || chunkText(last) === null || last.update.sessionUpdate !== item.update.sessionUpdate) return false;
+    if (last.update.messageId !== item.update.messageId) return false;
+    // The stored event may be the very object that was emitted live; copy it
+    // once before mutating so we never alter an event after it was sent.
+    let merged = last;
+    if (!this._mergedItems.has(last)) {
+      // firstSeq keeps the first chunk's seq: the client keys the thread
+      // item's id off it, matching what a live client saw.
+      merged = { ...last, firstSeq: last.firstSeq ?? last.seq, update: { ...last.update, content: { ...last.update.content } } };
+      this._mergedItems.add(merged);
+      this.history[i] = merged;
     }
+    merged.update.content.text += text;
+    merged.seq = item.seq;
+    const grew = JSON.stringify(text).length - 2;
+    this._historySizes[i] += grew;
+    this._historyBytes += grew;
+    this._trimHistory();
+    return true;
+  }
+
+  // Bound history by both event count and approximate bytes, dropping the
+  // oldest events first (a client replays a long thread from its tail).
+  _trimHistory() {
+    let drop = Math.max(0, this.history.length - MAX_HISTORY);
+    let bytes = this._historyBytes;
+    for (let k = 0; k < drop; k++) bytes -= this._historySizes[k];
+    // Always keep the newest event, however large.
+    while (bytes > MAX_HISTORY_BYTES && drop < this.history.length - 1) bytes -= this._historySizes[drop++];
+    if (!drop) return;
+    this.history.splice(0, drop);
+    this._historySizes.splice(0, drop);
+    this._historyBytes = bytes;
   }
 
   /** History size, for the daemon's periodic memory log. */
