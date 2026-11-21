@@ -26,6 +26,7 @@ const os = require('os');
 const path = require('path');
 const { nanoid } = require('nanoid');
 const { peekModelCatalog } = require('./model-catalog.cjs');
+const { readProjectTitles } = require('./ai-titles.cjs');
 
 const MAX_HISTORY = 5000; // cap retained thread events for replay
 
@@ -1077,19 +1078,7 @@ class AcpSession {
   async _refreshTitle() {
     if (!this.acpSessionId) return;
     try {
-      const dir = this._projectDir();
-      let names;
-      try { names = await fs.promises.readdir(dir); } catch (_) { return; }
-      const files = [];
-      for (const f of names) {
-        if (!f.endsWith('.jsonl')) continue;
-        const full = path.join(dir, f);
-        let stat;
-        try { stat = await fs.promises.stat(full); } catch (_) { continue; }
-        if (!stat.size) continue;
-        files.push({ full, mtime: stat.mtimeMs });
-      }
-      const titles = await this._readAiTitles(files);
+      const { titles } = await readProjectTitles(this._projectDir());
       const title = titles.get(this.acpSessionId);
       if (title && title !== this._lastTitle) {
         this._lastTitle = title;
@@ -1107,50 +1096,16 @@ class AcpSession {
   }
 
   async listConversations() {
-    const dir = this._projectDir();
-    let names;
-    try { names = await fs.promises.readdir(dir); } catch (_) { return []; }
-    const files = [];
-    for (const f of names) {
-      if (!f.endsWith('.jsonl')) continue;
-      const full = path.join(dir, f);
-      let stat;
-      try { stat = await fs.promises.stat(full); } catch (_) { continue; }
-      if (!stat.size) continue;
-      files.push({ sessionId: f.replace(/\.jsonl$/, ''), full, mtime: stat.mtimeMs });
-    }
     // Prefer the AI-generated title Claude Code shows in its own pickers (TUI /
-    // VS Code). They're persisted as {"type":"ai-title",...} lines, cross-written
-    // across the project's logs, so we scan all of them once. Sessions without
-    // one (degenerate/aborted) fall back to the opening prompt.
-    const titles = await this._readAiTitles(files);
+    // VS Code); see ai-titles.cjs. Sessions without one (degenerate/aborted)
+    // fall back to the opening prompt.
+    const { files, titles } = await readProjectTitles(this._projectDir());
     const out = [];
     for (const { sessionId, full, mtime } of files) {
       out.push({ sessionId, title: titles.get(sessionId) || await this._readTitle(full), mtime });
     }
     out.sort((a, b) => b.mtime - a.mtime);
     return out;
-  }
-
-  // Scan every log for {"type":"ai-title","aiTitle","sessionId"} lines and map
-  // sessionId → title. Files are read oldest→newest so a regenerated title in a
-  // newer log overwrites an earlier one. The cheap substring guard avoids JSON
-  // parsing the vast majority of (non-title) lines.
-  async _readAiTitles(files) {
-    const map = new Map();
-    const ordered = [...files].sort((a, b) => a.mtime - b.mtime);
-    for (const { full } of ordered) {
-      let text;
-      try { text = await fs.promises.readFile(full, 'utf8'); } catch (_) { continue; }
-      if (!text.includes('"ai-title"')) continue;
-      for (const line of text.split('\n')) {
-        if (!line.includes('"ai-title"')) continue;
-        let o;
-        try { o = JSON.parse(line); } catch (_) { continue; }
-        if (o.type === 'ai-title' && o.sessionId && o.aiTitle) map.set(o.sessionId, String(o.aiTitle));
-      }
-    }
-    return map;
   }
 
   // Pull the first genuine human-typed text out of a user message's content,
