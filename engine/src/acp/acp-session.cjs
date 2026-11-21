@@ -148,6 +148,21 @@ function toolResultText(update) {
   return out.join('\n');
 }
 
+// Fields of a session/update that no client reads: the tool's raw input and
+// output, and the adapter's _meta (which repeats the SDK tool response — e.g. a
+// whole original file for an Edit). Only the live tracking above (_trackSchedule)
+// looks at them, before this runs. Dropping them from what's stored and fanned
+// out roughly halves a thread's retained history.
+const UNUSED_UPDATE_FIELDS = ['rawInput', 'rawOutput', '_meta'];
+
+function slimUpdate(update) {
+  if (!update || typeof update !== 'object') return update;
+  if (!UNUSED_UPDATE_FIELDS.some((k) => k in update)) return update;
+  const out = { ...update };
+  for (const k of UNUSED_UPDATE_FIELDS) delete out[k];
+  return out;
+}
+
 // The SDK is ESM-only; agentnode is CommonJS. Load it lazily via dynamic import.
 let _sdkPromise = null;
 function loadSdk() {
@@ -476,7 +491,7 @@ class AcpSession {
     }
     this._trackToolCall(update);
     this._trackSchedule(update);
-    const item = { type: 'acp_update', update };
+    const item = { type: 'acp_update', update: slimUpdate(update) };
     this._pushHistory(item);
     this._emit(item);
     this._noteBackgroundActivity();
