@@ -26,8 +26,28 @@ const os = require('os');
 const path = require('path');
 const { nanoid } = require('nanoid');
 const { peekModelCatalog } = require('./model-catalog.cjs');
+const { readProjectTitles } = require('./ai-titles.cjs');
 
 const MAX_HISTORY = 5000; // cap retained thread events for replay
+// …and their approximate total size. A session's history lives in the daemon
+// for as long as the session does, so this is per-session resident memory.
+const MAX_HISTORY_BYTES = 32 * 1024 * 1024;
+
+// Updates whose text is merged into the previous stored event (see _mergeChunk).
+const CHUNK_UPDATES = new Set(['agent_message_chunk', 'agent_thought_chunk', 'user_message_chunk']);
+const CHUNK_UPDATE_KEYS = new Set(['sessionUpdate', 'content', 'messageId']);
+
+// The text of a plain text-chunk event, or null if it isn't one (images, extra
+// fields, …) — anything unusual is stored as-is rather than merged.
+function chunkText(item) {
+  const u = item && item.type === 'acp_update' && item.update;
+  if (!u || !CHUNK_UPDATES.has(u.sessionUpdate)) return null;
+  for (const k of Object.keys(u)) if (!CHUNK_UPDATE_KEYS.has(k)) return null;
+  const c = u.content;
+  if (!c || c.type !== 'text' || typeof c.text !== 'string') return null;
+  for (const k of Object.keys(c)) if (k !== 'type' && k !== 'text') return null;
+  return c.text;
+}
 
 // After a turn's prompt() resolves, the adapter keeps forwarding session updates
 // for autonomous background work (task-notification followups / draining
@@ -147,6 +167,21 @@ function toolResultText(update) {
   return out.join('\n');
 }
 
+// Fields of a session/update that no client reads: the tool's raw input and
+// output, and the adapter's _meta (which repeats the SDK tool response — e.g. a
+// whole original file for an Edit). Only the live tracking above (_trackSchedule)
+// looks at them, before this runs. Dropping them from what's stored and fanned
+// out roughly halves a thread's retained history.
+const UNUSED_UPDATE_FIELDS = ['rawInput', 'rawOutput', '_meta'];
+
+function slimUpdate(update) {
+  if (!update || typeof update !== 'object') return update;
+  if (!UNUSED_UPDATE_FIELDS.some((k) => k in update)) return update;
+  const out = { ...update };
+  for (const k of UNUSED_UPDATE_FIELDS) delete out[k];
+  return out;
+}
+
 // The SDK is ESM-only; agentnode is CommonJS. Load it lazily via dynamic import.
 let _sdkPromise = null;
 function loadSdk() {
@@ -167,6 +202,8 @@ class AcpSession {
     this._mcpServers = mcpServers;   // ACP McpServer[] every session/new + session/load passes
     this.listeners = new Set();      // shared with the SessionManager session record
     this.history = [];               // ordered thread events for replay on attach
+    this._historySizes = [];         // approx JSON size of each history entry (parallel array)
+    this._historyBytes = 0;          // sum of _historySizes
     this.claudeStatus = undefined;   // undefined = idle/never-prompted (green), like PTY
     this.acpSessionId = null;
     this.modeState = null;           // { currentModeId, availableModes:[{id,name,description}] }
@@ -197,6 +234,9 @@ class AcpSession {
     this._openToolCalls = new Set(); // tool calls announced but not yet resolved
     this._sdkStateAuthoritative = false; // true once the adapter forwards SDK session_state_changed — then it drives status and the debounce stands down
     this._pendingRun = false;        // a prompt was sent but its SDK 'running' state hasn't arrived — gates out the prior turn's lagging 'idle'
+    // Like _activeTasks, but the watchdog doesn't clear it: a silent background
+    // task may still be running, so idle suspension must not kill its adapter.
+    this._openTasks = new Set();
     this._activeTasks = new Set();    // task_ids started but not yet settled (see _onExtNotification) — a non-empty set means detached background work is still running, so a session 'idle' must not read as idle
     this._sdkIdle = false;            // last SDK session_state was 'idle' — so a background task settling to empty can finish the turn without waiting for another state event
     this._bgTaskWatchdog = null;      // bounds the 'working' hold if a tracked task's terminal notification never arrives (see BG_TASK_WATCHDOG_MS)
@@ -272,6 +312,7 @@ class AcpSession {
       clearTimeout(this._bgIdleTimer);
       clearTimeout(this._bgTaskWatchdog); // don't let a settle timer fire on a dead session
       this._activeTasks.clear();
+      this._openTasks.clear();
       this._clearSchedule();              // armed wake-ups died with the process
       this._emit({ type: 'exit', code: code == null ? 0 : code });
       this.listeners.clear();
@@ -371,10 +412,67 @@ class AcpSession {
     // fanned out to every attached browser; keying dedup on seq means multiple
     // attachments to one session never double-render the thread.
     if (item.seq === undefined) item.seq = this._seq++;
+    if (this._mergeChunk(item)) return;
     this.history.push(item);
-    if (this.history.length > MAX_HISTORY) {
-      this.history.splice(0, this.history.length - MAX_HISTORY);
+    // Approximate retained size. Events are JSON over the wire anyway, so this
+    // is roughly what a snapshot will serialize to.
+    let bytes = 0;
+    try { bytes = JSON.stringify(item).length; } catch (_) {}
+    this._historySizes.push(bytes);
+    this._historyBytes += bytes;
+    this._trimHistory();
+  }
+
+  // Streamed text arrives a token or so per update. Rather than keep each one
+  // as its own event, fold a text chunk into the stored event before it when
+  // both are the same kind of chunk; the client concatenates consecutive chunks
+  // anyway, so the rebuilt thread is identical. The merged event takes the
+  // newest chunk's seq: a client that attaches mid-stream keeps only live
+  // events above the snapshot's highest seq, so it neither loses nor repeats
+  // text. Only stored history is merged — live events still go out per chunk.
+  _mergeChunk(item) {
+    const text = chunkText(item);
+    if (text === null) return false;
+    const i = this.history.length - 1;
+    const last = this.history[i];
+    if (!last || chunkText(last) === null || last.update.sessionUpdate !== item.update.sessionUpdate) return false;
+    if (last.update.messageId !== item.update.messageId) return false;
+    // The stored event may be the very object that was emitted live; copy it
+    // once before mutating so we never alter an event after it was sent. Only
+    // such copies carry firstSeq, so it marks one we may append to.
+    let merged = last;
+    if (last.firstSeq === undefined) {
+      // firstSeq keeps the first chunk's seq: the client keys the thread
+      // item's id off it, matching what a live client saw.
+      merged = { ...last, firstSeq: last.seq, update: { ...last.update, content: { ...last.update.content } } };
+      this.history[i] = merged;
     }
+    merged.update.content.text += text;
+    merged.seq = item.seq;
+    const grew = JSON.stringify(text).length - 2;
+    this._historySizes[i] += grew;
+    this._historyBytes += grew;
+    this._trimHistory();
+    return true;
+  }
+
+  // Bound history by both event count and approximate bytes, dropping the
+  // oldest events first (a client replays a long thread from its tail).
+  _trimHistory() {
+    let drop = Math.max(0, this.history.length - MAX_HISTORY);
+    let bytes = this._historyBytes;
+    for (let k = 0; k < drop; k++) bytes -= this._historySizes[k];
+    // Always keep the newest event, however large.
+    while (bytes > MAX_HISTORY_BYTES && drop < this.history.length - 1) bytes -= this._historySizes[drop++];
+    if (!drop) return;
+    this.history.splice(0, drop);
+    this._historySizes.splice(0, drop);
+    this._historyBytes = bytes;
+  }
+
+  /** History size, for the daemon's periodic memory log. */
+  historyStats() {
+    return { events: this.history.length, bytes: this._historyBytes };
   }
 
   _setStatus(status) {
@@ -460,7 +558,7 @@ class AcpSession {
     }
     this._trackToolCall(update);
     this._trackSchedule(update);
-    const item = { type: 'acp_update', update };
+    const item = { type: 'acp_update', update: slimUpdate(update) };
     this._pushHistory(item);
     this._emit(item);
     this._noteBackgroundActivity();
@@ -701,6 +799,7 @@ class AcpSession {
   _onTaskStarted(msg) {
     if (!msg.task_id || msg.skip_transcript) return;
     this._activeTasks.add(msg.task_id);
+    this._openTasks.add(msg.task_id);
     this._heartbeatBgTasks();
   }
 
@@ -711,6 +810,7 @@ class AcpSession {
   // land on idle. The watchdog stays armed either way to bound a follow-up (or
   // notification) that never arrives.
   _onTaskSettled(taskId, taskReInvokes) {
+    if (taskId != null) this._openTasks.delete(taskId);
     if (taskId == null || !this._activeTasks.delete(taskId)) return;
     if (!this._sdkIdle) return; // a live turn owns the status; its own idle will settle
     if (this._activeTasks.size > 0 || taskReInvokes) { this._armBgTaskWatchdog(); return; }
@@ -924,6 +1024,7 @@ class AcpSession {
     // with it, and their terminal notifications may never arrive. Drop the tracking
     // and the watchdog so status can't wedge at 'working' after the cancel.
     this._activeTasks.clear();
+    this._openTasks.clear();
     clearTimeout(this._bgTaskWatchdog);
     if (this._conn && this.acpSessionId) {
       Promise.resolve(this._conn.cancel({ sessionId: this.acpSessionId })).catch(() => {});
@@ -934,12 +1035,15 @@ class AcpSession {
   // Clears the live thread and tells listeners to start fresh.
   _resetThread() {
     this.history = [];
+    this._historySizes = [];
+    this._historyBytes = 0;
     this._seq = 0;
     this._seqBase = 0;
     clearTimeout(this._bgIdleTimer);
     clearTimeout(this._bgTaskWatchdog);
     this._openToolCalls.clear();
     this._activeTasks.clear();
+    this._openTasks.clear();
     this._sdkIdle = false;
     this._promptInFlight = false;
     this._pendingRun = false;
@@ -1060,19 +1164,7 @@ class AcpSession {
   async _refreshTitle() {
     if (!this.acpSessionId) return;
     try {
-      const dir = this._projectDir();
-      let names;
-      try { names = await fs.promises.readdir(dir); } catch (_) { return; }
-      const files = [];
-      for (const f of names) {
-        if (!f.endsWith('.jsonl')) continue;
-        const full = path.join(dir, f);
-        let stat;
-        try { stat = await fs.promises.stat(full); } catch (_) { continue; }
-        if (!stat.size) continue;
-        files.push({ full, mtime: stat.mtimeMs });
-      }
-      const titles = await this._readAiTitles(files);
+      const { titles } = await readProjectTitles(this._projectDir());
       const title = titles.get(this.acpSessionId);
       if (title && title !== this._lastTitle) {
         this._lastTitle = title;
@@ -1090,50 +1182,16 @@ class AcpSession {
   }
 
   async listConversations() {
-    const dir = this._projectDir();
-    let names;
-    try { names = await fs.promises.readdir(dir); } catch (_) { return []; }
-    const files = [];
-    for (const f of names) {
-      if (!f.endsWith('.jsonl')) continue;
-      const full = path.join(dir, f);
-      let stat;
-      try { stat = await fs.promises.stat(full); } catch (_) { continue; }
-      if (!stat.size) continue;
-      files.push({ sessionId: f.replace(/\.jsonl$/, ''), full, mtime: stat.mtimeMs });
-    }
     // Prefer the AI-generated title Claude Code shows in its own pickers (TUI /
-    // VS Code). They're persisted as {"type":"ai-title",...} lines, cross-written
-    // across the project's logs, so we scan all of them once. Sessions without
-    // one (degenerate/aborted) fall back to the opening prompt.
-    const titles = await this._readAiTitles(files);
+    // VS Code); see ai-titles.cjs. Sessions without one (degenerate/aborted)
+    // fall back to the opening prompt.
+    const { files, titles } = await readProjectTitles(this._projectDir());
     const out = [];
     for (const { sessionId, full, mtime } of files) {
       out.push({ sessionId, title: titles.get(sessionId) || await this._readTitle(full), mtime });
     }
     out.sort((a, b) => b.mtime - a.mtime);
     return out;
-  }
-
-  // Scan every log for {"type":"ai-title","aiTitle","sessionId"} lines and map
-  // sessionId → title. Files are read oldest→newest so a regenerated title in a
-  // newer log overwrites an earlier one. The cheap substring guard avoids JSON
-  // parsing the vast majority of (non-title) lines.
-  async _readAiTitles(files) {
-    const map = new Map();
-    const ordered = [...files].sort((a, b) => a.mtime - b.mtime);
-    for (const { full } of ordered) {
-      let text;
-      try { text = await fs.promises.readFile(full, 'utf8'); } catch (_) { continue; }
-      if (!text.includes('"ai-title"')) continue;
-      for (const line of text.split('\n')) {
-        if (!line.includes('"ai-title"')) continue;
-        let o;
-        try { o = JSON.parse(line); } catch (_) { continue; }
-        if (o.type === 'ai-title' && o.sessionId && o.aiTitle) map.set(o.sessionId, String(o.aiTitle));
-      }
-    }
-    return map;
   }
 
   // Pull the first genuine human-typed text out of a user message's content,
@@ -1240,6 +1298,7 @@ class AcpSession {
     clearTimeout(this._bgIdleTimer);
     clearTimeout(this._bgTaskWatchdog);
     this._activeTasks.clear();
+    this._openTasks.clear();
     this._clearSchedule();
     clearTimeout(this._titleDebounce);
     try { if (this._titleWatcher) this._titleWatcher.close(); } catch (_) {}

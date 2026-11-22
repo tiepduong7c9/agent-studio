@@ -5,10 +5,12 @@ import { persist } from 'zustand/middleware'
 // to return to after new messages arrive. Kept on this machine, per session.
 //
 // A bookmark points at a thread item (by its id, which is derived from the
-// item's position in the session's event log) plus how far into that item you
-// had scrolled. The item's opening text is stored too, both to label the
+// daemon's event seq for the item's first event) plus how far into that item
+// you had scrolled. The item's opening text is stored too, both to label the
 // bookmark and to notice when the id no longer points at the same message
-// (e.g. after the conversation was cleared).
+// (e.g. after the conversation was cleared). Seqs are reassigned when a session
+// is resumed from its transcript (daemon restart, idle suspend), so bookmarks
+// made before that no longer match and are hidden.
 
 export interface Bookmark {
   itemId: string

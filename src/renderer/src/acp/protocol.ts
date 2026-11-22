@@ -90,4 +90,10 @@ export type AcpEvent = (
   | { type: 'acp_usage'; usage: AcpUsage | null }
   | { type: 'acp_schedule'; schedule: SessionSchedule | null }
   | { type: 'acp_notice'; notice: string; text: string }
-) & { seq?: number; rxAt?: number }
+) & {
+  seq?: number
+  /** On a history event the daemon merged from several streamed chunks, the
+   *  seq of the first of them (seq is the last). See buildThread's item ids. */
+  firstSeq?: number
+  rxAt?: number
+}

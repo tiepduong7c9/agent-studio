@@ -10,6 +10,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const readline = require('readline');
 const { readOAuthToken } = require('./claude-auth.cjs');
 
 // OAuth requests to /v1/messages are rejected unless the first system block is
@@ -46,24 +47,46 @@ function _messageText(content) {
 }
 
 // Read the current conversation's log and condense it to a bounded transcript of
-// "User:" / "Assistant:" lines for the title prompt.
+// "User:" / "Assistant:" lines for the title prompt. Streamed line by line and
+// only the head and a rolling tail are kept — a log can be hundreds of MB.
 async function _readTranscript(cwd, acpSessionId) {
   const file = path.join(_projectDir(cwd), `${acpSessionId}.jsonl`);
-  let text;
-  try { text = await fs.promises.readFile(file, 'utf8'); } catch (_) { return ''; }
-  const lines = [];
-  for (const line of text.split('\n')) {
-    if (!line.trim()) continue;
-    let o;
-    try { o = JSON.parse(line); } catch (_) { continue; }
-    if ((o.type === 'user' || o.type === 'assistant') && o.message) {
+  const SEP = '\n\n';
+  const clean = (x) => x.replace(/\s+\n/g, '\n');
+  // Equivalent to joining every line and cleaning the whole, without holding it:
+  // the head is kept cleaned until it's comfortably past the cut-off (cleaning
+  // only collapses whitespace runs, so re-cleaning a grown prefix is exact); the
+  // rest is a raw rolling window, cleaned once at the end before taking its tail.
+  const HEAD_LIMIT = HEAD_CHARS + TAIL_CHARS + 1024;
+  const TAIL_WINDOW = 64 * 1024;
+  let head = '';
+  let overflow = false;
+  let rest = '';
+  let restTrimmed = false;
+  try {
+    const rl = readline.createInterface({ input: fs.createReadStream(file), crlfDelay: Infinity });
+    for await (const line of rl) {
+      if (!line.trim()) continue;
+      let o;
+      try { o = JSON.parse(line); } catch (_) { continue; }
+      if (!((o.type === 'user' || o.type === 'assistant') && o.message)) continue;
       const t = _messageText(o.message.content);
-      if (t) lines.push(`${o.type === 'user' ? 'User' : 'Assistant'}: ${t}`);
+      if (!t) continue;
+      const entry = `${o.type === 'user' ? 'User' : 'Assistant'}: ${t}`;
+      if (!overflow) {
+        head = clean(head ? head + SEP + entry : entry);
+        if (head.length > HEAD_LIMIT) overflow = true;
+      } else {
+        rest += SEP + entry;
+        if (rest.length > 2 * TAIL_WINDOW) { rest = rest.slice(-TAIL_WINDOW); restTrimmed = true; }
+      }
     }
+  } catch (_) {
+    return '';
   }
-  const joined = lines.join('\n\n').replace(/\s+\n/g, '\n');
-  if (joined.length <= HEAD_CHARS + TAIL_CHARS) return joined;
-  return `${joined.slice(0, HEAD_CHARS)}\n\n[...]\n\n${joined.slice(-TAIL_CHARS)}`;
+  if (!overflow && head.length <= HEAD_CHARS + TAIL_CHARS) return head;
+  const end = clean(restTrimmed ? rest : head + rest).slice(-TAIL_CHARS);
+  return `${head.slice(0, HEAD_CHARS)}\n\n[...]\n\n${end}`;
 }
 
 function _cleanTitle(raw) {

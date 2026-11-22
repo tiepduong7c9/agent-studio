@@ -31,4 +31,6 @@ function daemonSocketPath(): string {
 export const SOCKET_PATH = daemonSocketPath();
 
 export const PID_FILE = path.join(STATE_DIR, 'daemon.pid');
+export const LOG_DIR = path.join(STATE_DIR, 'logs');
+export const DAEMON_LOG = path.join(LOG_DIR, 'engine.log');
 export const SESSIONS_FILE = path.join(STATE_DIR, 'sessions.json');

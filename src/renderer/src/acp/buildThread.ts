@@ -59,7 +59,14 @@ export function buildThread(events: AcpEvent[]): ThreadItem[] {
     }
   }
 
-  events.forEach((e, i) => {
+  events.forEach((e, idx) => {
+    // Item ids key off the event's daemon seq (for a merged history event, the
+    // seq of its first chunk — the one a live client saw first), so a thread
+    // built live and the same thread reloaded from the daemon's compacted
+    // history get the same ids. Bookmarks rely on that. Events without a seq
+    // fall back to their position.
+    const s = e.firstSeq ?? e.seq
+    const i = typeof s === 'number' ? `s${s}` : String(idx)
     if (e.type === 'acp_user') {
       const images = imagesOf(e.blocks)
       items.push({ kind: 'user', id: `u${i}`, text: e.blocks.map(textOf).join(''), images: images.length ? images : undefined })

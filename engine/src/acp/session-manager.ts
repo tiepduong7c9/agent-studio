@@ -36,11 +36,27 @@ const STUDIO_MCP_SCRIPT = path.join(path.dirname(fileURLToPath(import.meta.url))
 // How long a relayed tool call may wait for the app (wait_for_session can
 // legitimately take up to its 30 min cap).
 const STUDIO_REQUEST_TIMEOUT_MS = 35 * 60_000;
+// A running session nobody is looking at or using keeps its adapter process
+// (a Claude Code instance, a few hundred MB) and its thread history alive
+// indefinitely. After this long idle and detached it's suspended — the same
+// dormant state a daemon restart leaves sessions in, resumed from the
+// transcript on next attach. AGENT_STUDIO_IDLE_SUSPEND_MS overrides it (0 = off).
+const IDLE_SUSPEND_MS = (() => {
+  const raw = process.env.AGENT_STUDIO_IDLE_SUSPEND_MS;
+  const v = raw ? Number(raw) : NaN;
+  return Number.isFinite(v) && v >= 0 ? v : 2 * 60 * 60_000;
+})();
+const IDLE_SWEEP_MS = Math.min(5 * 60_000, Math.max(1000, IDLE_SUSPEND_MS / 4));
 
 interface SessionRecord {
   meta: SessionMeta;
   acp: any; // AcpSession instance (untyped CJS)
   statusListener?: (event: AcpEvent) => void;
+  /** Last event, attach or detach (ms) — the idle sweep's clock. */
+  lastActiveAt?: number;
+  /** Event seq to continue from when a session suspended for idleness resumes,
+   *  so an attached client doesn't drop the replay as already seen. */
+  resumeSeq?: number;
 }
 
 export class SessionManager {
@@ -61,6 +77,7 @@ export class SessionManager {
   constructor() {
     fs.mkdirSync(STATE_DIR, { recursive: true });
     this._loadPersisted();
+    if (IDLE_SUSPEND_MS > 0) setInterval(() => this._suspendIdle(), IDLE_SWEEP_MS).unref();
   }
 
   // ── lifecycle ─────────────────────────────────────────────────────────────
@@ -111,9 +128,11 @@ export class SessionManager {
     delete meta.exitCode;
     this._registerStatusMirror(rec);
     acp.start({ resumeSessionId: meta.acpSessionId })
-      .then(() => { meta.acpSessionId = acp.acpSessionId; this._changed(); })
+      .then(() => { delete rec.resumeSeq; meta.acpSessionId = acp.acpSessionId; this._changed(); })
       .catch((err: any) => {
         acp._emit({ type: 'acp_error', message: `Failed to resume Claude (ACP): ${err?.message || err}` });
+        // Keep counting from here on the next try, past the error just sent.
+        if (rec.resumeSeq !== undefined) rec.resumeSeq = acp._seq ?? rec.resumeSeq;
         meta.status = 'suspended';
         this._changed();
       });
@@ -124,7 +143,10 @@ export class SessionManager {
   private _ensureRunning(id: string): SessionRecord | null {
     const rec = this._sessions.get(id);
     if (!rec) return null;
-    if (rec.meta.status === 'suspended') this._resume(rec);
+    if (rec.meta.status === 'suspended') {
+      // resumeSeq is set by an idle suspend and cleared once the resume succeeds.
+      this._resume(rec, rec.resumeSeq ?? 0);
+    }
     return rec.meta.status === 'running' ? rec : null;
   }
 
@@ -176,8 +198,8 @@ export class SessionManager {
     if (!rec) return Event.None;
     const forward = (e: AcpEvent) => emitter.fire(e);
     const emitter = new Emitter<AcpEvent>({
-      onWillAddFirstListener: () => rec.acp.listeners.add(forward),
-      onDidRemoveLastListener: () => rec.acp.listeners.delete(forward),
+      onWillAddFirstListener: () => { rec.acp.listeners.add(forward); rec.lastActiveAt = Date.now(); },
+      onDidRemoveLastListener: () => { rec.acp.listeners.delete(forward); rec.lastActiveAt = Date.now(); },
     });
     return emitter.event;
   }
@@ -286,13 +308,69 @@ export class SessionManager {
     this._persist();
   }
 
+  /** Per-session retained-history sizes, largest first, for the daemon's memory log. */
+  memoryStats(): { total: number; running: number; events: number; bytes: number; top: { id: string; name: string; status: string; events: number; bytes: number }[] } {
+    const rows = [...this._sessions.values()].map((r) => {
+      const h = r.acp?.historyStats?.() ?? { events: 0, bytes: 0 };
+      return { id: r.meta.id, name: r.meta.name, status: r.meta.status, events: h.events, bytes: h.bytes };
+    });
+    rows.sort((a, b) => b.bytes - a.bytes);
+    return {
+      total: rows.length,
+      running: rows.filter((r) => r.status === 'running').length,
+      events: rows.reduce((n, r) => n + r.events, 0),
+      bytes: rows.reduce((n, r) => n + r.bytes, 0),
+      top: rows.slice(0, 5),
+    };
+  }
+
+  // ── idle suspension ─────────────────────────────────────────────────────────
+
+  /** Why a running session must stay up, or null if it can be suspended. */
+  private _busyReason(rec: SessionRecord, now: number): string | null {
+    const acp = rec.acp;
+    if (rec.meta.status !== 'running' || !acp?.alive || !acp.isReady) return 'not running';
+    if (now - (rec.lastActiveAt ?? now) < IDLE_SUSPEND_MS) return 'recently active';
+    for (const l of acp.listeners) if (l !== rec.statusListener) return 'attached';
+    if (acp.claudeStatus === 'working' || acp.claudeStatus === 'waiting') return 'busy';
+    if (acp._promptInFlight || acp._activeTasks?.size || acp._openTasks?.size || acp._pending?.size || acp._pendingElicit?.size) return 'busy';
+    // Armed wake-ups (a /loop, a cron) live in the adapter process.
+    if (acp.schedule || rec.meta.schedule) return 'scheduled';
+    return null;
+  }
+
+  private _suspendIdle(): void {
+    const now = Date.now();
+    let changed = false;
+    for (const rec of this._sessions.values()) {
+      if (this._busyReason(rec, now) !== null) continue;
+      const { meta } = rec;
+      // Detach the status mirror first so the adapter's async 'exit' can't
+      // touch the meta, then swap in a dormant AcpSession so the old one (and
+      // its history) can be collected. Resume works as after a daemon restart.
+      if (rec.statusListener) { try { rec.acp.listeners.delete(rec.statusListener); } catch { /* ignore */ } }
+      rec.resumeSeq = rec.acp._seq ?? 0;
+      try { rec.acp.kill(); } catch { /* ignore */ }
+      rec.acp = new AcpSession({ cwd: meta.cwd, env: this._childEnv(meta.id), mcpServers: this._mcpServers(meta) });
+      this._registerStatusMirror(rec);
+      meta.status = 'suspended';
+      delete meta.claudeStatus;
+      delete meta.schedule;
+      changed = true;
+      process.stderr.write(`${new Date().toISOString()} suspended idle session ${meta.id} (${meta.name})\n`);
+    }
+    if (changed) this._changed();
+  }
+
   // ── internals ───────────────────────────────────────────────────────────────
 
   // Keep an internal listener on the acp session that mirrors status/reset/exit
   // onto persisted metadata and broadcasts session-list changes.
   private _registerStatusMirror(rec: SessionRecord): void {
     const { meta, acp } = rec;
+    rec.lastActiveAt = Date.now();
     const listener = (event: AcpEvent) => {
+      rec.lastActiveAt = Date.now();
       if (event.type === 'acp_status') {
         const next = event.claudeStatus as ClaudeStatus | undefined;
         if (meta.claudeStatus !== next) {
