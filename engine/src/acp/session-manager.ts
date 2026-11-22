@@ -128,9 +128,11 @@ export class SessionManager {
     delete meta.exitCode;
     this._registerStatusMirror(rec);
     acp.start({ resumeSessionId: meta.acpSessionId })
-      .then(() => { meta.acpSessionId = acp.acpSessionId; this._changed(); })
+      .then(() => { delete rec.resumeSeq; meta.acpSessionId = acp.acpSessionId; this._changed(); })
       .catch((err: any) => {
         acp._emit({ type: 'acp_error', message: `Failed to resume Claude (ACP): ${err?.message || err}` });
+        // Keep counting from here on the next try, past the error just sent.
+        if (rec.resumeSeq !== undefined) rec.resumeSeq = acp._seq ?? rec.resumeSeq;
         meta.status = 'suspended';
         this._changed();
       });
@@ -142,9 +144,8 @@ export class SessionManager {
     const rec = this._sessions.get(id);
     if (!rec) return null;
     if (rec.meta.status === 'suspended') {
-      const seq = rec.resumeSeq ?? 0;
-      delete rec.resumeSeq; // one-shot: only the resume right after an idle suspend
-      this._resume(rec, seq);
+      // resumeSeq is set by an idle suspend and cleared once the resume succeeds.
+      this._resume(rec, rec.resumeSeq ?? 0);
     }
     return rec.meta.status === 'running' ? rec : null;
   }
@@ -332,7 +333,7 @@ export class SessionManager {
     if (now - (rec.lastActiveAt ?? now) < IDLE_SUSPEND_MS) return 'recently active';
     for (const l of acp.listeners) if (l !== rec.statusListener) return 'attached';
     if (acp.claudeStatus === 'working' || acp.claudeStatus === 'waiting') return 'busy';
-    if (acp._promptInFlight || acp._activeTasks?.size || acp._pending?.size || acp._pendingElicit?.size) return 'busy';
+    if (acp._promptInFlight || acp._activeTasks?.size || acp._openTasks?.size || acp._pending?.size || acp._pendingElicit?.size) return 'busy';
     // Armed wake-ups (a /loop, a cron) live in the adapter process.
     if (acp.schedule || rec.meta.schedule) return 'scheduled';
     return null;

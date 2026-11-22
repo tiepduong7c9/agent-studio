@@ -24,7 +24,7 @@ const CHUNK_BYTES = 1024 * 1024;
 // its bytes aren't buffered while we wait for the line to end.
 const MAX_TITLE_LINE = 16 * 1024;
 
-// full path -> { ino, size, offset, carry: Buffer|null, skipping, titles: Map<sessionId, title> }
+// full path -> { ino, offset, carry: Buffer|null, skipping, titles: Map<sessionId, title> }
 const fileCache = new Map();
 // dir -> { running: Promise|null, queued: Promise|null }
 const dirState = new Map();
@@ -41,15 +41,15 @@ async function scanFile(full, stat) {
   let entry = fileCache.get(full);
   // New file, or replaced/truncated since we last looked: start over.
   if (!entry || entry.ino !== stat.ino || stat.size < entry.offset) {
-    entry = { ino: stat.ino, size: 0, offset: 0, carry: null, skipping: false, titles: new Map() };
+    entry = { ino: stat.ino, offset: 0, carry: null, skipping: false, titles: new Map() };
     fileCache.set(full, entry);
   }
-  entry.size = stat.size;
   if (entry.offset >= stat.size) return entry;
 
   const fd = await fs.promises.open(full, 'r');
   try {
-    const buf = Buffer.allocUnsafe(CHUNK_BYTES);
+    // Usually only a line or two was appended; don't allocate a full chunk for it.
+    const buf = Buffer.allocUnsafe(Math.min(CHUNK_BYTES, stat.size - entry.offset));
     while (entry.offset < stat.size) {
       const want = Math.min(CHUNK_BYTES, stat.size - entry.offset);
       const { bytesRead } = await fd.read(buf, 0, want, entry.offset);
@@ -127,10 +127,11 @@ function readProjectTitles(dir) {
     s.running = scanDir(dir).finally(() => { s.running = null; });
     return s.running;
   };
+  // Between a scan finishing and the queued one starting, running is null but
+  // queued is set: join it rather than starting a second, concurrent scan.
+  if (s.queued) return s.queued;
   if (!s.running) return start();
-  if (!s.queued) {
-    s.queued = s.running.catch(() => {}).then(() => { s.queued = null; return start(); });
-  }
+  s.queued = s.running.catch(() => {}).then(() => { s.queued = null; return start(); });
   return s.queued;
 }
 

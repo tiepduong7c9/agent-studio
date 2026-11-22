@@ -204,7 +204,6 @@ class AcpSession {
     this.history = [];               // ordered thread events for replay on attach
     this._historySizes = [];         // approx JSON size of each history entry (parallel array)
     this._historyBytes = 0;          // sum of _historySizes
-    this._mergedItems = new WeakSet(); // history events _mergeChunk has copied and may append to
     this.claudeStatus = undefined;   // undefined = idle/never-prompted (green), like PTY
     this.acpSessionId = null;
     this.modeState = null;           // { currentModeId, availableModes:[{id,name,description}] }
@@ -235,6 +234,9 @@ class AcpSession {
     this._openToolCalls = new Set(); // tool calls announced but not yet resolved
     this._sdkStateAuthoritative = false; // true once the adapter forwards SDK session_state_changed — then it drives status and the debounce stands down
     this._pendingRun = false;        // a prompt was sent but its SDK 'running' state hasn't arrived — gates out the prior turn's lagging 'idle'
+    // Like _activeTasks, but the watchdog doesn't clear it: a silent background
+    // task may still be running, so idle suspension must not kill its adapter.
+    this._openTasks = new Set();
     this._activeTasks = new Set();    // task_ids started but not yet settled (see _onExtNotification) — a non-empty set means detached background work is still running, so a session 'idle' must not read as idle
     this._sdkIdle = false;            // last SDK session_state was 'idle' — so a background task settling to empty can finish the turn without waiting for another state event
     this._bgTaskWatchdog = null;      // bounds the 'working' hold if a tracked task's terminal notification never arrives (see BG_TASK_WATCHDOG_MS)
@@ -310,6 +312,7 @@ class AcpSession {
       clearTimeout(this._bgIdleTimer);
       clearTimeout(this._bgTaskWatchdog); // don't let a settle timer fire on a dead session
       this._activeTasks.clear();
+      this._openTasks.clear();
       this._clearSchedule();              // armed wake-ups died with the process
       this._emit({ type: 'exit', code: code == null ? 0 : code });
       this.listeners.clear();
@@ -435,13 +438,13 @@ class AcpSession {
     if (!last || chunkText(last) === null || last.update.sessionUpdate !== item.update.sessionUpdate) return false;
     if (last.update.messageId !== item.update.messageId) return false;
     // The stored event may be the very object that was emitted live; copy it
-    // once before mutating so we never alter an event after it was sent.
+    // once before mutating so we never alter an event after it was sent. Only
+    // such copies carry firstSeq, so it marks one we may append to.
     let merged = last;
-    if (!this._mergedItems.has(last)) {
+    if (last.firstSeq === undefined) {
       // firstSeq keeps the first chunk's seq: the client keys the thread
       // item's id off it, matching what a live client saw.
-      merged = { ...last, firstSeq: last.firstSeq ?? last.seq, update: { ...last.update, content: { ...last.update.content } } };
-      this._mergedItems.add(merged);
+      merged = { ...last, firstSeq: last.seq, update: { ...last.update, content: { ...last.update.content } } };
       this.history[i] = merged;
     }
     merged.update.content.text += text;
@@ -796,6 +799,7 @@ class AcpSession {
   _onTaskStarted(msg) {
     if (!msg.task_id || msg.skip_transcript) return;
     this._activeTasks.add(msg.task_id);
+    this._openTasks.add(msg.task_id);
     this._heartbeatBgTasks();
   }
 
@@ -806,6 +810,7 @@ class AcpSession {
   // land on idle. The watchdog stays armed either way to bound a follow-up (or
   // notification) that never arrives.
   _onTaskSettled(taskId, taskReInvokes) {
+    if (taskId != null) this._openTasks.delete(taskId);
     if (taskId == null || !this._activeTasks.delete(taskId)) return;
     if (!this._sdkIdle) return; // a live turn owns the status; its own idle will settle
     if (this._activeTasks.size > 0 || taskReInvokes) { this._armBgTaskWatchdog(); return; }
@@ -1019,6 +1024,7 @@ class AcpSession {
     // with it, and their terminal notifications may never arrive. Drop the tracking
     // and the watchdog so status can't wedge at 'working' after the cancel.
     this._activeTasks.clear();
+    this._openTasks.clear();
     clearTimeout(this._bgTaskWatchdog);
     if (this._conn && this.acpSessionId) {
       Promise.resolve(this._conn.cancel({ sessionId: this.acpSessionId })).catch(() => {});
@@ -1037,6 +1043,7 @@ class AcpSession {
     clearTimeout(this._bgTaskWatchdog);
     this._openToolCalls.clear();
     this._activeTasks.clear();
+    this._openTasks.clear();
     this._sdkIdle = false;
     this._promptInFlight = false;
     this._pendingRun = false;
@@ -1291,6 +1298,7 @@ class AcpSession {
     clearTimeout(this._bgIdleTimer);
     clearTimeout(this._bgTaskWatchdog);
     this._activeTasks.clear();
+    this._openTasks.clear();
     this._clearSchedule();
     clearTimeout(this._titleDebounce);
     try { if (this._titleWatcher) this._titleWatcher.close(); } catch (_) {}
